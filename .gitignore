@@ -378,3 +378,5 @@ package.json
 .DS_Store
 Thumbs.db
 .dsh/
+# Local debug launch script
+/debug.bat
