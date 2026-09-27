@@ -218,6 +218,52 @@ public sealed class HarnessProtocolJsonTests
     }
 
     [Fact]
+    public void V4ToolResultMessageMapsTopLevelIdentityAndText()
+    {
+        // v4（含迁移后的 v3 历史）tool/result 是 first-class tool 消息：toolCallId/isError
+        // 在消息顶层、文本块直接位于 content。回归：只解析 v3 wrapper 时结果文本恒为空、
+        // 失败恒标成功（真实会话实测全部受影响）。
+        var records = ParseRecords("""
+                                   [
+                                     {"type": "tool/call", "seq": 3, "time": 1700000003000,
+                                      "data": {"turn": 1, "step": 1, "callId": "call-4", "name": "shell.run", "arguments": "{}"}},
+                                     {"type": "tool/result", "seq": 4, "time": 1700000004000,
+                                      "data": {"turn": 1, "step": 1,
+                                               "message": {"id": "m6", "role": "tool", "source": {"kind": "tool", "callId": "call-4"},
+                                                           "toolCallId": "call-4", "isError": true,
+                                                           "content": [{"type": "text", "text": "命令失败"}]}}}
+                                   ]
+                                   """);
+
+        var entries = HarnessSessionService.MapEntries(records);
+
+        var tool = Assert.IsType<ToolActivity>(Assert.Single(entries));
+        Assert.Equal("call-4", tool.CallId);
+        Assert.Equal(ToolActivityStatus.Failed, tool.Status);
+        Assert.Equal("命令失败", tool.ResultText);
+    }
+
+    [Fact]
+    public void V4ToolResultWithoutSourceFallsBackToTopLevelCallId()
+    {
+        var records = ParseRecords("""
+                                   [
+                                     {"type": "tool/result", "seq": 5, "time": 1700000005000,
+                                      "data": {"turn": 1, "step": 1,
+                                               "message": {"id": "m7", "role": "tool", "toolCallId": "call-y", "isError": false,
+                                                           "content": [{"type": "text", "text": "第一段"}, {"type": "text", "text": "第二段"}]}}}
+                                   ]
+                                   """);
+
+        var entries = HarnessSessionService.MapEntries(records);
+
+        var tool = Assert.IsType<ToolActivity>(Assert.Single(entries));
+        Assert.Equal("call-y", tool.CallId);
+        Assert.Equal(ToolActivityStatus.Succeeded, tool.Status);
+        Assert.Equal("第一段\n第二段", tool.ResultText);
+    }
+
+    [Fact]
     public void OrphanToolResultBecomesStandaloneEntry()
     {
         // 窗口起点落在调用中间（或恢复期 repair 合成结果）：没有 tool/call 也展示结果条目。
@@ -429,6 +475,50 @@ public sealed class HarnessProtocolJsonTests
         Assert.True(summary.Running);
         Assert.False(summary.Blank);
         Assert.Equal(DateTimeOffset.FromUnixTimeMilliseconds(1700000000000), summary.UpdatedAt);
+    }
+
+    [Fact]
+    public void SessionSummaryWireMapsBlankOnlyFromWireValue()
+    {
+        // blank 只信任响应值：格式迁移后 v3 旧会话的 sessionListMetadata 被投影缓存
+        // 拒认，冷行统一回退 blank:false 且无标题——该形态与空白草稿不可区分，不得
+        // 以投影缺失标记空白（会误藏有轮次但标题未生成的有效旧会话）。
+        var validLegacy = new SessionSummaryWire("session-1", 1700000000000, false, false);
+        var legacySummary = HarnessSessionService.ToSummary(validLegacy);
+        Assert.False(legacySummary.Blank);
+        Assert.Null(legacySummary.Title);
+
+        var titledLegacy = new SessionSummaryWire("session-2", 1700000000000, false, false,
+                                                 Projections :
+                                                 new SessionProjectionHintsWire(4,
+                                                 new Dictionary<string, JsonElement>
+                                                 {
+                                                     ["title"] = JsonDocument.Parse("\"迁移前旧会话\"").RootElement.Clone()
+                                                 }));
+        var titledSummary = HarnessSessionService.ToSummary(titledLegacy);
+        Assert.False(titledSummary.Blank);
+        Assert.Equal("迁移前旧会话", titledSummary.Title);
+
+        var withMetadata = new SessionSummaryWire("session-3", 1700000000000, false, false,
+                                                 Projections :
+                                                 new SessionProjectionHintsWire(4,
+                                                 new Dictionary<string, JsonElement>
+                                                 {
+                                                     ["sessionListMetadata"] = JsonDocument
+                                                         .Parse("""{"blank":false,"lastPromptAt":null}""").RootElement.Clone()
+                                                 }));
+        Assert.False(HarnessSessionService.ToSummary(withMetadata).Blank);
+
+        // 真正的空白草稿（元数据背书的 blank=true）保持既有过滤行为。
+        var blankDraft = new SessionSummaryWire("session-4", 1700000000000, false, true,
+                                               Projections :
+                                               new SessionProjectionHintsWire(4,
+                                               new Dictionary<string, JsonElement>
+                                               {
+                                                   ["sessionListMetadata"] = JsonDocument
+                                                       .Parse("""{"blank":true,"lastPromptAt":null}""").RootElement.Clone()
+                                               }));
+        Assert.True(HarnessSessionService.ToSummary(blankDraft).Blank);
     }
 
     [Fact]

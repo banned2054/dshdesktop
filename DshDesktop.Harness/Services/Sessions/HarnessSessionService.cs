@@ -352,6 +352,11 @@ public sealed class HarnessSessionService : ISessionService
                  && titleElement.ValueKind == JsonValueKind.String
             ? titleElement.GetString()
             : null;
+        // blank 只信任响应携带的空白状态，不得以投影缺失代替空白证据：会话格式迁移后
+        // v3 老会话的 sessionListMetadata 会被投影缓存拒认，冷行统一回退 blank:false 且
+        // 不带该投影——这类行与空白草稿在响应中不可区分，标记为空白会把可能有效的
+        // 会话（有轮次但标题未生成的旧会话）误藏出列表。v3 时代未使用的草稿会以
+        // "新对话"可见，打开一次后后端以当前格式重写投影，随后的刷新恢复既有过滤。
         return new SessionSummary(wire.SessionId, title, DateTimeOffset.FromUnixTimeMilliseconds(wire.UpdatedAt),
                                   wire.Running, wire.Blank);
     }

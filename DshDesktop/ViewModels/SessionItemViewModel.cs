@@ -11,6 +11,9 @@ public sealed class SessionItemViewModel(SessionSummary summary) : ObservableObj
 
     public string Id { get; } = summary.Id;
 
+    /// <summary>列表过滤用的空白标记（未发送消息的草稿）；随摘要刷新更新。</summary>
+    public bool Blank { get; private set; } = summary.Blank;
+
     public string? Title
     {
         get => _title;
@@ -45,6 +48,7 @@ public sealed class SessionItemViewModel(SessionSummary summary) : ObservableObj
         // 列表摘要可能尚未携带标题投影；不用空值覆盖本地已采纳的标题。
         if (!string.IsNullOrWhiteSpace(summary.Title)) Title = summary.Title;
 
+        Blank      = summary.Blank;
         UpdatedText = FormatUpdatedText(summary.UpdatedAt);
         Running     = summary.Running;
     }

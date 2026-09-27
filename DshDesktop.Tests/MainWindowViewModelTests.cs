@@ -1033,6 +1033,30 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         await viewModel.DisposeAsync();
     }
 
+    [Fact]
+    public async Task DeselectingBlankSessionRemovesItsRowWithoutWaitingForRefresh()
+    {
+        var sessionService = new SimulatedSessionService();
+        var viewModel = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(),
+                                                new StaticWorkspaceService());
+        await viewModel.InitializeAsync();
+        await WaitUntilAsync(() => viewModel.SelectedSession is not null);
+
+        var previousSelection = viewModel.SelectedSession;
+        viewModel.Sidebar.NewSessionCommand.Execute(null);
+        await WaitUntilAsync(() => !ReferenceEquals(viewModel.SelectedSession, previousSelection));
+        var draft = viewModel.SelectedSession!;
+        Assert.Contains(viewModel.Sidebar.Sessions, session => session.Id == draft.Id);
+
+        // 空闲模拟后端不会再有 SessionsChanged：取消选中必须就地移除草稿行，
+        // 否则空白会话以"新对话"常驻列表（真实后端空闲时同样没有兜底刷新）。
+        viewModel.Sidebar.SelectSessionCommand.Execute(previousSelection);
+        await WaitUntilAsync(() => viewModel.Sidebar.Sessions.All(session => session.Id != draft.Id));
+        Assert.Same(previousSelection, viewModel.SelectedSession);
+
+        await viewModel.DisposeAsync();
+    }
+
     private static void EnsureAvaloniaPlatform()
     {
         if (_avaloniaIsInitialized) return;

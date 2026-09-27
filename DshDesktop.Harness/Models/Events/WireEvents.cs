@@ -179,7 +179,11 @@ public static class WireEventJson
         return new ToolCallWire(callId, name, arguments);
     }
 
-    /// <summary>tool/result 事件：工具调用的结果；callId 优先取 message.source，回退内容块。</summary>
+    /// <summary>
+    ///     tool/result 事件：工具调用的结果。v4（含迁移后的 v3 历史）是 first-class tool
+    ///     消息：toolCallId/isError 在消息顶层，文本块直接位于 content；v3 的 tool-result
+    ///     wrapper 块形态保留兜底。callId 优先取 message.source，回退顶层 toolCallId 或内容块。
+    /// </summary>
     public static ToolResultWire? TryGetToolResult(SessionWireEvent wireEvent)
     {
         if (wireEvent.Type           != "tool/result"
@@ -193,41 +197,60 @@ public static class WireEventJson
                   && TryGetString(source, "callId", out var sourceCallId)
             ? sourceCallId
             : null;
+        if (callId is null && TryGetString(message, "toolCallId", out var messageCallId)) callId = messageCallId;
 
         string? contentText = null;
         var     isError     = false;
+        var     textParts   = new List<string>();
         if (message.TryGetProperty("content", out var blocks) && blocks.ValueKind == JsonValueKind.Array)
             foreach (var block in blocks.EnumerateArray())
             {
                 if (block.ValueKind != JsonValueKind.Object
-                 || !TryGetString(block, "type", out var blockType)
-                 || blockType != "tool-result")
+                 || !TryGetString(block, "type", out var blockType))
                     continue;
 
-                if (callId is null
-                 && block.TryGetProperty("toolCallId", out var toolCallId)
-                 && toolCallId.ValueKind == JsonValueKind.String)
-                    callId = toolCallId.GetString();
-
-                if (block.TryGetProperty("isError", out var isErrorElement)
-                 && isErrorElement.ValueKind == JsonValueKind.True)
-                    isError = true;
-
-                if (block.TryGetProperty("content", out var inner) && inner.ValueKind == JsonValueKind.Array)
+                if (blockType == "tool-result")
                 {
-                    var parts = inner.EnumerateArray()
-                                     .Where(item => item.ValueKind == JsonValueKind.Object
-                                                 && item.TryGetProperty("type", out var typeElement)
-                                                 && typeElement.ValueKind   == JsonValueKind.String
-                                                 && typeElement.GetString() == "text"
-                                                 && item.TryGetProperty("text", out var textElement)
-                                                 && textElement.ValueKind == JsonValueKind.String)
-                                     .Select(item => item.GetProperty("text").GetString());
-                    contentText = string.Join("\n", parts);
+                    // v3 wrapper 块：结果与文本嵌在内层 content。
+                    if (callId is null
+                     && block.TryGetProperty("toolCallId", out var wrapperCallId)
+                     && wrapperCallId.ValueKind == JsonValueKind.String)
+                        callId = wrapperCallId.GetString();
+
+                    if (block.TryGetProperty("isError", out var isErrorElement)
+                    && isErrorElement.ValueKind == JsonValueKind.True)
+                        isError = true;
+
+                    if (block.TryGetProperty("content", out var inner) && inner.ValueKind == JsonValueKind.Array)
+                    {
+                        var parts = inner.EnumerateArray()
+                                         .Where(item => item.ValueKind == JsonValueKind.Object
+                                                     && item.TryGetProperty("type", out var typeElement)
+                                                     && typeElement.ValueKind   == JsonValueKind.String
+                                                     && typeElement.GetString() == "text"
+                                                     && item.TryGetProperty("text", out var textElement)
+                                                     && textElement.ValueKind == JsonValueKind.String)
+                                         .Select(item => item.GetProperty("text").GetString());
+                        contentText = string.Join("\n", parts);
+                    }
+
+                    break; // 线形约定 content 为单个 tool-result 块。
                 }
 
-                break; // 线形约定 content 为单个 tool-result 块。
+                if (blockType == "text"
+                 && block.TryGetProperty("text", out var text)
+                 && text.ValueKind == JsonValueKind.String)
+                    textParts.Add(text.GetString()!);
             }
+
+        // v4 直接文本块：无 wrapper 时拼接全部 text 块。
+        if (contentText is null && textParts.Count > 0) contentText = string.Join("\n", textParts);
+
+        // v4 的失败标记在消息顶层。
+        if (!isError
+         && message.TryGetProperty("isError", out var messageIsError)
+         && messageIsError.ValueKind == JsonValueKind.True)
+            isError = true;
 
         if (callId is null) return null;
 

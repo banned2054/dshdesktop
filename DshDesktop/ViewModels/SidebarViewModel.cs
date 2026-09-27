@@ -82,13 +82,19 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
 
     /// <summary>
     ///     接收 root 推送的当前选中会话（每次实际切换时调用）：维护 IsCurrent 行高亮并重建
-    ///     行投影——工作区头的 IsCurrent（是否包含当前会话）随选中变化。
+    ///     行投影——工作区头的 IsCurrent（是否包含当前会话）随选中变化。空白会话只在选中
+    ///     期间可见：失去选中时就地移除——空闲后端不再有事件触发刷新兜底，否则草稿会以
+    ///     "新对话"常驻列表（与 <see cref="RefreshSessionsAsync" /> 的过滤同一语义）。
     /// </summary>
     public void ApplySelectedSession(SessionItemViewModel? session)
     {
+        var previous = _currentSession;
         _currentSession?.IsCurrent = false;
         _currentSession            = session;
         session?.IsCurrent         = true;
+        if (previous is not null && !ReferenceEquals(previous, session) && previous.Blank)
+            Sessions.Remove(previous);
+
         RebuildSessionRows();
     }
 
