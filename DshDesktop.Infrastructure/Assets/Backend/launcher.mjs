@@ -20,7 +20,7 @@
 
 import { spawn } from 'node:child_process'
 import { createInterface } from 'node:readline'
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, linkSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
 const CONTROL_PROTOCOL_VERSION = 1
@@ -100,6 +100,20 @@ function ensurePrimaryRuntimeStub(primaryRuntimeDir) {
     mkdirSync(dirname(skillPath), { recursive: true })
     writeFileSync(skillPath,
       `---\nname: ${skillName}\ndescription: Development stub; the real payload is not installed.\n---\n\nDevelopment stub skill.\n`)
+  }
+  // The desktop host passes the packaged Node location (dependencies/node/bin)
+  // to the office plugin, which stats it at activation. Link the running
+  // executable; a hard link keeps the copy honest across Node upgrades in place.
+  const nodePath = join(primaryRuntimeDir, 'dependencies', 'node', 'bin',
+                        process.platform === 'win32' ? 'node.exe' : 'node')
+  if (!existsSync(nodePath)) {
+    mkdirSync(dirname(nodePath), { recursive: true })
+    try {
+      linkSync(process.execPath, nodePath)
+    } catch {
+      // Cross-volume links (EXDEV) and restricted filesystems fall back to a copy.
+      copyFileSync(process.execPath, nodePath)
+    }
   }
 }
 
