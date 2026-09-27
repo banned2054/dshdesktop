@@ -82,7 +82,8 @@ public sealed class SimulatedSessionService : ISessionService
     }
 
     public Task<ModelSelection> SelectModelAsync(
-        string sessionId, string provider, string model, CancellationToken cancellationToken = default)
+        string sessionId, string provider, string model,
+        string? reasoningEffort = null, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         lock (_syncRoot)
@@ -91,8 +92,8 @@ public sealed class SimulatedSessionService : ISessionService
                 return Task.FromException<ModelSelection>(
                                                           new KeyNotFoundException($"未找到会话：{sessionId}"));
 
-            // 与真实后端一致：选型落在会话上，经 model/selection 更新回声生效。
-            ModelSelection selection = new(provider, model);
+            // 与真实后端一致：选型（含推理档位）落在会话上，经 model/selection 更新回声生效。
+            ModelSelection selection = new(provider, model, reasoningEffort);
             session.CurrentModel = selection;
             session.PushUpdate(new SessionUpdate.ModelSelected(selection));
             return Task.FromResult(selection);

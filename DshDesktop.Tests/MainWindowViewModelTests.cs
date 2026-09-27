@@ -522,9 +522,10 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         }
 
         public Task<ModelSelection> SelectModelAsync(
-            string sessionId, string provider, string model, CancellationToken cancellationToken = default)
+            string sessionId, string provider, string model,
+            string? reasoningEffort = null, CancellationToken cancellationToken = default)
         {
-            return _inner.SelectModelAsync(sessionId, provider, model, cancellationToken);
+            return _inner.SelectModelAsync(sessionId, provider, model, reasoningEffort, cancellationToken);
         }
 
         public Task<IReadOnlyList<ConversationMessage>> GetMessagesAsync(
@@ -1150,7 +1151,8 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         }
 
         public Task<ModelSelection> SelectModelAsync(
-            string sessionId, string provider, string model, CancellationToken cancellationToken = default)
+            string sessionId, string provider, string model,
+            string? reasoningEffort = null, CancellationToken cancellationToken = default)
         {
             return Task.FromException<ModelSelection>(new InvalidOperationException("选型失败（模拟）"));
         }
@@ -1216,9 +1218,10 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         }
 
         public Task<ModelSelection> SelectModelAsync(
-            string sessionId, string provider, string model, CancellationToken cancellationToken = default)
+            string sessionId, string provider, string model,
+            string? reasoningEffort = null, CancellationToken cancellationToken = default)
         {
-            return _inner.SelectModelAsync(sessionId, provider, model, cancellationToken);
+            return _inner.SelectModelAsync(sessionId, provider, model, reasoningEffort, cancellationToken);
         }
 
         public Task<IReadOnlyList<ConversationMessage>> GetMessagesAsync(

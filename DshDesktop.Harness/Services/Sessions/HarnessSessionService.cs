@@ -84,7 +84,8 @@ public sealed class HarnessSessionService : ISessionService
     }
 
     public async Task<ModelSelection> SelectModelAsync(
-        string sessionId, string provider, string model, CancellationToken cancellationToken = default)
+        string sessionId, string provider, string model,
+        string? reasoningEffort = null, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(sessionId)) throw new ArgumentException("会话 id 不能为空。", nameof(sessionId));
 
@@ -93,7 +94,8 @@ public sealed class HarnessSessionService : ISessionService
         if (string.IsNullOrWhiteSpace(model)) throw new ArgumentException("模型不能为空。", nameof(model));
 
         var value = await _connection.InvokeAsync("session/selectModel",
-                                                  new SessionSelectModelRequest(sessionId, provider, model),
+                                                  new SessionSelectModelRequest(sessionId, provider, model,
+                                                                                reasoningEffort),
                                                   HarnessJsonContext.Default.SessionSelectModelRequest,
                                                   HarnessJsonContext.Default.SessionSelectModelValue,
                                                   cancellationToken)

@@ -109,18 +109,26 @@
     <Style Selector="Button.composer-stop:pressed /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="{DynamicResource SessionHoverBrush}" />
     </Style>
-    <!-- 模型下拉：面板内紧凑尺寸；展开列表沿用 Fluent 弹层。 -->
-    <Style Selector="ComboBox.model-picker">
+    <!-- 模型/推理等级选择按钮：面板内紧凑尺寸；点击弹出两级菜单（行样式见 PopupMenus）。 -->
+    <Style Selector="Button.model-picker-button">
         <Setter Property="MinWidth" Value="180" />
-        <Setter Property="MaxDropDownHeight" Value="360" />
-        <Setter Property="FontSize" Value="12" />
+        <Setter Property="MaxWidth" Value="300" />
         <Setter Property="Height" Value="28" />
-        <Setter Property="Padding" Value="8,0" />
+        <Setter Property="Padding" Value="10,0" />
         <Setter Property="CornerRadius" Value="8" />
-        <Setter Property="Background" Value="{DynamicResource ComposerControlBrush}" />
         <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Background" Value="{DynamicResource ComposerControlBrush}" />
         <Setter Property="Foreground" Value="{DynamicResource ComposerTextBrush}" />
+        <Setter Property="FontSize" Value="12" />
         <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <!-- Fluent 把按钮状态底色画在模板 ContentPresenter 上：悬停微亮，禁用保持控件底色。 -->
+    <Style Selector="Button.model-picker-button:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource PopupItemHoverBrush}" />
+    </Style>
+    <Style Selector="Button.model-picker-button:disabled /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource ComposerControlBrush}" />
     </Style>
     <Style Selector="StackPanel.composer-stats">
         <Setter Property="Margin" Value="4,0" />

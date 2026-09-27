@@ -15,6 +15,7 @@
         <StyleInclude Source="avares://LiveMarkdown.Avalonia/Styles.axaml" />
         <StyleInclude Source="avares://DshDesktop/Presentation/Styles/Markdown.axaml" />
         <StyleInclude Source="avares://DshDesktop/Presentation/Styles/Typography.axaml" />
+        <StyleInclude Source="avares://DshDesktop/Presentation/Styles/PopupMenus.axaml" />
         <StyleInclude Source="avares://DshDesktop/Presentation/Styles/Conversation.axaml" />
         <StyleInclude Source="avares://DshDesktop/Presentation/Styles/Tooling.axaml" />
         <StyleInclude Source="avares://DshDesktop/Presentation/Styles/Sidebar.axaml" />

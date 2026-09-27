@@ -18,12 +18,14 @@ public interface ISessionService
 
     /// <summary>
     ///     为会话显式选型（session/selectModel）。选型经会话日志的 model/selection 事件
-    ///     持久化并对后续 prompt 生效；返回后端接受后的选型。
+    ///     持久化并对后续 prompt 生效；返回后端接受后的选型。reasoningEffort 是可选推理
+    ///     档位（off/low/high/max），null 表示不指定档位，由后端按其默认行为处理。
     /// </summary>
     Task<ModelSelection> SelectModelAsync(
         string sessionId,
         string provider,
-        string model, CancellationToken cancellationToken = default);
+        string model,
+        string? reasoningEffort = null, CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<ConversationMessage>> GetMessagesAsync(
         string sessionId, CancellationToken cancellationToken = default);

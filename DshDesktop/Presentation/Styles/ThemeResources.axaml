@@ -60,6 +60,16 @@
             <SolidColorBrush x:Key="NewSessionButtonBrush" Color="#43454A" />
             <SolidColorBrush x:Key="NewSessionButtonHoverBrush" Color="#4C4E53" />
             <SolidColorBrush x:Key="NewSessionButtonActiveBrush" Color="#353638" />
+            <!-- 通用弹层菜单（模型选择、分组/排序方式、推理等级等）：形态对齐 DSH
+                 当前弹层——深色 #353638 圆角面板、选中 #454648、悬停取两者之间的中性灰。
+                 部分取值与 Composer/Session 资源数值相近是为了整体观感统一，
+                 但语义独立成组：以后调整侧栏或输入区配色不应误伤弹层。 -->
+            <SolidColorBrush x:Key="PopupSurfaceBrush" Color="#353638" />
+            <SolidColorBrush x:Key="PopupItemSelectedBrush" Color="#454648" />
+            <SolidColorBrush x:Key="PopupItemHoverBrush" Color="#3D3E40" />
+            <SolidColorBrush x:Key="PopupForegroundBrush" Color="#F1F1F3" />
+            <SolidColorBrush x:Key="PopupMutedForegroundBrush" Color="#A7ABB4" />
+            <SolidColorBrush x:Key="PopupDividerBrush" Color="#414244" />
             <!-- 消息气泡 -->
             <SolidColorBrush x:Key="UserBubbleBrush" Color="#3B5CCC" />
             <SolidColorBrush x:Key="OnAccentBrush" Color="#FFFFFF" />
@@ -120,6 +130,14 @@
             <SolidColorBrush x:Key="NewSessionButtonBrush" Color="#E7EAEE" />
             <SolidColorBrush x:Key="NewSessionButtonHoverBrush" Color="#DDE0E4" />
             <SolidColorBrush x:Key="NewSessionButtonActiveBrush" Color="#D2D5DA" />
+            <!-- 通用弹层菜单的浅色对应：白底面板、选中 #F2F3F4、悬停更浅一档。
+                 （当前应用固定 Dark 主题，浅色值仅保持语义资源完整性。） -->
+            <SolidColorBrush x:Key="PopupSurfaceBrush" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="PopupItemSelectedBrush" Color="#F2F3F4" />
+            <SolidColorBrush x:Key="PopupItemHoverBrush" Color="#F8F9FA" />
+            <SolidColorBrush x:Key="PopupForegroundBrush" Color="#1A1D22" />
+            <SolidColorBrush x:Key="PopupMutedForegroundBrush" Color="#70757E" />
+            <SolidColorBrush x:Key="PopupDividerBrush" Color="#EDEEF0" />
             <!-- 文本与状态：label-tertiary / link / warn-label / success / error-primary -->
             <SolidColorBrush x:Key="TextMutedBrush" Color="#81858C" />
             <SolidColorBrush x:Key="AccentTextBrush" Color="#4176E6" />

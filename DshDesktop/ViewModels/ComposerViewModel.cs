@@ -31,10 +31,14 @@ public sealed class ComposerViewModel : ObservableObject
     private string  _draftMessage = string.Empty;
     private bool    _isBackendConnected;
     private bool    _isCancelling;
+    private bool    _isModelMenuOpen;
     private bool    _isSelectingModel;
     private bool    _isSending;
     private bool    _isSessionRunning;
     private string? _sessionId;
+
+    // 模型/推理等级弹出菜单的两级页签；IsOpen 由 Popup 双向绑定。
+    private ModelMenuPageKind _modelMenuPage = ModelMenuPageKind.Root;
 
     public ComposerViewModel(ISessionService sessionService, Action<string?> reportError)
     {
@@ -42,14 +46,38 @@ public sealed class ComposerViewModel : ObservableObject
         _reportError       = reportError;
         SendMessageCommand = new AsyncRelayCommand(SendMessageAsync, CanSendMessage);
         CancelCommand      = new AsyncRelayCommand(CancelGenerationAsync, CanCancelGeneration);
+        EffortOptions      = ReasoningEffortLevels.All
+                           .Select(value => new EffortOptionViewModel(value, EffortLabel(value),
+                                                                      option => _ = SelectEffortOptionAsync(option)))
+                           .ToArray();
+        // 可用性只由 XAML 的 IsEnabled 绑定（IsModelPickerEnabled）承担：自研 RelayCommand
+        // 不自动重算 CanExecute，命令谓词会在目录未加载时把按钮永久禁用。
+        ToggleModelMenuCommand   = new RelayCommand(ToggleModelMenu);
+        ShowModelMenuRootCommand = new RelayCommand(ShowModelMenuRoot);
+        ShowModelsPageCommand    = new RelayCommand(ShowModelsMenuPage);
+        ShowEffortsPageCommand   = new RelayCommand(ShowEffortsMenuPage);
     }
 
     public AsyncRelayCommand SendMessageCommand { get; }
 
     public AsyncRelayCommand CancelCommand { get; }
 
+    public RelayCommand ToggleModelMenuCommand { get; }
+
+    public RelayCommand ShowModelMenuRootCommand { get; }
+
+    public RelayCommand ShowModelsPageCommand { get; }
+
+    public RelayCommand ShowEffortsPageCommand { get; }
+
     /// <summary>模型下拉可选项：目录扁平投影；当前选型不在目录中时补一项占位。</summary>
     public ObservableCollection<ModelOptionViewModel> ModelOptions { get; } = [];
+
+    /// <summary>模型二级菜单的提供方分组：与 ModelOptions 共享同一批选项实例。</summary>
+    public ObservableCollection<ModelGroupMenuViewModel> ModelGroups { get; } = [];
+
+    /// <summary>推理等级菜单项（off/low/high/max）：勾选态随后端回声刷新。</summary>
+    public IReadOnlyList<EffortOptionViewModel> EffortOptions { get; }
 
     public string DraftMessage
     {
@@ -121,12 +149,53 @@ public sealed class ComposerViewModel : ObservableObject
         get => _selectedModelOption;
         set
         {
-            if (SetProperty(ref _selectedModelOption, value) && value is not null) _ = SelectModelAsync(value);
+            if (SetProperty(ref _selectedModelOption, value) && value is not null)
+                _ = SelectModelInternalAsync(value, EffectiveModel?.ReasoningEffort);
         }
     }
 
+    /// <summary>模型/推理等级弹出菜单是否展开；点击外部或 Esc 的轻量关闭会经双向绑定写回。</summary>
+    public bool IsModelMenuOpen
+    {
+        get => _isModelMenuOpen;
+        set
+        {
+            // 每次展开都回到主菜单两行，不残留上次的二级页。
+            if (SetProperty(ref _isModelMenuOpen, value) && value) ModelMenuPage = ModelMenuPageKind.Root;
+        }
+    }
+
+    /// <summary>主菜单页（「模型」「推理等级」两行导航）是否可见。</summary>
+    public bool IsModelMenuRootPage => _modelMenuPage == ModelMenuPageKind.Root;
+
+    public bool IsModelsMenuPage => _modelMenuPage == ModelMenuPageKind.Models;
+
+    public bool IsEffortsMenuPage => _modelMenuPage == ModelMenuPageKind.Efforts;
+
     /// <summary>下拉是否可用：目录已加载、有选中会话且后端已连接。</summary>
     public bool IsModelPickerEnabled => ModelOptions.Count > 0 && SessionId is not null && IsBackendConnected;
+
+    /// <summary>底栏按钮文案：生效模型名 + 当前推理等级；无生效选型时显示「模型」。</summary>
+    public string ModelPickerLabel
+    {
+        get
+        {
+            if (EffectiveModel is not { } effective) return "模型";
+
+            var name = ResolveModelDisplayName(effective);
+            return effective.ReasoningEffort is { } effort ? $"{name} · {EffortLabel(effort)}" : name;
+        }
+    }
+
+    /// <summary>主菜单「模型」行的当前值：生效模型名；无生效选型时「默认」。</summary>
+    public string CurrentModelNameText =>
+        EffectiveModel is { } model ? ResolveModelDisplayName(model) : "默认";
+
+    /// <summary>主菜单「推理等级」行的当前值；后端未下发档位时「默认」。</summary>
+    public string CurrentEffortText =>
+        EffectiveModel is { } selection && selection.ReasoningEffort is { } effort
+            ? EffortLabel(effort)
+            : "默认";
 
     /// <summary>当前会话累计 token 计量（whole-log 投影；无数据时为 null）。</summary>
     public SessionUsage? Usage
@@ -231,6 +300,7 @@ public sealed class ComposerViewModel : ObservableObject
         IsSessionRunning = isRunning;
         if (!sessionChanged) return;
 
+        IsModelMenuOpen = false;
         CurrentModel = null;
         _usageSeq    = 0;
         _statsSeq    = 0;
@@ -273,12 +343,45 @@ public sealed class ComposerViewModel : ObservableObject
         Stats     = stats;
     }
 
-    private async Task SelectModelAsync(ModelOptionViewModel option)
+    /// <summary>菜单里点选模型：关菜单并把当前推理档位一并提交（档位是否保留由后端回声裁决）。</summary>
+    private Task SelectModelOptionAsync(ModelOptionViewModel option)
     {
-        // 与当前生效选型相同、无会话或已有选型在途：回退显示，不重复请求。
+        IsModelMenuOpen = false;
+        return SelectModelInternalAsync(option, EffectiveModel?.ReasoningEffort);
+    }
+
+    /// <summary>菜单里点选推理等级：关菜单并对当前生效选型发起带档位的选型请求。</summary>
+    private async Task SelectEffortOptionAsync(EffortOptionViewModel option)
+    {
+        IsModelMenuOpen = false;
+        if (SessionId is null || _isSelectingModel || EffectiveModel is not { } effective) return;
+
+        // 与当前生效档位相同：重复提交没有意义（回声权威，界面不会先于回声变化）。
+        if (string.Equals(effective.ReasoningEffort, option.Value, StringComparison.OrdinalIgnoreCase)) return;
+
+        _isSelectingModel = true;
+        try
+        {
+            // 生效值以 follow 流的 model/selection 回声为准（模拟实现同路径）。
+            await _sessionService.SelectModelAsync(SessionId, effective.Provider, effective.Model, option.Value);
+        }
+        catch (Exception exception)
+        {
+            _reportError(exception.Message);
+        }
+        finally
+        {
+            _isSelectingModel = false;
+        }
+    }
+
+    private async Task SelectModelInternalAsync(ModelOptionViewModel option, string? reasoningEffort)
+    {
+        // 与当前生效选型（含档位）相同、无会话或已有选型在途：回退显示，不重复请求。
         // 失败回退读取当前生效选型而非请求时的值：在途请求跨会话完成时不会污染新会话显示。
         if (SessionId is null || _isSelectingModel
-                              || (EffectiveModel is { } effective && option.Matches(effective)))
+                              || (EffectiveModel is { } effective && option.Matches(effective)
+                                  && effective.ReasoningEffort == reasoningEffort))
         {
             SyncSelectedModelOption();
             return;
@@ -288,7 +391,7 @@ public sealed class ComposerViewModel : ObservableObject
         try
         {
             // 生效值以 follow 流的 model/selection 回声为准（模拟实现同路径）。
-            await _sessionService.SelectModelAsync(SessionId, option.Provider, option.Model);
+            await _sessionService.SelectModelAsync(SessionId, option.Provider, option.Model, reasoningEffort);
         }
         catch (Exception exception)
         {
@@ -301,7 +404,7 @@ public sealed class ComposerViewModel : ObservableObject
         }
     }
 
-    /// <summary>把下拉选中项对齐到生效选型；目录不含该选型时先补占位项。</summary>
+    /// <summary>把菜单勾选与显示文案对齐到生效选型；目录不含该选型时先补占位项。</summary>
     private void SyncSelectedModelOption()
     {
         var effective = EffectiveModel;
@@ -309,6 +412,7 @@ public sealed class ComposerViewModel : ObservableObject
         {
             _selectedModelOption = null;
             OnPropertyChanged(nameof(SelectedModelOption));
+            RefreshModelMenuState();
             return;
         }
 
@@ -316,22 +420,50 @@ public sealed class ComposerViewModel : ObservableObject
         if (match is null)
         {
             match = new ModelOptionViewModel(effective.Provider, effective.Provider,
-                                             effective.Model, effective.Model);
+                                             effective.Model, effective.Model,
+                                             option => _ = SelectModelOptionAsync(option));
             ModelOptions.Insert(0, match);
+            // 目录外的后端选型在分组菜单中单独成组，保持可见可选。
+            ModelGroups.Insert(0, new ModelGroupMenuViewModel(effective.Provider, [match]));
         }
 
         _selectedModelOption = match;
         OnPropertyChanged(nameof(SelectedModelOption));
+        RefreshModelMenuState();
     }
 
-    /// <summary>目录变化时重建下拉选项（当前生效选型保持可选）。</summary>
+    /// <summary>菜单勾选态与底栏/主菜单文案统一对齐生效选型（模型组与选项共享实例）。</summary>
+    private void RefreshModelMenuState()
+    {
+        var effective = EffectiveModel;
+        foreach (var option in ModelOptions)
+            option.IsSelected = effective is not null && option.Matches(effective);
+
+        foreach (var effort in EffortOptions)
+            effort.IsSelected = effective?.ReasoningEffort is { } value
+                                && string.Equals(value, effort.Value, StringComparison.OrdinalIgnoreCase);
+
+        OnPropertyChanged(nameof(ModelPickerLabel));
+        OnPropertyChanged(nameof(CurrentModelNameText));
+        OnPropertyChanged(nameof(CurrentEffortText));
+    }
+
+    /// <summary>目录变化时重建菜单选项与提供方分组（当前生效选型保持可选）。</summary>
     private void RebuildModelOptions()
     {
         ModelOptions.Clear();
+        ModelGroups.Clear();
         if (_modelCatalog is { } catalog)
             foreach (var group in catalog.Groups)
-            foreach (var model in group.Models)
-                ModelOptions.Add(new ModelOptionViewModel(group.Id, group.Name, model.Id, model.Name));
+            {
+                var options = group.Models.Select(model => new ModelOptionViewModel(
+                                                        group.Id, group.Name, model.Id, model.Name,
+                                                        option => _ = SelectModelOptionAsync(option)))
+                                       .ToArray();
+                foreach (var option in options) ModelOptions.Add(option);
+
+                ModelGroups.Add(new ModelGroupMenuViewModel(group.Name, options));
+            }
 
         OnPropertyChanged(nameof(IsModelPickerEnabled));
         SyncSelectedModelOption();
@@ -355,6 +487,69 @@ public sealed class ComposerViewModel : ObservableObject
         {
             _reportError($"模型目录加载失败：{exception.Message}");
         }
+    }
+
+    private void ToggleModelMenu()
+    {
+        if (!IsModelPickerEnabled) return;
+
+        IsModelMenuOpen = !IsModelMenuOpen;
+    }
+
+    private void ShowModelMenuRoot()
+    {
+        ModelMenuPage = ModelMenuPageKind.Root;
+    }
+
+    private void ShowModelsMenuPage()
+    {
+        ModelMenuPage = ModelMenuPageKind.Models;
+    }
+
+    private void ShowEffortsMenuPage()
+    {
+        ModelMenuPage = ModelMenuPageKind.Efforts;
+    }
+
+    private ModelMenuPageKind ModelMenuPage
+    {
+        get => _modelMenuPage;
+        set
+        {
+            if (SetProperty(ref _modelMenuPage, value))
+            {
+                OnPropertyChanged(nameof(IsModelMenuRootPage));
+                OnPropertyChanged(nameof(IsModelsMenuPage));
+                OnPropertyChanged(nameof(IsEffortsMenuPage));
+            }
+        }
+    }
+
+    /// <summary>弹出菜单的两级页签。</summary>
+    private enum ModelMenuPageKind
+    {
+        Root,
+        Models,
+        Efforts
+    }
+
+    /// <summary>档位 wire 值到展示名；后端新档位先原样展示，不猜语义。</summary>
+    private static string EffortLabel(string value)
+    {
+        return value switch
+        {
+            ReasoningEffortLevels.Off  => "Off",
+            ReasoningEffortLevels.Low  => "Low",
+            ReasoningEffortLevels.High => "High",
+            ReasoningEffortLevels.Max  => "Max",
+            _                          => value
+        };
+    }
+
+    /// <summary>生效选型的模型展示名：目录内的取目录名，目录外（占位）回退模型 id。</summary>
+    private string ResolveModelDisplayName(ModelSelection selection)
+    {
+        return ModelOptions.FirstOrDefault(option => option.Matches(selection))?.ModelName ?? selection.Model;
     }
 
     private async Task SendMessageAsync()

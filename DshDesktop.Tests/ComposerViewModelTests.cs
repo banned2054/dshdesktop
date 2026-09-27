@@ -457,7 +457,8 @@ public sealed class ComposerViewModelTests
         }
 
         public async Task<ModelSelection> SelectModelAsync(
-            string sessionId, string provider, string model, CancellationToken cancellationToken = default)
+            string sessionId, string provider, string model,
+            string? reasoningEffort = null, CancellationToken cancellationToken = default)
         {
             // 只记录请求并模拟后端应答，不落到模拟实现：目标会话不必存在于演示数据，
             // Composer 级测试不依赖选型副作用（回声由测试显式 ApplyCurrentModel 模拟）。

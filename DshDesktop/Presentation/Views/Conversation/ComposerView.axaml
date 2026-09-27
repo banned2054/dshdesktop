@@ -47,22 +47,128 @@
                                   StrokeThickness="2" />
                         </Viewbox>
                     </Button>
-                    <!-- 右侧区域：模型选择与发送/停止。目录与当前选型来自后端（follow 回声权威）。 -->
-                    <ComboBox Grid.Column="2"
-                              Classes="model-picker"
-                              HorizontalAlignment="Right"
-                              VerticalAlignment="Center"
-                              ItemsSource="{Binding Composer.ModelOptions}"
-                              SelectedItem="{Binding Composer.SelectedModelOption, Mode=TwoWay}"
-                              IsEnabled="{Binding Composer.IsModelPickerEnabled}"
-                              ToolTip.Tip="切换当前会话的模型">
-                        <ComboBox.ItemTemplate>
-                            <DataTemplate x:DataType="vm:ModelOptionViewModel">
-                                <TextBlock Text="{Binding DisplayText}" FontSize="13"
-                                           TextTrimming="CharacterEllipsis" />
-                            </DataTemplate>
-                        </ComboBox.ItemTemplate>
-                    </ComboBox>
+                    <!-- 右侧区域：模型/推理等级选择与发送/停止。目录与当前选型来自后端（follow 回声权威）。 -->
+                    <Button x:Name="ModelPickerButton"
+                            Grid.Column="2"
+                            Classes="model-picker-button"
+                            Command="{Binding Composer.ToggleModelMenuCommand}"
+                            IsEnabled="{Binding Composer.IsModelPickerEnabled}"
+                            AutomationProperties.Name="选择模型与推理等级"
+                            ToolTip.Tip="切换当前会话的模型与推理等级">
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                            <TextBlock Text="{Binding Composer.ModelPickerLabel}"
+                                       TextTrimming="CharacterEllipsis" />
+                            <Path Grid.Column="1"
+                                  Data="M0,0 L4,4 L8,0"
+                                  Width="8" Height="4"
+                                  Stretch="None"
+                                  Stroke="{Binding $parent[Button].Foreground}"
+                                  StrokeThickness="1.6"
+                                  VerticalAlignment="Center" />
+                        </Grid>
+                    </Button>
+                    <Popup x:Name="ModelPickerPopup"
+                           Grid.Column="2"
+                           PlacementTarget="{Binding #ModelPickerButton}"
+                           Placement="Top"
+                           VerticalOffset="-4"
+                           IsOpen="{Binding Composer.IsModelMenuOpen, Mode=TwoWay}"
+                           IsLightDismissEnabled="True">
+                        <Border Classes="popup-surface" Width="264" MaxHeight="420">
+                            <Panel>
+                                <!-- 主菜单：模型 / 推理等级 两行导航，右侧展示当前值。 -->
+                                <StackPanel IsVisible="{Binding Composer.IsModelMenuRootPage}">
+                                    <Button Classes="popup-navigation"
+                                            Command="{Binding Composer.ShowModelsPageCommand}">
+                                        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                                            <TextBlock Text="模型" />
+                                            <TextBlock Grid.Column="1"
+                                                       Classes="popup-value"
+                                                       Text="{Binding Composer.CurrentModelNameText}" />
+                                            <TextBlock Grid.Column="2" Classes="popup-chevron" Text="›" />
+                                        </Grid>
+                                    </Button>
+                                    <Button Classes="popup-navigation"
+                                            Command="{Binding Composer.ShowEffortsPageCommand}">
+                                        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                                            <TextBlock Text="推理等级" />
+                                            <TextBlock Grid.Column="1"
+                                                       Classes="popup-value"
+                                                       Text="{Binding Composer.CurrentEffortText}" />
+                                            <TextBlock Grid.Column="2" Classes="popup-chevron" Text="›" />
+                                        </Grid>
+                                    </Button>
+                                </StackPanel>
+                                <!-- 模型二级菜单：提供方作分组标题，模型单独成行，当前模型勾选。 -->
+                                <ScrollViewer IsVisible="{Binding Composer.IsModelsMenuPage}" MaxHeight="380">
+                                    <StackPanel>
+                                        <Button Classes="popup-navigation"
+                                                Command="{Binding Composer.ShowModelMenuRootCommand}">
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <TextBlock Classes="popup-chevron" Text="‹" />
+                                                <TextBlock Text="模型" />
+                                            </StackPanel>
+                                        </Button>
+                                        <ItemsControl ItemsSource="{Binding Composer.ModelGroups}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="vm:ModelGroupMenuViewModel">
+                                                    <StackPanel>
+                                                        <TextBlock Classes="popup-section" Text="{Binding Name}" />
+                                                        <ItemsControl ItemsSource="{Binding Options}">
+                                                            <ItemsControl.ItemTemplate>
+                                                                <DataTemplate x:DataType="vm:ModelOptionViewModel">
+                                                                    <Button Classes="popup-item"
+                                                                            Classes.selected="{Binding IsSelected}"
+                                                                            Command="{Binding SelectCommand}"
+                                                                            ToolTip.Tip="{Binding ProviderName}">
+                                                                        <Grid ColumnDefinitions="*,Auto">
+                                                                            <TextBlock Text="{Binding ModelName}"
+                                                                                       TextTrimming="CharacterEllipsis" />
+                                                                            <TextBlock Grid.Column="1"
+                                                                                       Classes="popup-check"
+                                                                                       Text="✓"
+                                                                                       IsVisible="{Binding IsSelected}" />
+                                                                        </Grid>
+                                                                    </Button>
+                                                                </DataTemplate>
+                                                            </ItemsControl.ItemTemplate>
+                                                        </ItemsControl>
+                                                    </StackPanel>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </ScrollViewer>
+                                <!-- 推理等级二级菜单：off/low/high/max，当前档位以后端回声勾选。 -->
+                                <StackPanel IsVisible="{Binding Composer.IsEffortsMenuPage}">
+                                    <Button Classes="popup-navigation"
+                                            Command="{Binding Composer.ShowModelMenuRootCommand}">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <TextBlock Classes="popup-chevron" Text="‹" />
+                                            <TextBlock Text="推理等级" />
+                                        </StackPanel>
+                                    </Button>
+                                    <ItemsControl ItemsSource="{Binding Composer.EffortOptions}" Margin="0,2,0,0">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:EffortOptionViewModel">
+                                                <Button Classes="popup-item"
+                                                        Classes.selected="{Binding IsSelected}"
+                                                        Command="{Binding SelectCommand}">
+                                                    <Grid ColumnDefinitions="*,Auto">
+                                                        <TextBlock Text="{Binding Label}" />
+                                                        <TextBlock Grid.Column="1"
+                                                                   Classes="popup-check"
+                                                                   Text="✓"
+                                                                   IsVisible="{Binding IsSelected}" />
+                                                    </Grid>
+                                                </Button>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </Panel>
+                        </Border>
+                    </Popup>
                     <Panel Grid.Column="3" Width="34" Height="34">
                         <Button Classes="composer-stop"
                                 Command="{Binding Composer.CancelCommand}"

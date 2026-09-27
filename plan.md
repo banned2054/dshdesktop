@@ -316,7 +316,14 @@ Host 适配层候选方案：独立 Node launcher 通过 Node IPC 管理原 Host
 - `dotnet build DshDesktop.slnx`：通过，0 警告 0 错误。
 - `dotnet test`：52 通过、3 按设计跳过（真实后端/模型 E2E 需环境变量启用）。新增用例：目录映射（空组剔除、失败项、默认选型）、快照投影（next 优先/回退 lastUsed/未选型 null）、`model/selection` 事件解析、VM 目录填充与快照选型、下拉选型回声与跨会话各自跟随、选型失败回退并报错、模拟服务选型回声与快照携带、缺失会话选型抛错；`RealModelConfigurationTests`/`RealModelConversationTests` 改走服务公开 API（目录断言改为 groups 含目标提供方）。
 - 窗口验收（UI Automation 驱动模拟模式）：下拉展开列出全部选项（Sim Chat/Sim Reasoner · Simulated、Alt Chat · Simulated Alt），选择后回显「Alt Chat · Simulated Alt」；切换到「Native AOT 验证」会话后下拉自动变为该会话的「Sim Reasoner · Simulated」。
-- 未验证：真实 Host 下的目录/选型窗口内交互（`RealModelConfigurationTests` 需 `DSH_E2E_*` 环境变量运行，真实目录此前已验收列出 `glm`）；reasoning effort 档位选择（目录含该字段但暂无 UI 消费方）；Native AOT 产物未随本轮重跑（无新增反射依赖）；macOS/Linux。
+- 未验证：真实 Host 下的目录/选型窗口内交互（`RealModelConfigurationTests` 需 `DSH_E2E_*` 环境变量运行，真实目录此前已验收列出 `glm`）；reasoning effort 档位选择（2026-09-25 已接入弹出菜单，见下条记录）；Native AOT 产物未随本轮重跑（无新增反射依赖）；macOS/Linux。
+
+模型/推理等级弹出菜单验证记录（Windows 10 x64，2026-09-25）：
+
+- 背景（用户对照 DSH WebUI 截图提出）：Composer 底部下拉把模型显示成「模型 · 提供方」拼接，推理等级无界面；改为紧凑两级弹出菜单。后端协议支持边界（本仓库内证据）：`SessionSelectModelRequest.ReasoningEffort` 为请求可选字段（`HarnessJsonContext` 驼峰 + `WhenWritingNull`，null 不上 wire）；`SessionModelSelectionWire.ReasoningEffort` 在 selectModel 应答中回读；follow 快照 `modelSelection` 投影与 `model/selection` 事件均解析 `reasoningEffort`（`HarnessProtocolJsonTests` 样例含 `"high"`）。Node Host 包（`@deepseek-ai/dsh-desktop-host`）不在本仓库，档位是否被后端实际作用于推理无法在本仓库实证；客户端一律以响应/follow 回声为权威显示。
+- 实现：Core `ISessionService.SelectModelAsync` 增加可选 `string? reasoningEffort = null`（既有 3 参调用保持兼容），新增 `ReasoningEffortLevels`（off/low/high/max）；Harness/Simulated 两实现透传档位并携带于回声。Composer 底部 ComboBox 替换为按钮 + Popup 两级菜单：主菜单「模型 / 推理等级」两行导航（右侧当前值 + ›），模型二级菜单按 `ModelCatalog.Groups` 提供方分组（组名作标题、模型单独成行、当前模型勾选，目录外选型单独成组），推理等级二级菜单 Off/Low/High/Max（当前档位按回声勾选）；底栏按钮显示「模型名 · 档位」。选模型把当前档位一并提交、选档位对当前生效选型提交；显示以后端回声为准，失败报错并回退显示。样式复用 PopupMenus（新增 popup-value/popup-chevron/popup-check），轻量关闭经 Popup 双向绑定写回、Esc 兜底关闭、会话切换自动收起。
+- `dotnet build DshDesktop.slnx`：通过，0 警告 0 错误（含测试项目编译；测试替身仅做最小签名适配，未改断言、未新增用例，按本轮约束未运行 `dotnet test`）。
+- 未验证：窗口内实际点击交互（两级菜单导航、勾选、轻量关闭、Esc、键盘焦点）；真实 Host 下 `session/selectModel(reasoningEffort)` 的往返回声（尤其 `"off"` 字符串与省略字段 null 的语义区分）；Native AOT 产物；macOS/Linux。
 
 usage/token/缓存统计接入验证记录（Windows 10 x64，2026-09-21）：
 
