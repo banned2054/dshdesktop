@@ -9,8 +9,9 @@ public interface ISessionService
 
     Task<IReadOnlyList<SessionSummary>> GetSessionsAsync(CancellationToken cancellationToken = default);
 
-    /// <summary>创建新会话。非幂等操作，失败后不得携带新的意图自动重试。</summary>
-    Task<SessionSummary> CreateSessionAsync(CancellationToken cancellationToken = default);
+    /// <summary>创建新会话，可指定所属工作区。非幂等操作，失败后不得携带新的意图自动重试。</summary>
+    Task<SessionSummary> CreateSessionAsync(
+        string? workspaceId = null, CancellationToken cancellationToken = default);
 
     /// <summary>查询模型目录（默认选型与各提供方可选模型）。只读，可安全重试。</summary>
     Task<ModelCatalog> GetModelCatalogAsync(CancellationToken cancellationToken = default);

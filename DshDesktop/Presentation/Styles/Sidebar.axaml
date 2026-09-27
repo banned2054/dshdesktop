@@ -43,6 +43,18 @@
         <Setter Property="MinHeight" Value="34" />
         <Setter Property="Padding" Value="8,0" />
     </Style>
+    <Style Selector="Button.workspace-new-session">
+        <Setter Property="Width" Value="28" />
+        <Setter Property="Height" Value="28" />
+        <Setter Property="Margin" Value="0,2" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="CornerRadius" Value="7" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+    </Style>
+    <Style Selector="Button.workspace-new-session:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource SessionHoverBrush}" />
+    </Style>
     <!-- 状态样式声明顺序即优先级：悬停与焦点在前、选中（.current）最后，
          保证行被悬停或键盘聚焦时当前选中态不被覆盖。 -->
     <Style Selector="Button.session-row:pointerover /template/ Border#PART_Surface">

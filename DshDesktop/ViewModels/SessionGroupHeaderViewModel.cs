@@ -9,6 +9,7 @@ public sealed class SessionGroupHeaderViewModel(
     int      sessionCount,
     bool     isExpanded,
     ICommand toggleCommand,
+    bool     isWorkspace,
     bool     isCurrent = false)
 {
     /// <summary>分组标识；工作区 id 或未分组的固定哨兵值。</summary>
@@ -22,6 +23,8 @@ public sealed class SessionGroupHeaderViewModel(
 
     /// <summary>该组是否包含当前选中的会话；驱动工作区行的选中高亮。</summary>
     public bool IsCurrent { get; } = isCurrent;
+
+    public bool IsWorkspace { get; } = isWorkspace;
 
     public string CountText => SessionCount > 0 ? $"{SessionCount} 个会话" : "暂无会话";
 

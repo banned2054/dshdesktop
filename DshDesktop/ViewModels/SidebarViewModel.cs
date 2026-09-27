@@ -30,6 +30,8 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
 
     private readonly HashSet<string> _collapsedGroups = [];
 
+    private bool _isCreatingWorkspaceSession;
+
     // root 最近推送的选中会话：用于 IsCurrent 标记、空会话过滤与刷新后的选中决策。
     private SessionItemViewModel? _currentSession;
 
@@ -52,7 +54,9 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
         _requestSelection                   =  requestSelection;
         _reportError                        =  reportError;
         _postToUi                           =  postToUi ?? (action => action());
-        NewSessionCommand                   =  new AsyncRelayCommand(CreateNewSessionAsync);
+        NewSessionCommand                   =  new AsyncRelayCommand(() => CreateNewSessionAsync());
+        CreateWorkspaceSessionCommand       =  new RelayCommand<SessionGroupHeaderViewModel>(
+            CreateWorkspaceSession, group => !_isCreatingWorkspaceSession && group is { IsWorkspace: true });
         SelectSessionCommand                =  new RelayCommand<SessionItemViewModel>(requestSelection);
         ToggleGroupCommand                  =  new RelayCommand<SessionGroupHeaderViewModel>(ToggleGroup);
         _sessionService.SessionsChanged     += OnSessionsChanged;
@@ -65,6 +69,8 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
     public ObservableCollection<object> SessionRows { get; } = [];
 
     public AsyncRelayCommand NewSessionCommand { get; }
+
+    public RelayCommand<SessionGroupHeaderViewModel> CreateWorkspaceSessionCommand { get; }
 
     public RelayCommand<SessionItemViewModel> SelectSessionCommand { get; }
 
@@ -172,15 +178,16 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
         foreach (var workspace in _workspaces)
             AppendGroup(workspace.Id, workspace.Title,
                         Sessions.Where(session => workspace.SessionIds.Contains(session.Id)),
-                        accounted);
+                        accounted, isWorkspace: true);
 
         AppendGroup(UngroupedKey, "未分组",
                     Sessions.Where(session => !accounted.Contains(session.Id)),
-                    accounted);
+                    accounted, isWorkspace: false);
     }
 
     private void AppendGroup(
-        string key, string title, IEnumerable<SessionItemViewModel> members, HashSet<string> accounted)
+        string key, string title, IEnumerable<SessionItemViewModel> members, HashSet<string> accounted,
+        bool isWorkspace)
     {
         var memberList = members.ToList();
         if (key == UngroupedKey && memberList.Count == 0) return;
@@ -189,7 +196,7 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
 
         var expanded = !_collapsedGroups.Contains(key);
         SessionRows.Add(new SessionGroupHeaderViewModel(key, title, memberList.Count, expanded, ToggleGroupCommand,
-                                                        memberList.Any(member => member.IsCurrent)));
+                                                        isWorkspace, memberList.Any(member => member.IsCurrent)));
         if (expanded)
             foreach (var member in memberList)
                 SessionRows.Add(member);
@@ -255,11 +262,33 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
         }
     }
 
-    private async Task CreateNewSessionAsync()
+    private void CreateWorkspaceSession(SessionGroupHeaderViewModel? group)
+    {
+        if (group is null || !group.IsWorkspace || _isCreatingWorkspaceSession) return;
+
+        _ = CreateWorkspaceSessionAsync(group.Key);
+    }
+
+    private async Task CreateWorkspaceSessionAsync(string workspaceId)
+    {
+        _isCreatingWorkspaceSession = true;
+        CreateWorkspaceSessionCommand.RaiseCanExecuteChanged();
+        try
+        {
+            await CreateNewSessionAsync(workspaceId);
+        }
+        finally
+        {
+            _isCreatingWorkspaceSession = false;
+            CreateWorkspaceSessionCommand.RaiseCanExecuteChanged();
+        }
+    }
+
+    private async Task CreateNewSessionAsync(string? workspaceId = null)
     {
         try
         {
-            var summary = await _sessionService.CreateSessionAsync();
+            var summary = await _sessionService.CreateSessionAsync(workspaceId);
             var session = new SessionItemViewModel(summary);
             Sessions.Insert(0, session);
             RebuildSessionRows();

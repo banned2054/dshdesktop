@@ -46,8 +46,9 @@ public partial class App : Application
             }
             else
             {
-                sessionService      = new SimulatedSessionService();
-                workspaceService    = new SimulatedWorkspaceService();
+                var simulatedWorkspaces = new SimulatedWorkspaceService();
+                sessionService      = new SimulatedSessionService(simulatedWorkspaces.AddSession);
+                workspaceService    = simulatedWorkspaces;
                 backendService      = new SimulatedBackendStatusService();
                 toolApprovalService = new SimulatedToolApprovalService();
             }

@@ -64,7 +64,14 @@ public sealed class SimulatedSessionService : ISessionService
 
     private readonly Lock _syncRoot = new();
 
+    private readonly Action<string, string>? _onSessionCreatedInWorkspace;
+
     private int _nextSessionNumber = 5;
+
+    public SimulatedSessionService(Action<string, string>? onSessionCreatedInWorkspace = null)
+    {
+        _onSessionCreatedInWorkspace = onSessionCreatedInWorkspace;
+    }
 
     public event EventHandler? SessionsChanged;
 
@@ -105,18 +112,24 @@ public sealed class SimulatedSessionService : ISessionService
         }
     }
 
-    public Task<SessionSummary> CreateSessionAsync(CancellationToken cancellationToken = default)
+    public Task<SessionSummary> CreateSessionAsync(
+        string? workspaceId = null, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        SessionSummary summary;
         lock (_syncRoot)
         {
             var now       = DateTimeOffset.Now;
             var sessionId = $"session-{_nextSessionNumber++}";
-            var summary   = new SessionSummary(sessionId, "新对话", now, false, true);
+            summary      = new SessionSummary(sessionId, "新对话", now, false, true);
             _sessions.Add(sessionId, new SimulatedSession(summary, []));
-            RaiseSessionsChanged();
-            return Task.FromResult(summary);
         }
+
+        if (!string.IsNullOrWhiteSpace(workspaceId))
+            _onSessionCreatedInWorkspace?.Invoke(workspaceId, summary.Id);
+
+        RaiseSessionsChanged();
+        return Task.FromResult(summary);
     }
 
     public Task<IReadOnlyList<ConversationMessage>> GetMessagesAsync(

@@ -49,10 +49,11 @@ public sealed class HarnessSessionService : ISessionService
                     .ToArray();
     }
 
-    public async Task<SessionSummary> CreateSessionAsync(CancellationToken cancellationToken = default)
+    public async Task<SessionSummary> CreateSessionAsync(
+        string? workspaceId = null, CancellationToken cancellationToken = default)
     {
         var value = await _connection.InvokeAsync("session/create",
-                                                  new SessionCreateRequest(),
+                                                  new SessionCreateRequest(workspaceId),
                                                   HarnessJsonContext.Default.SessionCreateRequest,
                                                   HarnessJsonContext.Default.SessionCreateValue,
                                                   cancellationToken)

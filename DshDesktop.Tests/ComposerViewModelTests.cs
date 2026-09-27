@@ -444,9 +444,10 @@ public sealed class ComposerViewModelTests
             return _inner.GetSessionsAsync(cancellationToken);
         }
 
-        public Task<SessionSummary> CreateSessionAsync(CancellationToken cancellationToken = default)
+        public Task<SessionSummary> CreateSessionAsync(
+            string? workspaceId = null, CancellationToken cancellationToken = default)
         {
-            return _inner.CreateSessionAsync(cancellationToken);
+            return _inner.CreateSessionAsync(workspaceId, cancellationToken);
         }
 
         public Task<ModelCatalog> GetModelCatalogAsync(CancellationToken cancellationToken = default)
