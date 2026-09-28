@@ -5,12 +5,12 @@ using System.Collections.ObjectModel;
 namespace DshDesktop.ViewModels;
 
 /// <summary>
-///     左侧会话列表子视图模型：会话条目、工作区分组投影、视图模式与新建会话。当前选中
+///     左侧会话列表子视图模型：会话条目、工作区分组投影、视图模式与新建入口。当前选中
 ///     会话由 MainWindowViewModel 持有（同时驱动时间线、Composer 与审批）：本类在选中变化时
-///     接收推送维护 IsCurrent 高亮；用户点击行与新建会话经 requestSelection 请求 root 切换。
-///     列表刷新后就地更新条目：选中实例仍存在时不打扰 root（Running 变化经
-///     SessionItemViewModel.PropertyChanged 由 root 既有订阅同步），选中已不存在或尚无选中
-///     （初始化）时才经 requestSelection 请求 root 采用回退选择。
+///     接收推送维护 IsCurrent 高亮；用户点击行与新建会话经回调请求 root 编排。
+///     完整会话目录（含未选中空白行）保存在 <see cref="_catalog" />，侧栏可见行是其派生投影：
+///     已确认空白且未选中的会话隐藏，未知与已开始的会话保留。空白状态不复述权威——
+///     目录随时可由 session/list 重建，不是第二套会话数据库。
 /// </summary>
 public sealed class SidebarViewModel : ObservableObject, IDisposable
 {
@@ -23,17 +23,26 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
     private readonly ISessionService   _sessionService;
     private readonly IWorkspaceService _workspaceService;
 
-    // 用户点击行/新建会话/刷新回退时请求 root 切换 active session；错误上报到窗口级 ErrorText（null 表示清除）。
+    // 用户点击行/新建入口时请求 root 切换选中或编排创建；错误上报到窗口级 ErrorText（null 表示清除）。
     private readonly Action<SessionItemViewModel?> _requestSelection;
+    private readonly Func<string?, Task>           _requestNewSession;
     private readonly Action<string?>               _reportError;
     private readonly Action<Action>                _postToUi;
 
+    /// <summary>完整会话目录（后端返回顺序，含未选中空白会话）；可由列表刷新整体重建。</summary>
+    private IReadOnlyList<SessionSummary> _catalog = [];
+
     private readonly HashSet<string> _collapsedGroups = [];
 
+    private bool _isRequestingNewSession;
     private bool _isCreatingWorkspaceSession;
 
-    // root 最近推送的选中会话：用于 IsCurrent 标记、空会话过滤与刷新后的选中决策。
+    // root 最近推送的选中会话：用于 IsCurrent 标记、空白行可见性与刷新后的选中决策。
     private SessionItemViewModel? _currentSession;
+
+    // 用户主动停留在新对话草稿页：刷新触发的回退选中不得把草稿页抢回旧会话；
+    // 手动点击行与选中会话被删除的回退不受此守卫影响。标记由 root 推送。
+    private bool _isDraftPageActive;
 
     private int _listRefreshPending;
 
@@ -46,15 +55,17 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
         ISessionService               sessionService,
         IWorkspaceService             workspaceService,
         Action<SessionItemViewModel?> requestSelection,
+        Func<string?, Task>           requestNewSession,
         Action<string?>               reportError,
         Action<Action>?               postToUi = null)
     {
         _sessionService                     =  sessionService;
         _workspaceService                   =  workspaceService;
         _requestSelection                   =  requestSelection;
+        _requestNewSession                  =  requestNewSession;
         _reportError                        =  reportError;
         _postToUi                           =  postToUi ?? (action => action());
-        NewSessionCommand                   =  new AsyncRelayCommand(() => CreateNewSessionAsync());
+        NewSessionCommand                   =  new RelayCommand(() => _ = RequestNewSessionAsync(null));
         CreateWorkspaceSessionCommand       =  new RelayCommand<SessionGroupHeaderViewModel>(
             CreateWorkspaceSession, group => !_isCreatingWorkspaceSession && group is { IsWorkspace: true });
         SelectSessionCommand                =  new RelayCommand<SessionItemViewModel>(requestSelection);
@@ -68,7 +79,7 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
     /// <summary>会话列表的呈现行：会话行与分组标题行混排，按当前视图模式投影。</summary>
     public ObservableCollection<object> SessionRows { get; } = [];
 
-    public AsyncRelayCommand NewSessionCommand { get; }
+    public RelayCommand NewSessionCommand { get; }
 
     public RelayCommand<SessionGroupHeaderViewModel> CreateWorkspaceSessionCommand { get; }
 
@@ -88,9 +99,9 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
 
     /// <summary>
     ///     接收 root 推送的当前选中会话（每次实际切换时调用）：维护 IsCurrent 行高亮并重建
-    ///     行投影——工作区头的 IsCurrent（是否包含当前会话）随选中变化。空白会话只在选中
-    ///     期间可见：失去选中时就地移除——空闲后端不再有事件触发刷新兜底，否则草稿会以
-    ///     "新对话"常驻列表（与 <see cref="RefreshSessionsAsync" /> 的过滤同一语义）。
+    ///     行投影——工作区头的 IsCurrent（是否包含当前会话）随选中变化。已确认空白的会话只在
+    ///     选中期间可见：失去选中时就地移除——空闲后端不再有事件触发刷新兜底，否则草稿会以
+    ///     "新对话"常驻列表（与 <see cref="RefreshSessionsAsync" /> 的可见性规则同一语义）。
     /// </summary>
     public void ApplySelectedSession(SessionItemViewModel? session)
     {
@@ -98,33 +109,74 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
         _currentSession?.IsCurrent = false;
         _currentSession            = session;
         session?.IsCurrent         = true;
-        if (previous is not null && !ReferenceEquals(previous, session) && previous.Blank)
+        if (previous is not null && !ReferenceEquals(previous, session)
+                               && previous.BlankState == SessionBlankState.ConfirmedBlank)
             Sessions.Remove(previous);
 
         RebuildSessionRows();
     }
 
+    /// <summary>root 推送「用户主动停留在新对话草稿页」标记：守卫刷新触发的回退选中。</summary>
+    public void SetDraftPageActive(bool active)
+    {
+        _isDraftPageActive = active;
+    }
+
+    /// <summary>本端过渡信号（发送被接受等）：立即提升行状态并重建投影，不等列表刷新。</summary>
+    public void NotifySessionEngaged(string sessionId)
+    {
+        var row = Sessions.FirstOrDefault(session => session.Id == sessionId);
+        if (row is null || row.BlankState == SessionBlankState.Engaged) return;
+
+        row.MarkEngaged();
+        RebuildSessionRows();
+    }
+
     /// <summary>
-    ///     重读会话列表并就地更新条目（历史空会话继续隐藏，选中的空会话保留）。选中实例仍
-    ///     在列表中时不打扰 root——Running 变化经 SessionItemViewModel.PropertyChanged 由 root
-    ///     既有订阅同步；选中已不存在或尚无选中（初始化）时，经 requestSelection 请求 root
-    ///     采用回退选择（按 id 匹配或首项，可能为 null）。
+    ///     root 首发送被后端接受后加入可见行（已开始状态插入头部）；已存在同 id 行时
+    ///     原位更新并返回（迟到的列表刷新/重复回调不重建实例）。返回行实例供选中。
+    /// </summary>
+    public SessionItemViewModel AddSessionRow(SessionSummary summary)
+    {
+        var row = Sessions.FirstOrDefault(session => session.Id == summary.Id);
+        if (row is null)
+        {
+            row = new SessionItemViewModel(summary);
+            Sessions.Insert(0, row);
+        }
+        else
+        {
+            row.UpdateSummary(summary);
+        }
+
+        RebuildSessionRows();
+        return row;
+    }
+
+    /// <summary>
+    ///     重读完整会话目录并投影可见行（已确认空白且未选中的会话隐藏，未知与已开始保留）。
+    ///     就地更新既有条目：选中实例仍在可见集合中时不打扰 root——Running 变化经
+    ///     SessionItemViewModel.PropertyChanged 由 root 既有订阅同步；选中已不在可见集合
+    ///     （被删除，或尚无选中）时，经 requestSelection 请求 root 采用回退选择（按 id
+    ///     匹配目录或首项，可能为 null）。
     /// </summary>
     public async Task RefreshSessionsAsync(CancellationToken cancellationToken)
     {
+        _catalog = await _sessionService.GetSessionsAsync(cancellationToken);
         var selectedSessionId = _currentSession?.Id;
-        var summaries = (await _sessionService.GetSessionsAsync(cancellationToken))
-                       .Where(summary => !summary.Blank || summary.Id == selectedSessionId).ToArray();
+        var visible = _catalog.Where(summary => summary.BlankState != SessionBlankState.ConfirmedBlank
+                                             || summary.Id == selectedSessionId)
+                              .ToArray();
 
         // 就地更新既有条目：重建 ObservableCollection 会替换选中实例，
         // 触发重新订阅并让新快照清掉流式气泡，生成中的内容会闪动。
         var existingById = Sessions.ToDictionary(session => session.Id);
         for (var index = Sessions.Count - 1; index >= 0; index--)
-            if (summaries.All(summary => summary.Id != Sessions[index].Id))
+            if (visible.All(summary => summary.Id != Sessions[index].Id))
                 Sessions.RemoveAt(index);
 
         var insertIndex = 0;
-        foreach (var summary in summaries)
+        foreach (var summary in visible)
         {
             if (existingById.TryGetValue(summary.Id, out var item))
             {
@@ -148,9 +200,16 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
             // 选中实例刷新后仍在列表中（同一实例）：不触发重订阅，也无需 root 协调。
             return;
 
-        // 选中已不存在（或尚无选中）：请求 root 采用回退选择。
+        // 无选中时的回退选中只服务于初始化默认选中：用户主动停留在新对话草稿页时，
+        // 创建会话等触发的列表刷新不得把草稿页抢回旧会话（手动点击行不走本分支）。
+        if (_currentSession is null && _isDraftPageActive) return;
+
+        // 选中已不存在（或尚无选中）：请求 root 采用回退选择。回退按完整目录匹配，
+        // 避免选中空白会话在可见投影中缺席时被误判为消失。
         var selection = Sessions.FirstOrDefault(session => session.Id == selectedSessionId) ??
-                        Sessions.FirstOrDefault();
+                        _catalog.Where(summary => summary.BlankState != SessionBlankState.ConfirmedBlank)
+                                .Select(summary => Sessions.FirstOrDefault(session => session.Id == summary.Id))
+                                .FirstOrDefault(session => session is not null);
         _requestSelection(selection);
     }
 
@@ -161,7 +220,7 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
         RebuildSessionRows();
     }
 
-    /// <summary>按当前视图模式把 Sessions 投影为呈现行；分组模式对齐参考客户端投影语义。</summary>
+    /// <summary>按当前视图模式把可见会话投影为呈现行；分组模式对齐参考客户端投影语义。</summary>
     private void RebuildSessionRows()
     {
         SessionRows.Clear();
@@ -262,20 +321,25 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>工作区组头「+」：请求 root 进入新对话草稿页并预选该工作区（本地防连点）。</summary>
     private void CreateWorkspaceSession(SessionGroupHeaderViewModel? group)
     {
         if (group is null || !group.IsWorkspace || _isCreatingWorkspaceSession) return;
 
-        _ = CreateWorkspaceSessionAsync(group.Key);
-    }
-
-    private async Task CreateWorkspaceSessionAsync(string workspaceId)
-    {
         _isCreatingWorkspaceSession = true;
         CreateWorkspaceSessionCommand.RaiseCanExecuteChanged();
+        _ = RequestWorkspaceSessionSafeAsync(group.Key);
+    }
+
+    private async Task RequestWorkspaceSessionSafeAsync(string workspaceId)
+    {
         try
         {
-            await CreateNewSessionAsync(workspaceId);
+            await _requestNewSession(workspaceId);
+        }
+        catch (Exception exception)
+        {
+            _reportError(exception.Message);
         }
         finally
         {
@@ -284,21 +348,30 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
         }
     }
 
-    private async Task CreateNewSessionAsync(string? workspaceId = null)
+    private async Task RequestNewSessionSafeAsync(string? workspaceId)
     {
         try
         {
-            var summary = await _sessionService.CreateSessionAsync(workspaceId);
-            var session = new SessionItemViewModel(summary);
-            Sessions.Insert(0, session);
-            RebuildSessionRows();
-            // 新会话成为 active session 经 root 编排（follow、Composer 与审批随之切换）。
-            _requestSelection(session);
-            _reportError(null);
+            await _requestNewSession(workspaceId);
         }
         catch (Exception exception)
         {
             _reportError(exception.Message);
+        }
+    }
+
+    private async Task RequestNewSessionAsync(string? workspaceId)
+    {
+        if (_isRequestingNewSession) return;
+
+        _isRequestingNewSession = true;
+        try
+        {
+            await RequestNewSessionSafeAsync(workspaceId);
+        }
+        finally
+        {
+            _isRequestingNewSession = false;
         }
     }
 

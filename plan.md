@@ -120,7 +120,7 @@ Host 适配层候选方案：独立 Node launcher 通过 Node IPC 管理原 Host
 
 ## 阶段 3：可日常使用的会话界面
 
-状态：进行中。已完成：助手气泡 Markdown 渲染（2026-09-20）、历史消息加载与会话切换、工具调用状态/结果/错误展示（2026-09-20）、按轮次折叠过程组（turn-process 对齐，2026-09-20）、空气泡修复与助手无气泡样式（2026-09-20）、思考（reasoning）展示与「加载更早」按钮分页（2026-09-20）、会话列表按工作区分组与「单列表/按工作区」视图下拉（2026-09-21）、新建会话指定工作区归属（2026-09-24）、工具审批 waterfall 交互闭环（2026-09-21）。未开始：Markdown 复制交互复验、用户问题交互、断线专项验证、流式节流与长会话性能、输入法与快捷键验证。
+状态：进行中。已完成：助手气泡 Markdown 渲染（2026-09-20）、历史消息加载与会话切换、工具调用状态/结果/错误展示（2026-09-20）、按轮次折叠过程组（turn-process 对齐，2026-09-20）、空气泡修复与助手无气泡样式（2026-09-20）、思考（reasoning）展示与「加载更早」按钮分页（2026-09-20）、会话列表按工作区分组与「单列表/按工作区」视图下拉（2026-09-21）、新建会话指定工作区归属（2026-09-24）、工具审批 waterfall 交互闭环（2026-09-21）、新对话草稿页取代即时空白会话流程（2026-09-29）。未开始：Markdown 复制交互复验、用户问题交互、断线专项验证、流式节流与长会话性能、输入法与快捷键验证。
 
 任务：
 
@@ -139,6 +139,44 @@ Host 适配层候选方案：独立 Node launcher 通过 Node IPC 管理原 Host
 - [ ] 验证中文输入法、快捷键和取消过程中的界面状态。
 - [x] 会话列表按工作区分组与视图模式下拉（2026-09-21）：侧栏提供「单列表 / 按工作区」下拉（默认按工作区，对齐参考 Web 客户端默认视图）；工作区归属接入 `workspace/follow` 状态流（Core `IWorkspaceService` 契约 + Harness 帧解析与投影维护），组序为后端注册表顺序、组内按更新时间降序、空工作区仍显示、未记账会话（含新建空白会话）落入「未分组」；分组行可展开/收起，切换模式与选中实例保持；视图偏好持久化随阶段 4 桌面设置接入。
 - [x] 新建会话指定工作区归属（2026-09-24）：每个工作区标题旁增加独立「+」入口，创建并选中新会话；顶部按钮继续创建未分组会话。Core/Harness 创建契约将 `workspaceId` 传入现有 `session/create` 请求；真实归属仍由 `workspace/follow` 状态流更新，模拟服务同步模拟该归属。`dotnet build DshDesktop.slnx`：0 警告、0 错误。未验证：窗口内点击体验及真实 Harness 对 `session/create(workspaceId)` 的端到端关联。
+- [x] 空白三态与会话目录/可见行分离（2026-09-28）：`SessionSummary.Blank` 布尔升级为 `SessionBlankState` 三态（确认空白 / 未知 / 已开始），判定对齐参考实现 `sessionListMetadata` 投影——wire `blank=true` 为权威空白；`blank=false` 且行投影携带 `sessionListMetadata` 才解释为已开始；元数据缺失（v3 旧会话被投影缓存拒认的冷行、cache miss）是保守回退，标记未知且保持可见。侧栏保留完整会话目录、可见行为其派生投影（已确认空白且未选中的隐藏，未知/已开始保留）；发送被接受、观察到运行或已加载内容立即进入"已开始"台账（服务层合并，迟到的空白摘要不能退回空白），重连/重启后以后端重新验证为准。核对结果与残留原因见下方诊断记录。
+- [x] 复用空白会话与工作区选择器（2026-09-28；2026-09-29 修订：即时获取/收养流程已被新对话草稿页取代，见下条）：顶部新建、工作区组头「+」与会话区空白流程选择器（新 `WorkspaceHeroView`，对齐参考 EmptyHero）共用 root 编排——目标解析（当前会话所属工作区 > 最近工作区 > 无目标进入选择界面，不调用 `session/create(null)`）、完整目录按列表序筛选候选（确认空白 + cwd 匹配 + 工作区记账 + 未归档）、`session/create({workspaceId, sessionId})` 收养复用（`session/writer-held` 按官方规则退回创建，其他错误如实上抛不悄悄新建）、`workspace-attach-failed` 保留已知 SessionId 并报告失败阶段；每工作区并发合并、导航代际防护（迟到结果不抢界面、不搬草稿）、已开始会话隐藏选择器、复用不覆盖模型选型；草稿按会话记账（空串键为无会话态），切换成功才转移、不自动发送。「继续无工作区」为桌面兼容入口（无目标界面显式选择后创建），非 DSH 工作区流程原样实现。
+- [x] 新对话草稿页：首发送才创建会话（2026-09-29）：无选中会话即进入草稿页（`NewConversationView` 取代 `WorkspaceHeroView` 的空白流程，后者原样保留但移出编译）——在可用区域内居中展示输入框，工作区选择为紧贴输入框上缘的圆角下拉（含显式「不使用工作区」兼容项），模型/推理等级弹出菜单抽出为两处共用的 `ModelPickerView`；顶部新建与工作区组头「+」（预选对应工作区）共用该页，同一份进程内草稿（输入文本、预选工作区、预选模型/档位）跨会话切换保留，磁盘持久化按范围修正不做（无现成设置设施，不为铺开阶段 4 新增抽象）。下拉与模型选择只改本地草稿，不调用 `session/create`、不收养空白会话、不绑定工作区、不在侧栏产生会话行、不显示会话 ID；空白三态与后台核实（上一条）保留用于历史/其他客户端空白行。首发送编排按快照推进：创建（校验工作区可用）→ 必要时 `session/selectModel` 应用预选 → `session/prompt` 发送首条消息；后端接受后才进入普通会话并出现侧栏行（插入行后重读工作区投影核对分组）。失败保留草稿与预选；创建已成功而后续失败时按「会话 + 创建目标」记账待复用（目标改选即失配失效，重试不重复创建，`workspace-attach-failed` 同理）；发送一次一条、不自动换新 requestId 重发。竞态防护（含评审补强）：导航代际 + 草稿页在途标记拦截列表刷新的回退选中（初始化默认选中不受影响）；发送期间改选目标或改写文本时旧发送只消费自己的快照，不覆盖待复用记账、不清空新草稿、不抢回界面；切到旧会话后其草稿即使与发送文本相同也不会被误清（清空输入框前必须确认仍在原草稿页且代际未变）。
+- [x] 历史未知空白会话后台核实（2026-09-28）：接入后端现成的只读 `session/projections` 接口（`observeSession` 完整投影，冷会话走 `hydratePrepared`，不激活 Agent、不发模型请求、不持久化缓存），纠正此前"必须后端补算才能处理历史 Unknown"的结论（见下方勘误）——无需任何后端改动或维护脚本。`SessionBlankVerifier`（Harness 服务层单一协调位置，`SessionBlankState.cs`/目录/侧栏/复用候选共用其结论）对列表 Unknown 行后台核实：首屏不等待、并发上限 2、同会话在途合并、每连接代有限重试（指数退避，防请求风暴）。结论规则：解析出真实布尔 `blank` 才有效——`blank=true → 确认空白（隐藏但保留目录与复用）`、`blank=false → 已开始`；null（会话不存在）、缺字段、格式错误、超时、读取失败一律不判定，保持未知可见；接口不可用（`session/projections-unavailable`、`gateway/bad-request`）全局停用核实并保留未知。竞争与失效：本端台账已参与不判空白；`api-session/*` 逐会话活动使在途结果过期作废重验，并使已确认空白的结论失效（其他客户端开始使用后会话重新可见）；迟到的空白响应不能覆盖已接受的非空证据；连接重置递增代际、取消旧代在途请求、旧代响应不写入新代；普通列表刷新返回的 Unknown 行不撤销当前连接上下文中的有效结论；会话删除/从列表消失清理结论；结论仅在客户端内存，不持久化、不写任何会话存储。判定来源优先级（对齐参考实现）：本端台账 > 当前代核实结论 > 列表行内权威 `sessionListMetadata` > wire 回退；cached 与 sequenced 两类水印不跨源比较 seq。
+
+### 阶段 3 新对话草稿页验证记录（Windows 11 x64，2026-09-29）
+
+- 实现：`MainWindowViewModel` 新增草稿状态与 `SendDraftCommand` 首发送编排（`BeginConnecting` 合并连点）、`RequestNewSessionAsync` 改为纯本地进页；`ComposerViewModel` 新增 `SetDraftTarget`（草稿目标下模型菜单仅本地预选，经回调记入草稿）；`SidebarViewModel` 新增 `SetDraftPageActive` 守卫与幂等 `AddSessionRow`；`WorkspaceOptionViewModel` 改造为下拉选项（含 `IsWithoutWorkspace` 项）；样式上 `workspace-hero` 系列换成 `workspace-picker`。`csproj` 以 `DefaultItemExcludes` 将保留原样的 `WorkspaceHeroView.axaml(.cs)` 移出编译（其编译绑定指向已收束状态，保留在编译范围会让完整构建失败 AVLN2000——曾在增量构建中被 XAML 任务跳过而误判可编译）。
+- `dotnet build DshDesktop.slnx`：0 警告、0 错误（含 `--no-incremental` 冷构建）。残余 6 条 xUnit2013 警告位于上批未提交的 `SessionBlankVerificationTests.cs`，属既有工作未动。
+- `dotnet test DshDesktop.Tests/DshDesktop.Tests.csproj`：125 通过、0 失败、7 按设计跳过（真实后端/模型 E2E），连续 3 轮稳定。用例重写/新增：首发送创建+预选模型应用+分组核对、草稿页选择仅本地（不 create/不收养）、组头「+」预选进页、草稿跨切换恢复、创建失败保留草稿可重试、attach-failed 记账待复用与重试复用同一 SessionId、迟到完成不抢导航、刷新不把草稿页抢回旧会话、发送期间改目标保留新草稿且不记待复用、切走的旧会话同文本草稿不被误清、Composer 草稿目标本地预选不发 RPC；原空白复用/收养（writer-held、attach-failed 导航等）用例随流程收束删除或改写。
+- 窗口冒烟（模拟模式，PowerShell UIA，8/13 可驱动项通过）：窗口附着与初始列表渲染、初始无「新对话」空白行、初始无草稿输入框；顶部新建进入草稿页（草稿输入框出现、发送按钮在无工作区选择时禁用）；切换旧会话草稿页隐藏。未驱动（环境限制，非功能失败）：本环境 Avalonia 的 UIA 桥不暴露内部元素矩形（弹层项/输入框矩形为空）、`SetFocus`/`WM_CHAR` 无法落地、弹层项无可调用模式——草稿键入、下拉选择工作区、首发送点击无法自动化；DraftSelections 恢复、首发送端到端已由 VM 层用例覆盖。真实 Harness 下的草稿→首发送链路未验证。
+- 未验证：关闭重开后的草稿恢复（按范围修正明确不做磁盘持久化）；macOS/Linux；Native AOT 产物未随本轮重跑（无新增反射依赖）。
+
+### 阶段 3 空白会话与复用验证记录（Windows 11 x64，2026-09-28）
+
+- 核对结论：实际 runtime（`.backend-runtime` junction 直连 `deepseek-harness` checkout，`dsh-v0.1.7-rc.1`）与参考源码为同一份代码；`session/list` 从不触发投影重算（"a listing never seeds a fold"），冷行投影缓存命中时 `projections.values` 携带 `sessionListMetadata`、未命中时缺投影且 `blank=false`（未知可见）；`session/follow` 存在激活流程（promote→resume），不可用于批量判空；`coldSnapshot` 是官方"计算+持久化缓存"路径，`hydratePrepared` 明确不落盘。
+- `dotnet build DshDesktop.slnx`：0 警告、0 错误。
+- `dotnet test`：102 通过、0 失败（含新增三态 wire 映射、archived 帧、error details、复用/并发合并/writer-held 退回/attach-failed 保留 SessionId/迟到结果防护/草稿转移/选择器可见性等用例）。
+- `DSH_E2E_RUNTIME_DIR=<开发 runtime> dotnet test`：真实 Host E2E 通过——新增 `workspace/create` 登记、按工作区创建、真实列表三态（新会话 `blank=true`+`sessionListMetadata` → 确认空白、cwd 随行）、`session/create({workspaceId, sessionId})` 收养（同一 SessionId，不产生第二个会话）、`workspace/archiveSession` 归档集合经 `workspace/archived` 帧回流（隔离 home，无模型凭据）。
+- 真实共享 home 只读诊断（`DSH_E2E_REAL_HOME=1`，仅 `session/list`，不创建不发送）：46 个真实会话 = 确认空白 8 + 未知 29 + 已开始 9；未知行中 17 个带标题投影。29 个未知即侧栏历史空白残留主体（v3 投影缓存被 v4 拒认 → 元数据缺失 → 按参考语义保持可见）。
+- GUI 冒烟（模拟模式，PowerShell UIA，15/15 通过）：初始列表无"新对话"行；顶部新建后空白流程选择器与工作区 chips 出现、选中空白行保留且有真实 SessionId；切换无候选工作区创建新会话、草稿随切换转移；切回复用同一空白会话（SessionId 回到原值，不新建）；已开始会话不显示选择器、切换到历史会话不带入草稿；顶部新建复用已有空白会话。
+- `dotnet publish -c Release -r win-x64 --self-contained true`（Native AOT）：0 警告 0 错误；产物模拟模式启动冒烟稳定运行后正常退出，无遗留进程。
+- 未验证：断线重连场景下三态台账与列表基线重建的窗口级表现（VM 层由刷新合并覆盖，连接层语义与既有重连机制一致）；「继续无工作区」与失败路径的窗口内人工复验（VM 层测试覆盖）；macOS/Linux。
+
+### 勘误：历史未知空白会话的核实结论（2026-09-28 修订）
+
+此前结论"彻底隐藏需要后端补算 `sessionListMetadata`"**不成立**：后端已提供现成的只读 `session/projections` 接口（`SessionController.projections`，经 `sessionQuery.observeSession` 读取并计算完整投影，冷会话走 `hydratePrepared`，不激活 Agent、不发起模型请求、不持久化投影缓存；会话不存在时 result 为 null；接口不可用时返回 `session/projections-unavailable`）。桌面端后台逐会话调用该接口即可核实历史 Unknown，无需独立缓存补算脚本（原 `scripts/backfill-session-list-metadata.ts` 提案**本次不采用**，不再是本问题的必需步骤），也不修改后端、不写用户会话存储。残留根因判断（v3 投影缓存被拒认 → 冷读 miss → 列表缺元数据 → Unknown 可见）仍然有效，但处理方式由"后端补缓存"改为"客户端只读核实"。
+
+### 阶段 3 历史未知会话核实验证记录（Windows 11 x64，2026-09-28）
+
+- 协议核实：runtime 编译产物（`@deepseek-ai/dsh-api-session-controller/lib/typert.host.js`）确认 `session/projections` 已注册，参数名为 `request`（与桌面端 RPC 包装默认一致），result 为 `null | {asOfSeq, values}` 联合，错误码 `session/projections-unavailable` 存在；与参考源码一致。
+- `dotnet build DshDesktop.slnx`：0 警告、0 错误。
+- `dotnet test`：118 通过、0 失败（新增 `SessionBlankVerificationTests` 15 例：确认空白后保留目录与复用、blank=false 转已开始、null/缺字段/格式错误/超时/RPC 失败不误隐藏且同代不重复扫描、列表刷新不撤销核实结果、并发上限 2 与在途合并、发送后迟到空白不隐藏、重连旧响应作废并新代重验、其他客户端活动使空白结论失效、核实期活动作废重验、退避与每代尝试上限、接口不支持全局停用、删除/消失清理、行内元数据布尔判定、wire 往返与 null 语义），5 轮重复运行稳定。
+- `DSH_E2E_RUNTIME_DIR=<开发 runtime> dotnet test`（隔离 home，无模型凭据）：`ProjectionsProtocolAndColdCacheMissRoundTripOnRealHost` 通过——真实 RPC 往返（空白会话投影 `asOfSeq=2 blank=true lastPromptAt=null`；prompt 样本折叠后 `blank=false lastPromptAt` 非空，证明 prompt 触发 agent 尝试即 turn/start）；不存在会话 result 为 null；重复查询后会话数与消息数不变（只读，不创建 Agent、不改日志）。删除两个会话的 `session_projcache` 缓存文档复现历史残留形态，重启 Host 后 list 均为 Unknown，服务层后台核实（只读 projections）将其分别转为确认空白（隐藏、保留复用）与已开始。
+- 真实共享 home 只读核实（`DSH_E2E_REAL_HOME=1`）：核实前 46 会话 = 确认空白 9 + 已开始 9 + 未知 28；对 28 个未知逐个只读调 `session/projections`：确认空白 11、已开始（blank=false）17、不判定 0、失败 0——核实后该批 Unknown 降为 0（结论在客户端内存，未写任何存储或缓存）。历史残留问题在此真实数据集上被完整消除。
+- 连续 3 轮全量 `dotnet test`（含真实 Host E2E）通过。
+- `dotnet publish -c Release -r win-x64 --self-contained true`（Native AOT）：0 警告 0 错误；产物模拟模式启动冒烟稳定运行后正常退出，无遗留进程。
+- 未验证：窗口级 GUI 复验（Avalonia 窗口 UIA 自动化在本环境不可用——历史记录无法连接窗口树；隔离 home 无历史残留样本、共享 home 存在与日常客户端的 Host 争用风险，均不适合自动化窗口验证）；核实完成前的短暂窗口内 Unknown→隐藏的过渡动画表现；macOS/Linux。
 
 验收：会话、工具、审批和用户问题能够完整往返；恢复连接不导致重复发送；长会话保持可用。
 
@@ -148,10 +186,10 @@ Host 适配层候选方案：独立 Node launcher 通过 Node IPC 管理原 Host
 
 任务：
 
-- [ ] 工作区选择、最近工作区及原生目录选择器。
+- [ ] 工作区选择、最近工作区及原生目录选择器（2026-09-29 部分完成：新对话草稿页的工作区下拉（含显式「不使用工作区」）已随草稿页落地，见阶段 3 记录；原"最近工作区目标解析"已随草稿页收束移除；剩余：原生目录选择器登记新工作区与工作区管理界面）。
 - [ ] 模型配置、必要权限设置和后端能力展示。
 - [ ] 附件上传与基础展示。
-- [ ] 桌面偏好保存、日志诊断以及与普通设置分离的凭据处理。
+- [ ] 桌面偏好保存、日志诊断以及与普通设置分离的凭据处理（新对话草稿的跨重启恢复依赖本条设置设施；2026-09-29 范围修正明确暂不做，进程内草稿已落地）。
 - [ ] 对不支持的插件界面或后端能力给出明确状态。
 
 验收：形成可日常使用的 Windows 版本，设置在重启后正确恢复，敏感信息不进入普通日志或普通偏好文件。

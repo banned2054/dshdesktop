@@ -1,11 +1,13 @@
 using Avalonia;
 using DshDesktop.Core.Models;
 using DshDesktop.Core.Services;
+using DshDesktop.Harness.Exceptions;
 using DshDesktop.Infrastructure.Services;
 using DshDesktop.Presentation.Views;
 using DshDesktop.ViewModels;
 using System.Collections.Specialized;
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using System.Threading.Channels;
 using Xunit;
 using Xunit.Abstractions;
@@ -331,9 +333,15 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         // 默认选中的长会话有计费步：统计条可见。
         await WaitUntilAsync(() => viewModel.Composer.HasStatsData);
 
-        // 新建空会话：follow 快照会回填全 0 的 usage/stats 整值（对齐真实后端冷会话
-        // 携带投影 wire 视图的口径），统计条保持隐藏，不显示占位「—」。
+        // 首发送经新对话草稿页进入新会话：无工作区环境显式选择「不使用工作区」后发送。
+        // follow 快照会回填全 0 的 usage/stats 整值（对齐真实后端冷会话携带投影 wire
+        // 视图的口径），统计条保持隐藏，不显示占位「—」。
         viewModel.Sidebar.NewSessionCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
+        viewModel.SelectWorkspaceCommand.Execute(
+            viewModel.WorkspaceOptions.Single(option => option.IsWithoutWorkspace));
+        viewModel.Composer.DraftMessage = "第一条消息";
+        viewModel.SendDraftCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.SelectedSession is { Id: not "session-history" });
         // 等待零值基线本身：仅判非 null 可能命中上一会话尚未清空的旧值（短暂可见性窗口）。
         await WaitOrDumpAsync(viewModel,
@@ -347,9 +355,16 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         await WaitUntilAsync(() => viewModel.Composer.HasStatsData);
         Assert.False(viewModel.HasError);
 
-        // 再切到另一个空会话：按会话重置后重新隐藏。
+        // 再次经草稿页首发送进入另一个空会话：按会话重置后重新隐藏。
         viewModel.Sidebar.NewSessionCommand.Execute(null);
-        await WaitUntilAsync(() => viewModel.SelectedSession!.Id != blankSessionId);
+        await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
+        viewModel.SelectWorkspaceCommand.Execute(
+            viewModel.WorkspaceOptions.Single(option => option.IsWithoutWorkspace));
+        viewModel.Composer.DraftMessage = "第二条消息";
+        viewModel.SendDraftCommand.Execute(null);
+        await WaitOrDumpAsync(viewModel,
+                              () => viewModel.SelectedSession is { Id: not "session-history" }
+                                 && viewModel.SelectedSession.Id != blankSessionId, 5000);
         await WaitOrDumpAsync(viewModel,
                               () => viewModel.Composer is
                                   { Usage : { OutputTokens: 0, UncachedInputTokens: 0 }, Stats.Steps: 0 }, 5000);
@@ -511,9 +526,14 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         }
 
         public Task<SessionSummary> CreateSessionAsync(
-            string? workspaceId = null, CancellationToken cancellationToken = default)
+            string? workspaceId = null, string? sessionId = null, CancellationToken cancellationToken = default)
         {
-            return _inner.CreateSessionAsync(workspaceId, cancellationToken);
+            return _inner.CreateSessionAsync(workspaceId, sessionId, cancellationToken);
+        }
+
+        public void MarkSessionEngaged(string sessionId)
+        {
+            _inner.MarkSessionEngaged(sessionId);
         }
 
         public Task<ModelCatalog> GetModelCatalogAsync(CancellationToken cancellationToken = default)
@@ -920,7 +940,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task NewSessionAppearsUnderUngroupedAndStaysSelected()
+    public async Task FirstSendFromDraftPageAppearsUnderUngroupedAndStaysSelected()
     {
         var workspaces = new StaticWorkspaceService([
             new WorkspaceSummary("ws-main", "主工作区", "C:/Code/Main", ["session-native"], DateTimeOffset.Now)
@@ -931,15 +951,24 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         await WaitUntilAsync(() => viewModel.Sidebar.Sessions.Count > 0);
         viewModel.Sidebar.SessionListModeIndex = 1;
 
-        var previous = viewModel.SelectedSession;
+        // 顶部新建进入草稿页（不产生会话行）；显式选择「不使用工作区」并首发送后，
+        // 新会话落入未分组顶部且实例即当前选中。
         viewModel.Sidebar.NewSessionCommand.Execute(null);
-        await WaitUntilAsync(() => !ReferenceEquals(viewModel.SelectedSession, previous));
+        await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
+        Assert.DoesNotContain(viewModel.Sidebar.SessionRows.OfType<SessionItemViewModel>(),
+                              session => session.BlankState == SessionBlankState.ConfirmedBlank
+                                      && !session.IsCurrent);
+        viewModel.SelectWorkspaceCommand.Execute(
+            viewModel.WorkspaceOptions.Single(option => option.IsWithoutWorkspace));
+        viewModel.Composer.DraftMessage = "未分组新会话的第一条消息";
+        viewModel.SendDraftCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.SelectedSession is { Id: not "session-native" }
+                                && viewModel.SelectedSession.BlankState == SessionBlankState.Engaged);
 
         var ungroupedHeader = viewModel.Sidebar.SessionRows.OfType<SessionGroupHeaderViewModel>()
                                        .Single(header => header.Key == "$ungrouped");
         var firstUngrouped = viewModel.Sidebar.SessionRows.OfType<SessionItemViewModel>()
                                       .First(session => session.Id == viewModel.SelectedSession!.Id);
-        // 新会话位于未分组顶部（最新更新时间），且实例即当前选中。
         Assert.Same(viewModel.SelectedSession, firstUngrouped);
         Assert.Equal(0, viewModel.Sidebar.SessionRows.IndexOf(firstUngrouped)  -
                         viewModel.Sidebar.SessionRows.IndexOf(ungroupedHeader) - 1);
@@ -1009,7 +1038,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task SessionListHidesHistoricalBlankSessionsButKeepsSelectedBlankUntilFirstPrompt()
+    public async Task NewConversationPageCreatesSessionOnlyOnFirstSend()
     {
         var sessionService = new SimulatedSessionService();
         var viewModel = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(),
@@ -1020,43 +1049,569 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         var historicalBlank = await sessionService.CreateSessionAsync();
         await WaitUntilAsync(() => viewModel.Sidebar.Sessions.All(session => session.Id != historicalBlank.Id));
 
+        // 顶部新建进入新对话草稿页：不创建会话、不产生侧栏行；「不使用工作区」为显式兼容项。
+        var createsBefore     = sessionService.CreatedSessionCount;
         var previousSelection = viewModel.SelectedSession;
         viewModel.Sidebar.NewSessionCommand.Execute(null);
-        await WaitUntilAsync(() => !ReferenceEquals(viewModel.SelectedSession, previousSelection));
-        var currentBlank = viewModel.SelectedSession!;
-        Assert.Contains(viewModel.Sidebar.Sessions, session => session.Id == currentBlank.Id);
+        await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
+        Assert.Equal(createsBefore, sessionService.CreatedSessionCount);
+        viewModel.SelectWorkspaceCommand.Execute(
+            viewModel.WorkspaceOptions.Single(option => option.IsWithoutWorkspace));
+        viewModel.Composer.DraftMessage = "第一条消息";
+        viewModel.SendDraftCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.SelectedSession is not null
+                                && !ReferenceEquals(viewModel.SelectedSession, previousSelection));
+        Assert.Equal(createsBefore + 1, sessionService.CreatedSessionCount);
+        var current = viewModel.SelectedSession!;
+        Assert.Contains(viewModel.Sidebar.Sessions, session => session.Id == current.Id);
+        Assert.Equal(SessionBlankState.Engaged, current.BlankState);
 
-        await sessionService.SendPromptAsync(currentBlank.Id, "first-request", "第一条消息");
-        await WaitUntilAsync(() => viewModel.Sidebar.Sessions.Any(session => session.Id == currentBlank.Id));
-
-        var currentSummary = (await sessionService.GetSessionsAsync()).Single(summary => summary.Id == currentBlank.Id);
-        Assert.False(currentSummary.Blank);
+        var currentSummary = (await sessionService.GetSessionsAsync()).Single(summary => summary.Id == current.Id);
+        Assert.Equal(SessionBlankState.Engaged, currentSummary.BlankState);
 
         await viewModel.DisposeAsync();
     }
 
     [Fact]
-    public async Task DeselectingBlankSessionRemovesItsRowWithoutWaitingForRefresh()
+    public async Task DraftPageWorkspaceSelectionIsLocalOnlyAndDoesNotCreate()
+    {
+        var workspaces = new StaticWorkspaceService([
+            new WorkspaceSummary("ws-1", "工作区一", "C:/Code/WS1", ["blank-a"], DateTimeOffset.Now)
+        ]);
+        var sessionService = new AdoptionSessionService();
+        sessionService.SeedBlankSession("blank-a", "C:/Code/WS1");
+        var viewModel = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
+        await viewModel.InitializeAsync();
+        await WaitUntilAsync(() => viewModel.WorkspaceOptions.Any(option => option.Id == "ws-1"));
+        viewModel.Sidebar.NewSessionCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
+
+        // 下拉点选只改本地草稿预选：不调用 session/create、不收养空白会话、不导航、
+        // 不产生侧栏行；可随时改选（含显式「不使用工作区」）。
+        var createsBefore = sessionService.CreatedSessionCount;
+        viewModel.SelectWorkspaceCommand.Execute(viewModel.WorkspaceOptions.Single(option => option.Id == "ws-1"));
+        Assert.Equal("工作区一", viewModel.WorkspacePickerLabel);
+        viewModel.Composer.DraftMessage = "未发送的草稿";
+        await WaitUntilAsync(() => viewModel.CanSendDraft);
+        Assert.Equal(createsBefore, sessionService.CreatedSessionCount);
+        Assert.Empty(sessionService.CreateRequests);
+        Assert.True(viewModel.ShowNewConversationPage);
+        Assert.DoesNotContain(viewModel.Sidebar.Sessions, session => session.Id == "blank-a");
+
+        viewModel.SelectWorkspaceCommand.Execute(
+            viewModel.WorkspaceOptions.Single(option => option.IsWithoutWorkspace));
+        Assert.Equal("不使用工作区", viewModel.WorkspacePickerLabel);
+        Assert.True(viewModel.CanSendDraft);
+        Assert.Equal(createsBefore, sessionService.CreatedSessionCount);
+
+        await viewModel.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task GroupHeaderPlusEntersDraftPageWithWorkspacePreselected()
+    {
+        var workspaces = new StaticWorkspaceService([
+            new WorkspaceSummary("ws-2", "工作区二", "C:/Code/WS2", [], DateTimeOffset.Now)
+        ]);
+        var sessionService = new AdoptionSessionService();
+        var viewModel = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
+        await viewModel.InitializeAsync();
+        await WaitUntilAsync(() => viewModel.SelectedSession is not null);
+
+        // 工作区组头「+」：进入同一张新对话草稿页并把预选工作区改为对应工作区；
+        // 不调用 session/create、不产生侧栏会话行。
+        var createsBefore = sessionService.CreatedSessionCount;
+        var header = viewModel.Sidebar.SessionRows.OfType<SessionGroupHeaderViewModel>()
+                              .Single(item => item.Key == "ws-2");
+        viewModel.Sidebar.CreateWorkspaceSessionCommand.Execute(header);
+        await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
+        Assert.Equal("工作区二", viewModel.WorkspacePickerLabel);
+        Assert.Equal(createsBefore, sessionService.CreatedSessionCount);
+        Assert.Empty(sessionService.CreateRequests);
+        viewModel.Composer.DraftMessage = "草稿文本";
+        Assert.True(viewModel.CanSendDraft);
+
+        await viewModel.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task FirstSendCreatesSessionAppliesPreselectedModelAndShowsRow()
+    {
+        var workspaces = new StaticWorkspaceService([
+            new WorkspaceSummary("ws-1", "工作区一", "C:/Code/WS1", [], DateTimeOffset.Now)
+        ]);
+        var sessionService = new AdoptionSessionService(workspaces.AddSession);
+        var viewModel = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
+        await viewModel.InitializeAsync();
+        await WaitUntilAsync(() => viewModel.Composer.ModelOptions.Count > 0);
+        viewModel.Sidebar.NewSessionCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
+
+        // 草稿页本地预选模型（无 SessionId、不发 RPC），选型即时反映在下拉显示中。
+        viewModel.SelectWorkspaceCommand.Execute(viewModel.WorkspaceOptions.Single(option => option.Id == "ws-1"));
+        viewModel.Composer.SelectedModelOption =
+            viewModel.Composer.ModelOptions.Single(option => option.Model == "alt-chat");
+        Assert.Equal(new ModelSelection("sim-alt", "alt-chat"), viewModel.Composer.CurrentModel);
+        Assert.Empty(sessionService.ModelSelectionRequests);
+
+        viewModel.Composer.DraftMessage = "首条消息";
+        viewModel.SendDraftCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.SelectedSession is { BlankState: SessionBlankState.Engaged });
+        var created = viewModel.SelectedSession!;
+
+        // 创建携带工作区归属、无收养 id；预选模型在创建后对该 SessionId 应用；
+        // 后端接受首条消息后才出现侧栏行（已开始），输入文本清空。
+        var (workspaceId, adoptId) = Assert.Single(sessionService.CreateRequests);
+        Assert.Equal("ws-1", workspaceId);
+        Assert.Null(adoptId);
+        Assert.Equal(new[] { created.Id }, sessionService.ModelSelectionRequests);
+        Assert.Contains(viewModel.Sidebar.Sessions, session => session.Id == created.Id);
+        Assert.False(viewModel.HasError);
+        Assert.Equal(string.Empty, viewModel.Composer.DraftMessage);
+
+        // 插入行后按工作区记账核对分组：新会话落在 ws-1 组内（默认分组视图）。
+        var groupedRows = viewModel.Sidebar.SessionRows;
+        var headerIndex = groupedRows.IndexOf(groupedRows.OfType<SessionGroupHeaderViewModel>()
+                                                        .Single(header => header.Key == "ws-1"));
+        var rowIndex = groupedRows.IndexOf(groupedRows.OfType<SessionItemViewModel>()
+                                                  .Single(session => session.Id == created.Id));
+        Assert.True(headerIndex >= 0 && rowIndex == headerIndex + 1);
+
+        await viewModel.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task DraftSendCreateFailureKeepsDraftAndSelections()
+    {
+        var workspaces = new StaticWorkspaceService([
+            new WorkspaceSummary("ws-1", "工作区一", "C:/Code/WS1", [], DateTimeOffset.Now)
+        ]);
+        var sessionService = new AdoptionSessionService();
+        sessionService.EnqueueCreateError(new HarnessRpcException("session/conflict", "创建失败（模拟）"));
+        var viewModel = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
+        await viewModel.InitializeAsync();
+        await WaitUntilAsync(() => viewModel.SelectedSession is not null);
+        viewModel.Sidebar.NewSessionCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
+        viewModel.SelectWorkspaceCommand.Execute(viewModel.WorkspaceOptions.Single(option => option.Id == "ws-1"));
+        viewModel.Composer.DraftMessage = "失败保留草稿";
+        var rowsBefore = viewModel.Sidebar.Sessions.Count;
+
+        // 创建失败：文本与预选保留、停留草稿页、无新侧栏行。
+        viewModel.SendDraftCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.HasError);
+        Assert.Null(viewModel.SelectedSession);
+        Assert.True(viewModel.ShowNewConversationPage);
+        Assert.True(viewModel.CanSendDraft);
+        Assert.Equal("失败保留草稿", viewModel.Composer.DraftMessage);
+        Assert.Equal("工作区一", viewModel.WorkspacePickerLabel);
+        Assert.Equal(rowsBefore, viewModel.Sidebar.Sessions.Count);
+        Assert.Single(sessionService.CreateRequests);
+
+        // 重试按同一草稿再次创建（恰好一次成功），后端接受后进入普通会话。
+        viewModel.SendDraftCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.SelectedSession is { BlankState: SessionBlankState.Engaged });
+        Assert.Equal(1, sessionService.CreatedSessionCount);
+        Assert.Equal(2, sessionService.CreateRequests.Count);
+        Assert.False(viewModel.HasError);
+
+        await viewModel.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task WorkspaceAttachFailureKeepsPendingSessionIdAndRetryReusesIt()
+    {
+        var workspaces = new StaticWorkspaceService([
+            new WorkspaceSummary("ws-2", "工作区二", "C:/Code/WS2", [], DateTimeOffset.Now)
+        ]);
+        var sessionService = new AdoptionSessionService();
+        // 会话本体已创建（错误 details 携带 sessionId）：种子该会话供后续发送命中。
+        sessionService.SeedBlankSession("created-9", null);
+        sessionService.EnqueueCreateError(new HarnessRpcException(
+                                             "session/workspace-attach-failed", "工作区挂接失败（模拟）",
+                                             JsonDocument.Parse("""{"sessionId":"created-9"}""").RootElement.Clone()));
+        var viewModel = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
+        await viewModel.InitializeAsync();
+        await WaitUntilAsync(() => viewModel.SelectedSession is not null);
+        viewModel.Sidebar.NewSessionCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
+        viewModel.SelectWorkspaceCommand.Execute(viewModel.WorkspaceOptions.Single(option => option.Id == "ws-2"));
+        viewModel.Composer.DraftMessage = "首条消息";
+
+        viewModel.SendDraftCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.HasError);
+        Assert.Contains("工作区关联失败", viewModel.ErrorText, StringComparison.Ordinal);
+        // 保留已知 id：不导航、不重试创建，草稿文本保留。
+        Assert.True(viewModel.ShowNewConversationPage);
+        Assert.Null(viewModel.SelectedSession);
+        Assert.Equal("首条消息", viewModel.Composer.DraftMessage);
+        Assert.Single(sessionService.CreateRequests);
+
+        // 重试复用同一 SessionId（不再重复创建），发送成功后进入普通会话。
+        viewModel.SendDraftCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.SelectedSession?.Id == "created-9");
+        Assert.Equal(SessionBlankState.Engaged, viewModel.SelectedSession!.BlankState);
+        Assert.Single(sessionService.CreateRequests);
+        Assert.False(viewModel.HasError);
+
+        await viewModel.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task LateDraftSendCompletionDoesNotStealNavigation()
+    {
+        var workspaces = new StaticWorkspaceService([
+            new WorkspaceSummary("ws-2", "工作区二", "C:/Code/WS2", [], DateTimeOffset.Now)
+        ]);
+        var sessionService = new AdoptionSessionService();
+        var viewModel = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
+        await viewModel.InitializeAsync();
+        await WaitUntilAsync(() => viewModel.SelectedSession is not null);
+        var selectedBefore = viewModel.SelectedSession!;
+        viewModel.Sidebar.NewSessionCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
+        viewModel.SelectWorkspaceCommand.Execute(viewModel.WorkspaceOptions.Single(option => option.Id == "ws-2"));
+        viewModel.Composer.DraftMessage = "用户草稿";
+        var knownIds = viewModel.Sidebar.Sessions.Select(session => session.Id).ToHashSet();
+
+        // 挂起创建后用户切回历史会话：迟到的首发送结果不抢回界面、不动其他会话的草稿；
+        // 消息已发出，草稿页文本被消费，新会话以已开始状态进入侧栏。
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        sessionService.BlockNextCreate = gate;
+        viewModel.SendDraftCommand.Execute(null);
+        await WaitUntilAsync(() => sessionService.CreateRequests.Count == 1);
+        viewModel.Sidebar.SelectSessionCommand.Execute(selectedBefore);
+        gate.TrySetResult();
+        // 等待首发送编排与一次列表合并刷新完全落定（400ms 合并窗 + 余量）。
+        await Task.Delay(900);
+        Assert.Same(selectedBefore, viewModel.SelectedSession);
+        Assert.False(viewModel.HasError);
+        var lateRow = viewModel.Sidebar.Sessions.FirstOrDefault(session => !knownIds.Contains(session.Id));
+        Assert.NotNull(lateRow);
+        Assert.Equal(SessionBlankState.Engaged, lateRow!.BlankState);
+        // 草稿已被消费：重新进入草稿页不再有未发送文本，也不复用已发送内容。
+        viewModel.Sidebar.NewSessionCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
+        Assert.Equal(string.Empty, viewModel.Composer.DraftMessage);
+
+        await viewModel.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task DraftSelectionsAndTextPersistAcrossSessionSwitches()
+    {
+        var workspaces = new StaticWorkspaceService([
+            new WorkspaceSummary("ws-1", "工作区一", "C:/Code/WS1", [], DateTimeOffset.Now)
+        ]);
+        var sessionService = new AdoptionSessionService();
+        var viewModel = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
+        await viewModel.InitializeAsync();
+        await WaitUntilAsync(() => viewModel.Composer.ModelOptions.Count > 0);
+        var selectedBefore = viewModel.SelectedSession;
+        viewModel.Sidebar.NewSessionCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
+
+        // 草稿页填写文本、预选工作区与模型：全部只记本地草稿，无任何 RPC。
+        viewModel.Composer.DraftMessage = "新对话草稿";
+        viewModel.SelectWorkspaceCommand.Execute(viewModel.WorkspaceOptions.Single(option => option.Id == "ws-1"));
+        viewModel.Composer.SelectedModelOption =
+            viewModel.Composer.ModelOptions.Single(option => option.Model == "alt-chat");
+        var createsBefore = sessionService.CreatedSessionCount;
+        Assert.Empty(sessionService.CreateRequests);
+
+        // 切到旧会话再返回：文本、预选工作区与预选模型都恢复；已有会话各自草稿不受影响。
+        viewModel.Sidebar.SelectSessionCommand.Execute(selectedBefore);
+        await WaitUntilAsync(() => !viewModel.ShowNewConversationPage);
+        Assert.Equal(string.Empty, viewModel.Composer.DraftMessage);
+        viewModel.Sidebar.NewSessionCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
+        Assert.Equal("新对话草稿", viewModel.Composer.DraftMessage);
+        Assert.Equal("工作区一", viewModel.WorkspacePickerLabel);
+        Assert.Equal(new ModelSelection("sim-alt", "alt-chat"), viewModel.Composer.CurrentModel);
+        Assert.Equal(createsBefore, sessionService.CreatedSessionCount);
+
+        await viewModel.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task NewConversationPageVisibilityFollowsSelection()
+    {
+        var workspaces = new StaticWorkspaceService([
+            new WorkspaceSummary("ws-1", "工作区一", "C:/Code/WS1", ["blank-a"], DateTimeOffset.Now)
+        ]);
+        var sessionService = new AdoptionSessionService();
+        sessionService.SeedBlankSession("blank-a", "C:/Code/WS1");
+        var unknownId = "session-unknown-legacy";
+        sessionService.SessionsOverride = () =>
+        [
+            new SessionSummary(unknownId, null, DateTimeOffset.Now, false, SessionBlankState.Unknown),
+            .. sessionService.Snapshot()
+        ];
+        var viewModel = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
+        await viewModel.InitializeAsync();
+        await WaitUntilAsync(() => viewModel.SelectedSession is not null);
+
+        // 未知状态的历史会话（元数据缺失）：可见但绝不显示新对话草稿页。
+        Assert.Equal(unknownId, viewModel.SelectedSession!.Id);
+        Assert.Contains(viewModel.Sidebar.Sessions, session => session.Id == unknownId);
+        Assert.False(viewModel.ShowNewConversationPage);
+
+        // 顶部新建：进入草稿页（不创建会话）；工作区下拉含「不使用工作区」显式兼容项。
+        viewModel.Sidebar.NewSessionCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
+        Assert.Equal(0, sessionService.CreatedSessionCount);
+        Assert.Contains(viewModel.WorkspaceOptions, option => option.IsWithoutWorkspace);
+
+        // 选中任一会话：草稿页整体隐藏。
+        var anySession = viewModel.Sidebar.Sessions.First(session => session.Id != unknownId);
+        viewModel.Sidebar.SelectSessionCommand.Execute(anySession);
+        await WaitUntilAsync(() => !viewModel.ShowNewConversationPage);
+
+        await viewModel.DisposeAsync();
+    }
+
+    /// <summary>
+    ///     创建/收养可控桩：记录每次 session/create 请求（workspaceId, sessionId），可注入
+    ///     业务错误与阻塞门；会话列表可整体接管（SessionsOverride）。其余行为委托模拟实现。
+    [Fact]
+    public async Task ListRefreshKeepsIntentionalDraftPageInsteadOfFallingBack()
     {
         var sessionService = new SimulatedSessionService();
         var viewModel = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(),
                                                 new StaticWorkspaceService());
         await viewModel.InitializeAsync();
+        // 初始化默认选中仍由首次刷新完成（不受草稿页守卫影响）。
         await WaitUntilAsync(() => viewModel.SelectedSession is not null);
 
-        var previousSelection = viewModel.SelectedSession;
+        // 主动进入草稿页后，创建会话等触发的列表刷新（SessionsChanged → 400ms 合并）
+        // 不得把草稿页抢回旧会话；草稿文本保持。
         viewModel.Sidebar.NewSessionCommand.Execute(null);
-        await WaitUntilAsync(() => !ReferenceEquals(viewModel.SelectedSession, previousSelection));
-        var draft = viewModel.SelectedSession!;
-        Assert.Contains(viewModel.Sidebar.Sessions, session => session.Id == draft.Id);
+        await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
+        viewModel.Composer.DraftMessage = "草稿文本";
+        var created = await sessionService.CreateSessionAsync();
+        await Task.Delay(900);
+        Assert.Null(viewModel.SelectedSession);
+        Assert.True(viewModel.ShowNewConversationPage);
 
-        // 空闲模拟后端不会再有 SessionsChanged：取消选中必须就地移除草稿行，
-        // 否则空白会话以"新对话"常驻列表（真实后端空闲时同样没有兜底刷新）。
-        viewModel.Sidebar.SelectSessionCommand.Execute(previousSelection);
-        await WaitUntilAsync(() => viewModel.Sidebar.Sessions.All(session => session.Id != draft.Id));
-        Assert.Same(previousSelection, viewModel.SelectedSession);
+        // 手动点击行不受守卫影响；再进草稿页文本仍在。
+        viewModel.Sidebar.SelectSessionCommand.Execute(
+            viewModel.Sidebar.Sessions.First(session => session.Id != created.Id));
+        await WaitUntilAsync(() => !viewModel.ShowNewConversationPage);
+        viewModel.Sidebar.NewSessionCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
+        Assert.Equal("草稿文本", viewModel.Composer.DraftMessage);
 
         await viewModel.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task TargetChangeDuringFirstSendKeepsNewDraftAndSkipsStaleNavigation()
+    {
+        var workspaces = new StaticWorkspaceService([
+            new WorkspaceSummary("ws-1", "工作区一", "C:/Code/WS1", [], DateTimeOffset.Now),
+            new WorkspaceSummary("ws-2", "工作区二", "C:/Code/WS2", [], DateTimeOffset.Now.AddMinutes(-1))
+        ]);
+        var sessionService = new AdoptionSessionService();
+        var viewModel = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
+        await viewModel.InitializeAsync();
+        await WaitUntilAsync(() => viewModel.SelectedSession is not null);
+        viewModel.Sidebar.NewSessionCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
+        viewModel.SelectWorkspaceCommand.Execute(viewModel.WorkspaceOptions.Single(option => option.Id == "ws-1"));
+        viewModel.Composer.DraftMessage = "发送快照文本";
+        var knownIds = viewModel.Sidebar.Sessions.Select(session => session.Id).ToHashSet();
+
+        // 创建挂起期间把目标改到 ws-2：旧发送按快照继续（消息进入 ws-1 的会话），
+        // 完成后不抢回界面、不清空新目标草稿，迟到会话不记为待复用。
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        sessionService.BlockNextCreate = gate;
+        viewModel.SendDraftCommand.Execute(null);
+        await WaitUntilAsync(() => sessionService.CreateRequests.Count == 1);
+        viewModel.SelectWorkspaceCommand.Execute(viewModel.WorkspaceOptions.Single(option => option.Id == "ws-2"));
+        gate.TrySetResult();
+        await WaitOrDumpAsync(viewModel,
+                              () => viewModel.Sidebar.Sessions.Any(session =>
+                                        !knownIds.Contains(session.Id)
+                                     && session.BlankState == SessionBlankState.Engaged), 5000);
+        Assert.True(viewModel.ShowNewConversationPage);
+        Assert.Equal("工作区二", viewModel.WorkspacePickerLabel);
+        Assert.Equal("发送快照文本", viewModel.Composer.DraftMessage);
+        var staleRow = viewModel.Sidebar.Sessions.Single(session => !knownIds.Contains(session.Id));
+        Assert.Equal(SessionBlankState.Engaged, staleRow.BlankState);
+
+        // 迟到会话未记为待复用：按新目标重试会创建新会话（ws-2）并正常导航收束。
+        viewModel.SendDraftCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.SelectedSession is { BlankState: SessionBlankState.Engaged }
+                                && viewModel.SelectedSession.Id != staleRow.Id);
+        Assert.Equal(2, sessionService.CreatedSessionCount);
+        Assert.Equal(2, sessionService.CreateRequests.Count);
+        Assert.Equal("ws-2", sessionService.CreateRequests[1].WorkspaceId);
+        Assert.False(viewModel.HasError);
+
+        await viewModel.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task LateDraftSendDoesNotClearSwitchedSessionDraftWithIdenticalText()
+    {
+        var workspaces = new StaticWorkspaceService([
+            new WorkspaceSummary("ws-1", "工作区一", "C:/Code/WS1", [], DateTimeOffset.Now)
+        ]);
+        var sessionService = new AdoptionSessionService();
+        var viewModel = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
+        await viewModel.InitializeAsync();
+        await WaitUntilAsync(() => viewModel.SelectedSession is not null);
+        var otherSession = viewModel.SelectedSession!;
+        viewModel.Composer.DraftMessage = "相同文本";
+
+        viewModel.Sidebar.NewSessionCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
+        viewModel.SelectWorkspaceCommand.Execute(viewModel.WorkspaceOptions.Single(option => option.Id == "ws-1"));
+        viewModel.Composer.DraftMessage = "相同文本";
+        var knownIds = viewModel.Sidebar.Sessions.Select(session => session.Id).ToHashSet();
+
+        // 首发送挂起期间切回旧会话，且该会话草稿恰好与发送快照相同：
+        // 迟到的成功发送只消费原草稿缓存，不得清空旧会话自己的输入框文本。
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        sessionService.BlockNextCreate = gate;
+        viewModel.SendDraftCommand.Execute(null);
+        await WaitUntilAsync(() => sessionService.CreateRequests.Count == 1);
+        viewModel.Sidebar.SelectSessionCommand.Execute(otherSession);
+        gate.TrySetResult();
+        await Task.Delay(900);
+        Assert.Same(otherSession, viewModel.SelectedSession);
+        Assert.Equal("相同文本", viewModel.Composer.DraftMessage);
+        Assert.False(viewModel.HasError);
+        var lateRow = viewModel.Sidebar.Sessions.FirstOrDefault(session => !knownIds.Contains(session.Id));
+        Assert.NotNull(lateRow);
+        Assert.Equal(SessionBlankState.Engaged, lateRow!.BlankState);
+
+        // 原草稿缓存已消费：再进草稿页不再有未发送文本。
+        viewModel.Sidebar.NewSessionCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
+        Assert.Equal(string.Empty, viewModel.Composer.DraftMessage);
+
+        await viewModel.DisposeAsync();
+    }
+
+    /// <summary>
+    ///     创建/收养可控桩：记录每次 session/create 请求（workspaceId, sessionId），可注入
+    ///     业务错误与阻塞门；会话列表可整体接管（SessionsOverride）。其余行为委托模拟实现。
+    /// </summary>
+    private sealed class AdoptionSessionService : ISessionService
+    {
+        private readonly SimulatedSessionService _inner;
+
+        public AdoptionSessionService(Action<string, string>? onSessionCreatedInWorkspace = null)
+        {
+            _inner = new SimulatedSessionService(onSessionCreatedInWorkspace);
+        }
+
+        private readonly Queue<(Exception Error, bool OnlyForNewSession)> _createErrors = [];
+
+        /// <summary>下一次 create 阻塞到手动放行（并发合并与迟到结果测试用）。</summary>
+        public TaskCompletionSource? BlockNextCreate { get; set; }
+
+        public List<(string? WorkspaceId, string? SessionId)> CreateRequests { get; } = [];
+
+        public List<string> ModelSelectionRequests { get; } = [];
+
+        /// <summary>接管会话列表输出（未知状态会话测试用）；null 时走模拟实现。</summary>
+        public Func<IReadOnlyList<SessionSummary>>? SessionsOverride { get; set; }
+
+        public void SeedBlankSession(string sessionId, string? cwd) => _inner.SeedBlankSession(sessionId, cwd);
+
+        /// <summary>模拟实现的真实新建（非收养）计数。</summary>
+        public int CreatedSessionCount => _inner.CreatedSessionCount;
+
+        /// <summary>模拟实现当前目录快照（供 SessionsOverride 组合）。</summary>
+        public IReadOnlyList<SessionSummary> Snapshot() => _inner.GetSessionsAsync().Result;
+
+        /// <summary>
+        ///     注入一次 create 业务错误。onlyForNewSession 为 true 时只作用于新建调用
+        ///     （sessionId 为空），收养调用（复用候选）不受影响。
+        /// </summary>
+        public void EnqueueCreateError(Exception exception, bool onlyForNewSession = true)
+        {
+            _createErrors.Enqueue((exception, onlyForNewSession));
+        }
+
+        public event EventHandler? SessionsChanged
+        {
+            add => _inner.SessionsChanged += value;
+            remove => _inner.SessionsChanged -= value;
+        }
+
+        public async Task<IReadOnlyList<SessionSummary>> GetSessionsAsync(
+            CancellationToken cancellationToken = default)
+        {
+            if (SessionsOverride is { } @override) return @override();
+
+            return await _inner.GetSessionsAsync(cancellationToken);
+        }
+
+        public async Task<SessionSummary> CreateSessionAsync(
+            string? workspaceId = null, string? sessionId = null, CancellationToken cancellationToken = default)
+        {
+            CreateRequests.Add((workspaceId, sessionId));
+            if (BlockNextCreate is { } gate)
+            {
+                BlockNextCreate = null;
+                await gate.Task.WaitAsync(cancellationToken);
+            }
+
+            if (_createErrors.TryPeek(out var entry) && (!entry.OnlyForNewSession || sessionId is null))
+            {
+                _createErrors.Dequeue();
+                throw entry.Error;
+            }
+
+            return await _inner.CreateSessionAsync(workspaceId, sessionId, cancellationToken);
+        }
+
+        public void MarkSessionEngaged(string sessionId) => _inner.MarkSessionEngaged(sessionId);
+
+        public async Task<ModelSelection> SelectModelAsync(
+            string sessionId, string provider, string model,
+            string? reasoningEffort = null, CancellationToken cancellationToken = default)
+        {
+            ModelSelectionRequests.Add(sessionId);
+            return await _inner.SelectModelAsync(sessionId, provider, model, reasoningEffort, cancellationToken);
+        }
+
+        public Task<ModelCatalog> GetModelCatalogAsync(CancellationToken cancellationToken = default)
+        {
+            return _inner.GetModelCatalogAsync(cancellationToken);
+        }
+
+        public Task<IReadOnlyList<ConversationMessage>> GetMessagesAsync(
+            string sessionId, CancellationToken cancellationToken = default)
+        {
+            return _inner.GetMessagesAsync(sessionId, cancellationToken);
+        }
+
+        public Task<SessionHistoryPage> LoadOlderAsync(
+            string sessionId, long throughSeq, long beforeSeq, CancellationToken cancellationToken = default)
+        {
+            return _inner.LoadOlderAsync(sessionId, throughSeq, beforeSeq, cancellationToken);
+        }
+
+        public Task SendPromptAsync(
+            string sessionId, string requestId, string content, CancellationToken cancellationToken = default)
+        {
+            return _inner.SendPromptAsync(sessionId, requestId, content, cancellationToken);
+        }
+
+        public Task CancelAsync(string sessionId, CancellationToken cancellationToken = default)
+        {
+            return _inner.CancelAsync(sessionId, cancellationToken);
+        }
+
+        public IAsyncEnumerable<SessionUpdate> FollowSessionAsync(
+            string sessionId, CancellationToken cancellationToken = default)
+        {
+            return _inner.FollowSessionAsync(sessionId, cancellationToken);
+        }
     }
 
     private static void EnsureAvaloniaPlatform()
@@ -1099,10 +1654,12 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         }
     }
 
-    /// <summary>可控工作区桩：静态集合 + 手动触发变更事件。</summary>
+    /// <summary>可控工作区桩：静态集合 + 手动触发变更事件；AddSession 模拟创建记账回流。</summary>
     private sealed class StaticWorkspaceService(IReadOnlyList<WorkspaceSummary>? items = null) : IWorkspaceService
     {
         private IReadOnlyList<WorkspaceSummary> _items = items ?? [];
+
+        public IReadOnlySet<string> ArchivedSessionIds { get; private set; } = new HashSet<string>();
 
         public event EventHandler? WorkspacesChanged;
 
@@ -1112,9 +1669,23 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
             return Task.FromResult(_items);
         }
 
+        /// <summary>模拟创建后的工作区记账（对齐 SimulatedWorkspaceService.AddSession 语义）。</summary>
+        public void AddSession(string workspaceId, string sessionId)
+        {
+            _items = _items.Select(workspace => workspace.Id == workspaceId
+                ? workspace with { SessionIds = [.. workspace.SessionIds, sessionId] }
+                : workspace)
+                           .ToArray();
+        }
+
         public void Replace(IReadOnlyList<WorkspaceSummary> next)
         {
             _items = next;
+        }
+
+        public void ReplaceArchived(IReadOnlySet<string> archived)
+        {
+            ArchivedSessionIds = archived;
         }
 
         public void RaiseChanged()
@@ -1140,9 +1711,14 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         }
 
         public Task<SessionSummary> CreateSessionAsync(
-            string? workspaceId = null, CancellationToken cancellationToken = default)
+            string? workspaceId = null, string? sessionId = null, CancellationToken cancellationToken = default)
         {
-            return _inner.CreateSessionAsync(workspaceId, cancellationToken);
+            return _inner.CreateSessionAsync(workspaceId, sessionId, cancellationToken);
+        }
+
+        public void MarkSessionEngaged(string sessionId)
+        {
+            _inner.MarkSessionEngaged(sessionId);
         }
 
         public Task<ModelCatalog> GetModelCatalogAsync(CancellationToken cancellationToken = default)
@@ -1207,9 +1783,14 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         }
 
         public Task<SessionSummary> CreateSessionAsync(
-            string? workspaceId = null, CancellationToken cancellationToken = default)
+            string? workspaceId = null, string? sessionId = null, CancellationToken cancellationToken = default)
         {
-            return _inner.CreateSessionAsync(workspaceId, cancellationToken);
+            return _inner.CreateSessionAsync(workspaceId, sessionId, cancellationToken);
+        }
+
+        public void MarkSessionEngaged(string sessionId)
+        {
+            _inner.MarkSessionEngaged(sessionId);
         }
 
         public Task<ModelCatalog> GetModelCatalogAsync(CancellationToken cancellationToken = default)

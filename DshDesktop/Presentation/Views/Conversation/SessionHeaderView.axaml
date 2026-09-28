@@ -14,7 +14,8 @@
             BorderThickness="0,0,0,1">
         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="14">
             <StackPanel Spacing="3">
-                <TextBlock Text="{Binding SelectedSession.TitleText, FallbackValue=选择一个会话}"
+                <!-- 无选中会话即新对话草稿页：只显示标题占位，不显示任何会话 ID。 -->
+                <TextBlock Text="{Binding SelectedSession.TitleText, FallbackValue=新对话}"
                            Classes="heading" FontSize="18" TextTrimming="CharacterEllipsis" />
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <TextBlock Text="{Binding SelectedSession.Id}" Classes="caption" />

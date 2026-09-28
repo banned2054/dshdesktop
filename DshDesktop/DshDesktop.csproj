@@ -10,6 +10,10 @@
     <PublishAot>true</PublishAot>
     <TrimMode>partial</TrimMode>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- 旧空白流程视图（WorkspaceHeroView）已被 NewConversationView 取代：源文件按约定
+         原样保留在仓库，但不参与编译——其编译绑定指向已收束的空白流程状态，保留在
+         编译范围会让完整构建失败（AVLN2000，见阶段记录）。 -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);Presentation\Views\Conversation\WorkspaceHeroView.axaml;Presentation\Views\Conversation\WorkspaceHeroView.axaml.cs</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>

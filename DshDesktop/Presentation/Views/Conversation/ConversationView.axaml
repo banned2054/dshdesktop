@@ -16,7 +16,8 @@
         <conversation:SessionHeaderView Grid.Row="0" />
 
         <ScrollViewer Grid.Row="1" x:Name="MessagesScroll" VerticalScrollBarVisibility="Auto"
-                      HorizontalScrollBarVisibility="Disabled">
+                      HorizontalScrollBarVisibility="Disabled"
+                      IsVisible="{Binding !ShowNewConversationPage}">
             <!-- 留白属于被滚动内容的一部分：挂在 ScrollViewer 上时 presenter 的 Padding
                  不计入 extent，滚到底也会截掉一段（气泡底部不可达）。 -->
             <Border x:Name="MessagesContent" Padding="28,22">
@@ -82,6 +83,11 @@
             </Border>
         </ScrollViewer>
 
-        <conversation:ComposerView Grid.Row="2" Margin="28,14,28,16" />
+        <!-- 新对话草稿页：无选中会话时占满会话区（居中输入框 + 工作区下拉），
+             此时时间线与底部输入区隐藏；首发送被接受后切换到普通会话布局。 -->
+        <conversation:NewConversationView Grid.Row="1" />
+
+        <conversation:ComposerView Grid.Row="2" Margin="28,14,28,16"
+                                   IsVisible="{Binding !ShowNewConversationPage}" />
     </Grid>
 </UserControl>

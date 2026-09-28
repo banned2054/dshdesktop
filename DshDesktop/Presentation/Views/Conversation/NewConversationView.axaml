@@ -1,0 +1,122 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:DshDesktop.ViewModels"
+             xmlns:conversation="using:DshDesktop.Presentation.Views.Conversation"
+             x:Class="DshDesktop.Presentation.Views.Conversation.NewConversationView"
+             x:DataType="vm:MainWindowViewModel"
+             mc:Ignorable="d"
+             d:DesignHeight="480" d:DesignWidth="760">
+    <!-- 新对话草稿页：无选中会话时在可用区域内居中展示输入框；工作区下拉紧贴输入框
+         上缘（Codex 风格）。下拉与模型/推理等级选择只改本地草稿预选，不调用
+         session/create、不收养空白会话；首发送（SendDraftCommand）按预选创建会话，
+         后端接受首条消息后才进入普通会话。本页不显示会话 ID，也不在侧栏产生会话行。 -->
+    <Panel IsVisible="{Binding ShowNewConversationPage}">
+        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center"
+                    MaxWidth="720" Spacing="10">
+            <TextBlock Text="新对话" Classes="heading" FontSize="20" />
+            <!-- 工作区下拉：圆角按钮 + 下方弹出列表；未选择时文案即明确的选择状态。 -->
+            <Button x:Name="WorkspacePickerButton"
+                    Classes="workspace-picker"
+                    HorizontalAlignment="Stretch"
+                    Command="{Binding ToggleWorkspaceMenuCommand}"
+                    AutomationProperties.Name="{Binding WorkspacePickerLabel}"
+                    ToolTip.Tip="新对话归属的工作区">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                    <TextBlock Text="{Binding WorkspacePickerLabel}"
+                               HorizontalAlignment="Left"
+                               TextTrimming="CharacterEllipsis" />
+                    <Path Grid.Column="1"
+                          Data="M0,0 L4,4 L8,0"
+                          Width="8" Height="4"
+                          Stretch="None"
+                          Stroke="{Binding $parent[Button].Foreground}"
+                          StrokeThickness="1.6"
+                          VerticalAlignment="Center" />
+                </Grid>
+            </Button>
+            <Popup x:Name="WorkspacePickerPopup"
+                   PlacementTarget="{Binding #WorkspacePickerButton}"
+                   Placement="Bottom"
+                   VerticalOffset="4"
+                   IsOpen="{Binding IsWorkspaceMenuOpen, Mode=TwoWay}"
+                   IsLightDismissEnabled="True">
+                <Border Classes="popup-surface" Width="360" MaxHeight="380">
+                    <ScrollViewer>
+                        <ItemsControl ItemsSource="{Binding WorkspaceOptions}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:WorkspaceOptionViewModel">
+                                    <Button Classes="popup-item"
+                                            Classes.selected="{Binding IsSelected}"
+                                            Command="{Binding SelectCommand}">
+                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                            <StackPanel Spacing="1">
+                                                <TextBlock Text="{Binding TitleText}"
+                                                           TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Text="{Binding Path}" Classes="caption"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           IsVisible="{Binding !IsWithoutWorkspace}" />
+                                            </StackPanel>
+                                            <TextBlock Grid.Column="1" Classes="popup-check" Text="✓"
+                                                       VerticalAlignment="Center"
+                                                       IsVisible="{Binding IsSelected}" />
+                                        </Grid>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Border>
+            </Popup>
+            <!-- 输入卡片：与底部输入区同款面板；错误提示、模型预选与发送同基线。
+                 「不使用工作区」必须经下拉显式选择，发送按钮才可用。 -->
+            <Border x:Name="ComposerSurface" Classes="composer-panel">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="{Binding ErrorText}"
+                               IsVisible="{Binding HasError}"
+                               Foreground="{DynamicResource StatusErrorBrush}"
+                               TextWrapping="Wrap" />
+                    <TextBox x:Name="MessageInput"
+                             Classes="composer-input"
+                             AutomationProperties.Name="新对话输入框"
+                             Text="{Binding Composer.DraftMessage, Mode=TwoWay}"
+                             PlaceholderText="输入消息…"
+                             AcceptsReturn="True"
+                             TextWrapping="Wrap"
+                             ScrollViewer.VerticalScrollBarVisibility="Auto" />
+                    <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
+                        <Button Classes="composer-icon"
+                                IsEnabled="False"
+                                VerticalAlignment="Center"
+                                ToolTip.Tip="附件功能尚未接入">
+                            <Viewbox Width="15" Height="15">
+                                <Path Data="M12 5v14M5 12h14"
+                                      Stroke="{Binding $parent[Button].Foreground}"
+                                      StrokeThickness="2" />
+                            </Viewbox>
+                        </Button>
+                        <conversation:ModelPickerView Grid.Column="2" VerticalAlignment="Center"
+                                                      DataContext="{Binding Composer}" />
+                        <Button Grid.Column="3"
+                                Classes="composer-send"
+                                Command="{Binding SendDraftCommand}"
+                                AutomationProperties.Name="发送首条消息"
+                                ToolTip.Tip="发送">
+                            <Viewbox Width="16" Height="16">
+                                <Path Data="M12 19V5M5 12l7-7 7 7"
+                                      Stroke="{Binding $parent[Button].Foreground}"
+                                      StrokeThickness="2" />
+                            </Viewbox>
+                        </Button>
+                    </Grid>
+                </StackPanel>
+            </Border>
+            <TextBlock Text="正在创建会话并发送首条消息…"
+                       Classes="caption"
+                       Foreground="{DynamicResource TextMutedBrush}"
+                       HorizontalAlignment="Right"
+                       IsVisible="{Binding IsStartingConversation}" />
+        </StackPanel>
+    </Panel>
+</UserControl>

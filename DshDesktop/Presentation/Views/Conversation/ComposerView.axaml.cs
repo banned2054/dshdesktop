@@ -14,8 +14,6 @@ public partial class ComposerView : UserControl
         MessageInput.AddHandler(KeyDownEvent, OnMessageInputKeyDown, RoutingStrategies.Tunnel);
         MessageInput.GotFocus  += OnMessageInputGotFocus;
         MessageInput.LostFocus += OnMessageInputLostFocus;
-        // 轻量弹层关不掉 Esc 时的兜底：焦点在菜单行内时按 Esc 关闭模型菜单。
-        ModelPickerPopup.AddHandler(KeyDownEvent, OnModelPickerPopupKeyDown);
     }
 
     private void OnMessageInputKeyDown(object? sender, KeyEventArgs e)
@@ -30,14 +28,6 @@ public partial class ComposerView : UserControl
             e.Handled = true;
             viewModel.Composer.SendMessageCommand.Execute(null);
         }
-    }
-
-    private void OnModelPickerPopupKeyDown(object? sender, KeyEventArgs e)
-    {
-        if (e.Key != Key.Escape || DataContext is not MainWindowViewModel viewModel) return;
-
-        e.Handled = true;
-        viewModel.Composer.IsModelMenuOpen = false;
     }
 
     /// <summary>

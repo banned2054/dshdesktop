@@ -1,0 +1,53 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:DshDesktop.ViewModels"
+             x:Class="DshDesktop.Presentation.Views.Conversation.WorkspaceHeroView"
+             x:DataType="vm:MainWindowViewModel"
+             mc:Ignorable="d"
+             d:DesignHeight="220" d:DesignWidth="640">
+    <!-- 空白流程界面（对齐参考客户端 EmptyHero）：新会话尚未开始时展示工作区选择。
+         无 Session 时提供「继续无工作区」兼容入口；连接目标工作区期间整体禁用并提示；
+         已连接空白会话时选择器仍可见可用，会话开始后随 ShowWorkspaceHero 整体隐藏。 -->
+    <Panel IsVisible="{Binding ShowWorkspaceHero}">
+        <Border Classes="workspace-hero" VerticalAlignment="Center">
+            <StackPanel Spacing="14">
+                <TextBlock Text="新对话" Classes="heading" FontSize="20" />
+                <TextBlock Text="{Binding WorkspaceHeroHintText}"
+                           Foreground="{DynamicResource TextMutedBrush}"
+                           TextWrapping="Wrap" />
+                <ItemsControl ItemsSource="{Binding WorkspaceOptions}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <WrapPanel Orientation="Horizontal" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:WorkspaceOptionViewModel">
+                            <Button Classes="workspace-chip"
+                                    Margin="0,0,8,8"
+                                    Command="{Binding SelectCommand}"
+                                    CommandParameter="{Binding}"
+                                    AutomationProperties.Name="{Binding TitleText}"
+                                    ToolTip.Tip="{Binding Path}">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <TextBlock Text="{Binding TitleText}" />
+                                    <TextBlock Text="当前" Classes="caption"
+                                               IsVisible="{Binding IsCurrentWorkspace}"
+                                               VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <Button Classes="workspace-continue"
+                        HorizontalAlignment="Left"
+                        Content="继续，不使用工作区"
+                        IsVisible="{Binding ShowContinueWithoutWorkspace}"
+                        Command="{Binding ContinueWithoutWorkspaceCommand}"
+                        AutomationProperties.Name="继续，不使用工作区" />
+            </StackPanel>
+        </Border>
+    </Panel>
+</UserControl>

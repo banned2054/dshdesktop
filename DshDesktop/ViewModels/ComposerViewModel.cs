@@ -9,7 +9,9 @@ namespace DshDesktop.ViewModels;
 ///     底部输入区子视图模型：草稿编辑、发送/取消、模型选择与统计条。目标会话与后端连接状态是
 ///     外部推送的快照（由 MainWindowViewModel 在选中会话、运行状态与连接状态变化时同步），
 ///     本类不持有会话条目、不订阅后端事件；生效选型与统计整值由 root 转发的 follow 更新驱动，
-///     发送/取消/选型失败经回调上报给窗口级错误显示。
+///     发送/取消/选型失败经回调上报给窗口级错误显示。无选中会话时若 root 已置
+///     <see cref="SetDraftTarget" />，本类处于新对话草稿页模式：输入文本仍记于 DraftMessage，
+///     模型下拉仅做本地预选（回调交 root 记入草稿），发送由 root 的草稿编排命令承担。
 /// </summary>
 public sealed class ComposerViewModel : ObservableObject
 {
@@ -17,6 +19,12 @@ public sealed class ComposerViewModel : ObservableObject
 
     // 错误仍由 MainWindow 级共享 ErrorText 呈现：null 表示清除当前错误。
     private readonly Action<string?> _reportError;
+
+    // 发送被接受后的过渡信号（root 据此把会话标记为已开始，隐藏空白流程界面）。
+    private readonly Action? _onPromptAccepted;
+
+    // 新对话草稿页的本地预选模型（无 SessionId 时不发 RPC，root 记入草稿，创建后应用）。
+    private readonly Action<ModelSelection>? _onDraftModelChanged;
 
     private ModelSelection?       _currentModel;
     private ModelCatalog?         _modelCatalog;
@@ -31,6 +39,7 @@ public sealed class ComposerViewModel : ObservableObject
     private string  _draftMessage = string.Empty;
     private bool    _isBackendConnected;
     private bool    _isCancelling;
+    private bool    _isDraftTarget;
     private bool    _isModelMenuOpen;
     private bool    _isSelectingModel;
     private bool    _isSending;
@@ -40,10 +49,14 @@ public sealed class ComposerViewModel : ObservableObject
     // 模型/推理等级弹出菜单的两级页签；IsOpen 由 Popup 双向绑定。
     private ModelMenuPageKind _modelMenuPage = ModelMenuPageKind.Root;
 
-    public ComposerViewModel(ISessionService sessionService, Action<string?> reportError)
+    public ComposerViewModel(ISessionService sessionService, Action<string?> reportError,
+                             Action? onPromptAccepted = null,
+                             Action<ModelSelection>? onDraftModelChanged = null)
     {
-        _sessionService    = sessionService;
-        _reportError       = reportError;
+        _sessionService      = sessionService;
+        _reportError         = reportError;
+        _onPromptAccepted    = onPromptAccepted;
+        _onDraftModelChanged = onDraftModelChanged;
         SendMessageCommand = new AsyncRelayCommand(SendMessageAsync, CanSendMessage);
         CancelCommand      = new AsyncRelayCommand(CancelGenerationAsync, CanCancelGeneration);
         EffortOptions      = ReasoningEffortLevels.All
@@ -172,8 +185,9 @@ public sealed class ComposerViewModel : ObservableObject
 
     public bool IsEffortsMenuPage => _modelMenuPage == ModelMenuPageKind.Efforts;
 
-    /// <summary>下拉是否可用：目录已加载、有选中会话且后端已连接。</summary>
-    public bool IsModelPickerEnabled => ModelOptions.Count > 0 && SessionId is not null && IsBackendConnected;
+    /// <summary>下拉是否可用：目录已加载、后端已连接，且有选中会话或处于新对话草稿页。</summary>
+    public bool IsModelPickerEnabled => ModelOptions.Count > 0 && IsBackendConnected
+                                     && (SessionId is not null || _isDraftTarget);
 
     /// <summary>底栏按钮文案：生效模型名 + 当前推理等级；无生效选型时显示「模型」。</summary>
     public string ModelPickerLabel
@@ -288,16 +302,18 @@ public sealed class ComposerViewModel : ObservableObject
     private ModelSelection? EffectiveModel => _currentModel ?? _modelCatalog?.Default;
 
     /// <summary>
-    ///     选中会话变化时整体替换上下文；isRunning 取新会话当前的运行状态。会话身份变化时
-    ///     重置会话级选型并让下拉回退目录默认——必须在新会话 follow 启动前调用，否则清空
-    ///     动作会把随后（可能同步）到达的新会话快照选型抹掉。Usage/Stats 与其 seq 同属
-    ///     会话级状态一并清零，让新会话的首批整值（seq 从头计）可被正常接受。
+    ///     选中会话变化时整体替换上下文；isRunning 取新会话当前的运行状态，draft 装载该会话
+    ///     的草稿（按会话记账由 root 提供）。会话身份变化时重置会话级选型并让下拉回退目录
+    ///     默认——必须在新会话 follow 启动前调用，否则清空动作会把随后（可能同步）到达的
+    ///     新会话快照选型抹掉。Usage/Stats 与其 seq 同属会话级状态一并清零，让新会话的首批
+    ///     整值（seq 从头计）可被正常接受。
     /// </summary>
-    public void SetSession(string? sessionId, bool isRunning)
+    public void SetSession(string? sessionId, bool isRunning, string draft)
     {
         var sessionChanged = sessionId != SessionId;
-        SessionId        = sessionId;
-        IsSessionRunning = isRunning;
+        SessionId          = sessionId;
+        IsSessionRunning   = isRunning;
+        DraftMessage       = draft;
         if (!sessionChanged) return;
 
         IsModelMenuOpen = false;
@@ -314,6 +330,15 @@ public sealed class ComposerViewModel : ObservableObject
         IsSessionRunning = isRunning;
     }
 
+    /// <summary>
+    ///     新对话草稿页目标开关：无 SessionId 时仍允许模型下拉做本地预选（不发 RPC，
+    ///     选型经回调交 root 记入草稿，会话创建后再应用）；离开草稿页恢复会话语义。
+    /// </summary>
+    public void SetDraftTarget(bool isDraftTarget)
+    {
+        if (SetProperty(ref _isDraftTarget, isDraftTarget)) OnPropertyChanged(nameof(IsModelPickerEnabled));
+    }
+
     public void SetBackendConnected(bool connected)
     {
         IsBackendConnected = connected;
@@ -323,6 +348,13 @@ public sealed class ComposerViewModel : ObservableObject
     public void ApplyCurrentModel(ModelSelection? selection)
     {
         CurrentModel = selection;
+    }
+
+    /// <summary>草稿页本地预选：立即驱动显示与菜单勾选，并经回调交 root 记入草稿（不发 RPC）。</summary>
+    private void ApplyDraftModel(ModelSelection selection)
+    {
+        CurrentModel = selection;
+        _onDraftModelChanged?.Invoke(selection);
     }
 
     /// <summary>接收 root 转发的 usage 整值更新：乱序到达的旧 seq（重连竞态）直接忽略。</summary>
@@ -354,6 +386,15 @@ public sealed class ComposerViewModel : ObservableObject
     private async Task SelectEffortOptionAsync(EffortOptionViewModel option)
     {
         IsModelMenuOpen = false;
+        if (_isDraftTarget && SessionId is null)
+        {
+            // 草稿页本地预选档位：不发 RPC；当前无生效选型（如目录默认）时以目录默认为基底。
+            if (EffectiveModel is not { } baseModel) return;
+
+            ApplyDraftModel(baseModel with { ReasoningEffort = option.Value });
+            return;
+        }
+
         if (SessionId is null || _isSelectingModel || EffectiveModel is not { } effective) return;
 
         // 与当前生效档位相同：重复提交没有意义（回声权威，界面不会先于回声变化）。
@@ -379,6 +420,13 @@ public sealed class ComposerViewModel : ObservableObject
     {
         // 与当前生效选型（含档位）相同、无会话或已有选型在途：回退显示，不重复请求。
         // 失败回退读取当前生效选型而非请求时的值：在途请求跨会话完成时不会污染新会话显示。
+        if (_isDraftTarget && SessionId is null)
+        {
+            // 草稿页本地预选模型：不发 RPC，选型记入草稿，会话创建后由 root 应用。
+            ApplyDraftModel(new ModelSelection(option.Provider, option.Model, reasoningEffort));
+            return;
+        }
+
         if (SessionId is null || _isSelectingModel
                               || (EffectiveModel is { } effective && option.Matches(effective)
                                   && effective.ReasoningEffort == reasoningEffort))
@@ -564,6 +612,9 @@ public sealed class ComposerViewModel : ObservableObject
         try
         {
             await _sessionService.SendPromptAsync(SessionId, requestId, content);
+            // 对齐参考实现：发送被接受即本地清除空白（不等后端帧回流），会话在列表
+            // 过滤与空白流程界面中立即按"已开始"处理；被拒绝的发送保持空白资格。
+            _onPromptAccepted?.Invoke();
             // 请求完成时草稿若已被改动（发送期间继续输入），不清除新输入的内容。
             if (string.Equals(DraftMessage, draftAtSend, StringComparison.Ordinal)) DraftMessage = string.Empty;
         }

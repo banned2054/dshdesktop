@@ -51,4 +51,19 @@
     <Style Selector="Button.tool-toggle:pointerover">
         <Setter Property="Background" Value="{DynamicResource SessionHoverBrush}" />
     </Style>
+    <!-- 新对话草稿页的工作区下拉：紧贴输入框上缘的圆角下拉按钮（Codex 风格），
+         与输入卡片同宽；弹出列表行复用 PopupMenus 的 popup-item 样式。 -->
+    <Style Selector="Button.workspace-picker">
+        <Setter Property="Height" Value="36" />
+        <Setter Property="Padding" Value="14,0" />
+        <Setter Property="CornerRadius" Value="10" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="Background" Value="{DynamicResource PanelBackgroundBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource SubtleBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+    </Style>
+    <Style Selector="Button.workspace-picker:pointerover">
+        <Setter Property="Background" Value="{DynamicResource SessionHoverBrush}" />
+    </Style>
 </Styles>
