@@ -25,12 +25,26 @@ public sealed class HarnessSessionService : ISessionService
     /// <summary>创建会话后自动选用的模型（provider/model 形态）；未配置时不干预。</summary>
     private readonly (string Provider, string Model)? _preferredModel;
 
+    /// <summary>
+    ///     本端"已参与对话"台账（发送被接受等过渡信号）。进程内生效、可重建：
+    ///     目录合并时把台账会话强制为 Engaged，迟到的空白摘要不能使其退回空白；
+    ///     重连与重启后以后端重新验证的元数据为准。
+    /// </summary>
+    private readonly HashSet<string> _engagedSessionIds = [];
+
+    /// <summary>历史 Unknown 会话的后台空白核实（只读 session/projections）；核实结论的单一协调位置。</summary>
+    private readonly SessionBlankVerifier _verifier;
+
     public HarnessSessionService(HarnessConnection connection, (string Provider, string Model)? preferredModel = null)
     {
         _connection                 =  connection;
         _preferredModel             =  preferredModel;
+        _verifier                   =  new SessionBlankVerifier(ReadProjectionsAsync,
+                                                               sessionId => _engagedSessionIds.Contains(sessionId),
+                                                               RaiseSessionsChanged);
         _connection.SessionActivity += OnConnectionNotified;
-        _connection.ConnectionReset += OnConnectionNotified;
+        _connection.ConnectionReset += OnConnectionReset;
+        _connection.SessionActivityAddressed += OnSessionActivityAddressed;
     }
 
     public event EventHandler? SessionsChanged;
@@ -44,21 +58,48 @@ public sealed class HarnessSessionService : ISessionService
                                                   cancellationToken,
                                                   "_request")
                                      .ConfigureAwait(false);
-        return value.Items.Select(ToSummary)
-                    .OrderByDescending(summary => summary.UpdatedAt)
-                    .ToArray();
+        var rows = value.Items
+                        .Select(static wire =>
+                        {
+                            var (summary, listMetadata) = ToSummaryWithMetadata(wire);
+                            return new ListedSessionRow(summary, listMetadata);
+                        })
+                        .ToArray();
+        return _verifier.Resolve(rows)
+                        .OrderByDescending(summary => summary.UpdatedAt)
+                        .ToArray();
+    }
+
+    public void MarkSessionEngaged(string sessionId)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId)) return;
+
+        HashSet<string>? changed = null;
+        lock (_engagedSessionIds)
+        {
+            if (_engagedSessionIds.Add(sessionId)) changed = _engagedSessionIds;
+        }
+
+        if (changed is not null)
+        {
+            // 本端已参与：同步清除可能存在的空白核实结论，迟到的核实结果不得再隐藏它。
+            _verifier.OnSessionEngaged(sessionId);
+            RaiseSessionsChanged();
+        }
     }
 
     public async Task<SessionSummary> CreateSessionAsync(
-        string? workspaceId = null, CancellationToken cancellationToken = default)
+        string? workspaceId = null, string? sessionId = null, CancellationToken cancellationToken = default)
     {
         var value = await _connection.InvokeAsync("session/create",
-                                                  new SessionCreateRequest(workspaceId),
+                                                  new SessionCreateRequest(workspaceId, SessionId : sessionId),
                                                   HarnessJsonContext.Default.SessionCreateRequest,
                                                   HarnessJsonContext.Default.SessionCreateValue,
                                                   cancellationToken)
                                      .ConfigureAwait(false);
-        if (_preferredModel is { } preferred)
+        // 默认模型策略只作用于全新会话；收养（复用）必须沿用会话已有选型，
+        // 由 follow 快照的 modelSelection 回声提供，不得覆盖。
+        if (sessionId is null && _preferredModel is { } preferred)
             // 默认模型可能指向未配置凭据的提供方；显式选型保证新会话立即可用。
             await _connection.InvokeAsync("session/selectModel",
                                           new SessionSelectModelRequest(value.SessionId, preferred.Provider,
@@ -68,7 +109,10 @@ public sealed class HarnessSessionService : ISessionService
                                           cancellationToken)
                              .ConfigureAwait(false);
 
-        var summary = new SessionSummary(value.SessionId, null, DateTimeOffset.Now, false, true);
+        // 收养返回时不能伪造空白/标题：以未知状态占位，真实状态由随后的列表刷新
+        // 与 follow 快照提供；全新会话则明确为确认空白（seq=0）。
+        var blankState = sessionId is null ? SessionBlankState.ConfirmedBlank : SessionBlankState.Unknown;
+        var summary    = new SessionSummary(value.SessionId, null, DateTimeOffset.Now, false, blankState);
         RaiseSessionsChanged();
         return summary;
     }
@@ -348,20 +392,39 @@ public sealed class HarnessSessionService : ISessionService
         }
     }
 
+    /// <summary>
+    ///     会话目录线上形态到应用模型。空白判定对齐参考实现 sessionListMetadata：
+    ///     行内携带有效元数据时以其真实布尔 blank 为权威（true 是元数据确认的空白，
+    ///     false 说明 turn/start 已发生）；wire blank=true 仅在无有效元数据时作为
+    ///     活跃会话 seq=0 的可靠回退；blank=false 且无有效元数据是元数据缺失的保守
+    ///     回退（v3 老会话被投影缓存拒认的冷行、cache miss），标记为未知并保持可见，
+    ///     不猜测隐藏。cached 与 sequenced 两类投影水印分属不同序列空间，此处不做跨源比较。
+    /// </summary>
     internal static SessionSummary ToSummary(SessionSummaryWire wire)
+    {
+        return ToSummaryWithMetadata(wire).Summary;
+    }
+
+    /// <summary>同 <see cref="ToSummary" />，同时返回行内解析出的有效 sessionListMetadata 供核实合并。</summary>
+    internal static (SessionSummary Summary, SessionListMetadataWire? ListMetadata) ToSummaryWithMetadata(
+        SessionSummaryWire wire)
     {
         var title = wire.Projections?.Values is { } values
                  && values.TryGetValue("title", out var titleElement)
                  && titleElement.ValueKind == JsonValueKind.String
             ? titleElement.GetString()
             : null;
-        // blank 只信任响应携带的空白状态，不得以投影缺失代替空白证据：会话格式迁移后
-        // v3 老会话的 sessionListMetadata 会被投影缓存拒认，冷行统一回退 blank:false 且
-        // 不带该投影——这类行与空白草稿在响应中不可区分，标记为空白会把可能有效的
-        // 会话（有轮次但标题未生成的旧会话）误藏出列表。v3 时代未使用的草稿会以
-        // "新对话"可见，打开一次后后端以当前格式重写投影，随后的刷新恢复既有过滤。
-        return new SessionSummary(wire.SessionId, title, DateTimeOffset.FromUnixTimeMilliseconds(wire.UpdatedAt),
-                                  wire.Running, wire.Blank);
+        var listMetadata = SessionProjectionsJson.TryParseListMetadata(wire.Projections?.Values);
+        var blankState   = listMetadata is { } metadata
+            ? metadata.Blank
+                ? SessionBlankState.ConfirmedBlank
+                : SessionBlankState.Engaged
+            : wire.Blank
+                ? SessionBlankState.ConfirmedBlank
+                : SessionBlankState.Unknown;
+        var cwd = wire.Cwd;
+        return (new SessionSummary(wire.SessionId, title, DateTimeOffset.FromUnixTimeMilliseconds(wire.UpdatedAt),
+                                   wire.Running, blankState, cwd), listMetadata);
     }
 
     /// <summary>后端 outcome：committed（落盘为正式消息）或 abandoned（取消/失败，无正式消息）。</summary>
@@ -533,6 +596,31 @@ public sealed class HarnessSessionService : ISessionService
     private void OnConnectionNotified(object? sender, EventArgs e)
     {
         RaiseSessionsChanged();
+    }
+
+    private void OnConnectionReset(object? sender, EventArgs e)
+    {
+        // 新连接代就绪：取消旧代在途核实并重建状态；旧代结论随后由列表刷新触发重验。
+        _verifier.OnConnectionReset();
+        RaiseSessionsChanged();
+    }
+
+    private void OnSessionActivityAddressed(object? sender, SessionActivityNotice notice)
+    {
+        // 逐会话活动：删除清理、空白结论失效与迟到结果作废都由核实协调器处理。
+        _verifier.OnSessionActivity(notice);
+    }
+
+    /// <summary>session/projections 只读查询；result 为 null 表示后端确认会话不存在。</summary>
+    private async Task<SessionProjectionsValue?> ReadProjectionsAsync(
+        string sessionId, CancellationToken cancellationToken)
+    {
+        return await _connection.InvokeAsync("session/projections",
+                                              new SessionProjectionsRequest(sessionId),
+                                              HarnessJsonContext.Default.SessionProjectionsRequest,
+                                              HarnessJsonContext.Default.SessionProjectionsValue,
+                                              cancellationToken)
+                             .ConfigureAwait(false);
     }
 
     private void RaiseSessionsChanged()

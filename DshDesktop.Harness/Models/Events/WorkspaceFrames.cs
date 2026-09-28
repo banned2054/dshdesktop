@@ -12,7 +12,7 @@ public sealed record WorkspaceViewWire(
 
 /// <summary>
 ///     workspace/follow 的下行帧；每代第一帧必为 Baseline，之后为增量。
-///     archived 帧（归档会话集合）暂无消费方，解析为 null 由泵跳过。
+///     Archived 携带归档会话的全量集合（registry 级，不属于单个工作区）。
 /// </summary>
 public abstract record WorkspaceFollowFrame
 {
@@ -23,6 +23,8 @@ public abstract record WorkspaceFollowFrame
     public sealed record Removed(string WorkspaceId) : WorkspaceFollowFrame;
 
     public sealed record Reordered(IReadOnlyList<string> WorkspaceIds) : WorkspaceFollowFrame;
+
+    public sealed record Archived(IReadOnlyList<string> ArchivedSessionIds) : WorkspaceFollowFrame;
 }
 
 /// <summary>workspace/follow 帧解析（对照 workspace-controller types.ts 的 WorkspaceFollowFrame）。</summary>
@@ -78,6 +80,18 @@ public static class WorkspaceFrameJson
                             ids.Add(parsed);
 
                 return new WorkspaceFollowFrame.Reordered(ids);
+            }
+
+            case "archived" :
+            {
+                var ids = new List<string>();
+                if (element.TryGetProperty("archivedSessionIds", out var archivedElement)
+                 && archivedElement.ValueKind == JsonValueKind.Array)
+                    foreach (var id in archivedElement.EnumerateArray())
+                        if (id.ValueKind == JsonValueKind.String && id.GetString() is { Length: > 0 } parsed)
+                            ids.Add(parsed);
+
+                return new WorkspaceFollowFrame.Archived(ids);
             }
 
             default :

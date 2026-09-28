@@ -17,4 +17,10 @@ public interface IWorkspaceService
     ///     （基线尚未到达），消费方应订阅 <see cref="WorkspacesChanged" /> 增量更新。
     /// </summary>
     Task<IReadOnlyList<WorkspaceSummary>> GetWorkspacesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    ///     后端登记的已归档会话集合（workspace/archived 帧的全量投影）；基线未到达时为空。
+    ///     复用候选与可见性判定据此排除归档会话，不在客户端猜测归档状态。
+    /// </summary>
+    IReadOnlySet<string> ArchivedSessionIds { get; }
 }

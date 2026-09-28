@@ -25,6 +25,9 @@ public abstract record RemoteEventFrame
 /// <summary>approval/request 瀑布载荷；toolName 之外字段可缺省。</summary>
 public sealed record ApprovalRequestWire(string ToolName, string? CallId = null, string? Reason = null);
 
+/// <summary>api-session/* 事件的归属信息：事件名（如 api-session/activity）与会话 id。</summary>
+public sealed record SessionActivityNotice(string Event, string SessionId);
+
 public static class RemoteEventJson
 {
     /// <summary>审批瀑布的事件名（interaction/user-approval 的 answerer waterfall）。</summary>
@@ -91,6 +94,38 @@ public static class RemoteEventJson
             ? reasonElement.GetString()
             : null;
         return new ApprovalRequestWire(toolName, callId, reason);
+    }
+
+    /// <summary>
+    ///     从 api-session/* 事件的第一个位置参数提取会话 id：removed/status/activity/error
+    ///     的 args[0] 是 sessionId 字符串，added 的 args[0] 是含 sessionId 字段的 summary 对象。
+    /// </summary>
+    public static bool TryGetSessionId(RemoteEventFrame.Emit emit, [NotNullWhen(true)] out string? sessionId)
+    {
+        sessionId = null;
+        if (emit.Args.Count == 0) return false;
+
+        var first = emit.Args[0];
+        if (first.ValueKind == JsonValueKind.String)
+        {
+            sessionId = first.GetString();
+            return sessionId is not null;
+        }
+
+        if (first.ValueKind == JsonValueKind.Object)
+        {
+            var summaryId = first.TryGetProperty("sessionId", out var idElement)
+                         && idElement.ValueKind == JsonValueKind.String
+                ? idElement.GetString()
+                : null;
+            if (summaryId is not null)
+            {
+                sessionId = summaryId;
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static bool TryGetString(JsonElement                     element, string name,

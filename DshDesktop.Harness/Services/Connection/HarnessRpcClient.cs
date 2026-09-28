@@ -47,7 +47,8 @@ public sealed class HarnessRpcClient(HttpClient httpClient)
             throw new HarnessRpcException(result.ErrorCode ?? "gateway/unknown",
                                           result.ErrorMessage is null
                                               ? $"调用 {method} 失败。"
-                                              : $"{method} 失败：{result.ErrorMessage}");
+                                              : $"{method} 失败：{result.ErrorMessage}",
+                                          result.ErrorDetails);
 
         if (result.Value is null) return default!;
 
@@ -87,7 +88,8 @@ public sealed class HarnessRpcClient(HttpClient httpClient)
             throw new HarnessRpcException(result.ErrorCode ?? "gateway/unknown",
                                           result.ErrorMessage is null
                                               ? $"调用 {method} 失败。"
-                                              : $"{method} 失败：{result.ErrorMessage}");
+                                              : $"{method} 失败：{result.ErrorMessage}",
+                                          result.ErrorDetails);
 
         if (result.Value is null) return default!;
 

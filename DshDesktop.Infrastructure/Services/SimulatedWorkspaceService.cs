@@ -15,6 +15,8 @@ public sealed class SimulatedWorkspaceService : IWorkspaceService
         new("workspace-docs", "文档整理", "C:/Code/Docs", [], DateTimeOffset.Now.AddHours(-3))
     ];
 
+    public IReadOnlySet<string> ArchivedSessionIds { get; private set; } = new HashSet<string>();
+
     public event EventHandler? WorkspacesChanged;
 
     public Task<IReadOnlyList<WorkspaceSummary>> GetWorkspacesAsync(CancellationToken cancellationToken = default)

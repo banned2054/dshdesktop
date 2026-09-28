@@ -122,8 +122,34 @@ public sealed class SimulatedSessionServiceTests
         var messages = await service.GetMessagesAsync(created.Id);
 
         Assert.Equal("新对话", created.Title);
-        Assert.True(created.Blank);
+        Assert.Equal(SessionBlankState.ConfirmedBlank, created.BlankState);
         Assert.Empty(messages);
+    }
+
+    [Fact]
+    public async Task EngagedSessionStaysEngagedAcrossListRefresh()
+    {
+        var service = new SimulatedSessionService();
+        var created = await service.CreateSessionAsync();
+
+        // 过渡信号（发送被接受）进入台账后：迟到的空白摘要不能使会话退回空白。
+        await service.SendPromptAsync(created.Id, "first-request", "第一条消息");
+        service.MarkSessionEngaged(created.Id);
+        var summary = (await service.GetSessionsAsync()).Single(item => item.Id == created.Id);
+
+        Assert.Equal(SessionBlankState.Engaged, summary.BlankState);
+    }
+
+    [Fact]
+    public async Task AdoptingExistingSessionReusesItWithoutCreatingNew()
+    {
+        var service = new SimulatedSessionService();
+        var first  = await service.CreateSessionAsync("ws-1");
+        var second = await service.CreateSessionAsync("ws-1", first.Id);
+
+        // 收养语义：按身份复用同一会话，不新建、不伪造空白摘要。
+        Assert.Equal(first.Id, second.Id);
+        Assert.Equal(1, service.CreatedSessionCount);
     }
 
     [Fact]

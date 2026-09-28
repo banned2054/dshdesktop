@@ -4,15 +4,20 @@ namespace DshDesktop.ViewModels;
 
 public sealed class SessionItemViewModel(SessionSummary summary) : ObservableObject
 {
-    private bool    _isCurrent;
-    private bool    _running     = summary.Running;
-    private string? _title       = summary.Title;
-    private string  _updatedText = FormatUpdatedText(summary.UpdatedAt);
+    private bool             _isCurrent;
+    private bool             _running     = summary.Running;
+    private SessionBlankState _blankState = summary.BlankState;
+    private string?          _title       = summary.Title;
+    private string           _updatedText = FormatUpdatedText(summary.UpdatedAt);
 
     public string Id { get; } = summary.Id;
 
-    /// <summary>列表过滤用的空白标记（未发送消息的草稿）；随摘要刷新更新。</summary>
-    public bool Blank { get; private set; } = summary.Blank;
+    /// <summary>空白三态（确认空白/未知/已开始）；随摘要刷新与过渡信号更新。</summary>
+    public SessionBlankState BlankState
+    {
+        get => _blankState;
+        private set => SetProperty(ref _blankState, value);
+    }
 
     public string? Title
     {
@@ -48,9 +53,15 @@ public sealed class SessionItemViewModel(SessionSummary summary) : ObservableObj
         // 列表摘要可能尚未携带标题投影；不用空值覆盖本地已采纳的标题。
         if (!string.IsNullOrWhiteSpace(summary.Title)) Title = summary.Title;
 
-        Blank      = summary.Blank;
+        BlankState  = summary.BlankState;
         UpdatedText = FormatUpdatedText(summary.UpdatedAt);
         Running     = summary.Running;
+    }
+
+    /// <summary>本端过渡信号（发送被接受等）立即把会话提升为已开始；不可逆。</summary>
+    public void MarkEngaged()
+    {
+        BlankState = SessionBlankState.Engaged;
     }
 
     /// <summary>仅在没有本地标题时采用快照/事件提供的标题。</summary>

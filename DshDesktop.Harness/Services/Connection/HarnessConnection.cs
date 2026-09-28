@@ -89,6 +89,12 @@ public sealed class HarnessConnection(Func<CancellationToken, Task<BackendConnec
     /// <summary>后端上报了会话活动（api-session/* 事件）。</summary>
     public event EventHandler? SessionActivity;
 
+    /// <summary>
+    ///     后端上报了可归属到具体会话的活动（api-session/*，含 added/removed/status/activity/error）。
+    ///     无法从载荷归属会话的事件只触发 <see cref="SessionActivity" />。
+    /// </summary>
+    public event EventHandler<SessionActivityNotice>? SessionActivityAddressed;
+
     /// <summary>approval/request 瀑布到达；等待用户裁决（由 IToolApprovalService 消费）。</summary>
     public event EventHandler<RemoteEventFrame.Waterfall>? ApprovalRequested;
 
@@ -455,6 +461,9 @@ public sealed class HarnessConnection(Func<CancellationToken, Task<BackendConnec
                     case RemoteEventFrame.Emit emit
                         when emit.Event.StartsWith("api-session/", StringComparison.Ordinal) :
                         RaiseSessionActivity();
+                        if (RemoteEventJson.TryGetSessionId(emit, out var activitySessionId))
+                            RaiseSessionActivityAddressed(
+                                new SessionActivityNotice(emit.Event, activitySessionId));
                         break;
 
                     case RemoteEventFrame.Waterfall waterfall
@@ -672,6 +681,18 @@ public sealed class HarnessConnection(Func<CancellationToken, Task<BackendConnec
         try
         {
             SessionActivity?.Invoke(this, EventArgs.Empty);
+        }
+        catch (Exception)
+        {
+            // 事件处理器异常不影响连接管理。
+        }
+    }
+
+    private void RaiseSessionActivityAddressed(SessionActivityNotice notice)
+    {
+        try
+        {
+            SessionActivityAddressed?.Invoke(this, notice);
         }
         catch (Exception)
         {

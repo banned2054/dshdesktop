@@ -463,62 +463,72 @@ public sealed class HarnessProtocolJsonTests
     {
         var wire = new SessionSummaryWire("session-1", 1700000000000, true, false,
                                           Projections :
-                                          new SessionProjectionHintsWire(4, new Dictionary<string, JsonElement>
-                                          {
-                                              ["title"] = JsonDocument.Parse("\"会话标题\"").RootElement.Clone()
-                                          }));
+                                          new SessionProjectionHintsWire("sequenced", 4,
+                                                                         new Dictionary<string, JsonElement>
+                                                                         {
+                                                                             ["title"] = JsonDocument
+                                                                                .Parse("\"会话标题\"")
+                                                                                .RootElement.Clone()
+                                                                         }));
 
         var summary = HarnessSessionService.ToSummary(wire);
 
         Assert.Equal("session-1", summary.Id);
         Assert.Equal("会话标题", summary.Title);
         Assert.True(summary.Running);
-        Assert.False(summary.Blank);
+        // wire blank=false 但投影只有 title（无 sessionListMetadata）：元数据缺失 → 未知。
+        Assert.Equal(SessionBlankState.Unknown, summary.BlankState);
         Assert.Equal(DateTimeOffset.FromUnixTimeMilliseconds(1700000000000), summary.UpdatedAt);
     }
 
     [Fact]
-    public void SessionSummaryWireMapsBlankOnlyFromWireValue()
+    public void SessionSummaryWireMapsBlankStateFromMetadataPresence()
     {
-        // blank 只信任响应值：格式迁移后 v3 旧会话的 sessionListMetadata 被投影缓存
-        // 拒认，冷行统一回退 blank:false 且无标题——该形态与空白草稿不可区分，不得
-        // 以投影缺失标记空白（会误藏有轮次但标题未生成的有效旧会话）。
-        var validLegacy = new SessionSummaryWire("session-1", 1700000000000, false, false);
-        var legacySummary = HarnessSessionService.ToSummary(validLegacy);
-        Assert.False(legacySummary.Blank);
-        Assert.Null(legacySummary.Title);
+        // 空白判定对齐参考实现 sessionListMetadata：blank=true 是权威空白；blank=false
+        // 只有在行投影携带 sessionListMetadata 时才解释为已开始；元数据缺失（v3 旧会话
+        // 被投影缓存拒认的冷行、cache miss）是保守回退，标记未知并保持可见。
+        var metadataLess = new SessionSummaryWire("session-1", 1700000000000, false, false);
+        var metadataLessSummary = HarnessSessionService.ToSummary(metadataLess);
+        Assert.Equal(SessionBlankState.Unknown, metadataLessSummary.BlankState);
+        Assert.Null(metadataLessSummary.Title);
 
-        var titledLegacy = new SessionSummaryWire("session-2", 1700000000000, false, false,
-                                                 Projections :
-                                                 new SessionProjectionHintsWire(4,
-                                                 new Dictionary<string, JsonElement>
-                                                 {
-                                                     ["title"] = JsonDocument.Parse("\"迁移前旧会话\"").RootElement.Clone()
-                                                 }));
-        var titledSummary = HarnessSessionService.ToSummary(titledLegacy);
-        Assert.False(titledSummary.Blank);
+        var titledCold = new SessionSummaryWire("session-2", 1700000000000, false, false,
+                                                Projections :
+                                                new SessionProjectionHintsWire("cached", 4,
+                                                                               new Dictionary<string, JsonElement>
+                                                                               {
+                                                                                   ["title"] = JsonDocument
+                                                                                      .Parse("\"迁移前旧会话\"")
+                                                                                      .RootElement.Clone()
+                                                                               }));
+        var titledSummary = HarnessSessionService.ToSummary(titledCold);
+        Assert.Equal(SessionBlankState.Unknown, titledSummary.BlankState);
         Assert.Equal("迁移前旧会话", titledSummary.Title);
 
-        var withMetadata = new SessionSummaryWire("session-3", 1700000000000, false, false,
-                                                 Projections :
-                                                 new SessionProjectionHintsWire(4,
-                                                 new Dictionary<string, JsonElement>
-                                                 {
-                                                     ["sessionListMetadata"] = JsonDocument
-                                                         .Parse("""{"blank":false,"lastPromptAt":null}""").RootElement.Clone()
-                                                 }));
-        Assert.False(HarnessSessionService.ToSummary(withMetadata).Blank);
+        var engaged = new SessionSummaryWire("session-3", 1700000000000, false, false,
+                                             Projections :
+                                             new SessionProjectionHintsWire("cached", 4,
+                                                                            new Dictionary<string, JsonElement>
+                                                                            {
+                                                                                ["sessionListMetadata"] = JsonDocument
+                                                                                   .Parse("""{"blank":false,"lastPromptAt":null}""")
+                                                                                   .RootElement.Clone()
+                                                                            }));
+        Assert.Equal(SessionBlankState.Engaged, HarnessSessionService.ToSummary(engaged).BlankState);
 
-        // 真正的空白草稿（元数据背书的 blank=true）保持既有过滤行为。
-        var blankDraft = new SessionSummaryWire("session-4", 1700000000000, false, true,
-                                               Projections :
-                                               new SessionProjectionHintsWire(4,
-                                               new Dictionary<string, JsonElement>
-                                               {
-                                                   ["sessionListMetadata"] = JsonDocument
-                                                       .Parse("""{"blank":true,"lastPromptAt":null}""").RootElement.Clone()
-                                               }));
-        Assert.True(HarnessSessionService.ToSummary(blankDraft).Blank);
+        // 确认空白（元数据背书的 blank=true）；cwd 进入应用模型供复用候选匹配。
+        var blankDraft = new SessionSummaryWire("session-4", 1700000000000, false, true, Cwd : "C:/Code/Sample",
+                                                Projections :
+                                                new SessionProjectionHintsWire("sequenced", 0,
+                                                                               new Dictionary<string, JsonElement>
+                                                                               {
+                                                                                   ["sessionListMetadata"] = JsonDocument
+                                                                                      .Parse("""{"blank":true,"lastPromptAt":null}""")
+                                                                                      .RootElement.Clone()
+                                                                               }));
+        var blankSummary = HarnessSessionService.ToSummary(blankDraft);
+        Assert.Equal(SessionBlankState.ConfirmedBlank, blankSummary.BlankState);
+        Assert.Equal("C:/Code/Sample", blankSummary.Cwd);
     }
 
     [Fact]
@@ -573,10 +583,12 @@ public sealed class HarnessProtocolJsonTests
         var orderFrame = Assert.IsType<WorkspaceFollowFrame.Reordered>(order);
         Assert.Equal(["ws-2", "ws-1"], orderFrame.WorkspaceIds);
 
-        // 归档帧暂无消费方：解析为 null 由泵跳过。
-        Assert.Null(WorkspaceFrameJson.Parse(JsonDocument
-                                            .Parse("""{"type":"archived","archivedSessionIds":["session-a"]}""")
-                                            .RootElement));
+        // 归档帧：解析为 registry 级集合帧，由工作区服务维护（复用候选排除归档会话）。
+        var archived = WorkspaceFrameJson.Parse(JsonDocument
+                                               .Parse("""{"type":"archived","archivedSessionIds":["session-a"]}""")
+                                               .RootElement);
+        var archivedFrame = Assert.IsType<WorkspaceFollowFrame.Archived>(archived);
+        Assert.Equal(["session-a"], archivedFrame.ArchivedSessionIds);
     }
 
     [Fact]

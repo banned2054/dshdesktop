@@ -28,7 +28,7 @@ public sealed class SimulatedSessionService : ISessionService
     {
         ["session-welcome"] =
             new SimulatedSession(new SessionSummary("session-welcome", "欢迎使用", DateTimeOffset.Now.AddMinutes(-4),
-                                                    false, false),
+                                                    false, SessionBlankState.Engaged),
             [
                 CreateMessage(1, "welcome-user", MessageRole.User, "这个客户端现在能做什么？", -4, 1),
                 CreateMessage(2, "welcome-assistant", MessageRole.Assistant,
@@ -37,7 +37,7 @@ public sealed class SimulatedSessionService : ISessionService
             ], new ModelSelection("sim", "sim-chat")),
         ["session-native"] =
             new SimulatedSession(new SessionSummary("session-native", "Native AOT 验证", DateTimeOffset.Now.AddHours(-1),
-                                                    false, false),
+                                                    false, SessionBlankState.Engaged),
             [
                 CreateMessage(1, "native-user", MessageRole.User, "为什么先做原生界面？", -60, 1),
                 CreateMessage(2, "native-assistant", MessageRole.Assistant,
@@ -46,7 +46,7 @@ public sealed class SimulatedSessionService : ISessionService
             ], new ModelSelection("sim", "sim-reasoner")),
         ["session-design"] =
             new SimulatedSession(new SessionSummary("session-design", "界面草稿", DateTimeOffset.Now.AddDays(-1),
-                                                    false, false),
+                                                    false, SessionBlankState.Engaged),
             [
                 CreateMessage(1, "design-user", MessageRole.User, "布局需要哪些区域？", -1440, 1),
                 CreateMessage(2, "design-assistant", MessageRole.Assistant, "工作区/会话侧栏、消息区、输入区和后端状态提示。", -1439,
@@ -58,9 +58,12 @@ public sealed class SimulatedSessionService : ISessionService
         // 置为最新，模拟模式首屏即展示工具卡片与历史翻页 UI。
         ["session-history"] =
             new SimulatedSession(new SessionSummary("session-history", "长会话翻页", DateTimeOffset.Now.AddMinutes(-1),
-                                                    false, false), BuildLongHistoryEntries(),
+                                                    false, SessionBlankState.Engaged), BuildLongHistoryEntries(),
                                  new ModelSelection("sim", "sim-chat"))
     };
+
+    /// <summary>真实新建（非收养复用）的累计次数；测试用于断言"只创建一次"。</summary>
+    public int CreatedSessionCount { get; private set; }
 
     private readonly Lock _syncRoot = new();
 
@@ -114,16 +117,27 @@ public sealed class SimulatedSessionService : ISessionService
     }
 
     public Task<SessionSummary> CreateSessionAsync(
-        string? workspaceId = null, CancellationToken cancellationToken = default)
+        string? workspaceId = null, string? sessionId = null, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         SessionSummary summary;
         lock (_syncRoot)
         {
+            // 收养语义：按身份复用已有会话，返回其真实当前状态，不伪造空白/标题。
+            if (sessionId is not null && _sessions.TryGetValue(sessionId, out var adopted))
+            {
+                if (!string.IsNullOrWhiteSpace(workspaceId))
+                    _onSessionCreatedInWorkspace?.Invoke(workspaceId, sessionId);
+
+                RaiseSessionsChanged();
+                return Task.FromResult(adopted.Summary);
+            }
+
             var now       = DateTimeOffset.Now;
-            var sessionId = $"session-{_nextSessionNumber++}";
-            summary      = new SessionSummary(sessionId, "新对话", now, false, true);
-            _sessions.Add(sessionId, new SimulatedSession(summary, []));
+            var newId     = sessionId ?? $"session-{_nextSessionNumber++}";
+            summary       = new SessionSummary(newId, "新对话", now, false, SessionBlankState.ConfirmedBlank);
+            _sessions.Add(newId, new SimulatedSession(summary, []));
+            CreatedSessionCount++;
         }
 
         if (!string.IsNullOrWhiteSpace(workspaceId))
@@ -131,6 +145,35 @@ public sealed class SimulatedSessionService : ISessionService
 
         RaiseSessionsChanged();
         return Task.FromResult(summary);
+    }
+
+    public void MarkSessionEngaged(string sessionId)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId)) return;
+
+        lock (_syncRoot)
+        {
+            if (!_sessions.TryGetValue(sessionId, out var session)) return;
+
+            session.Summary = session.Summary with { BlankState = SessionBlankState.Engaged };
+        }
+
+        RaiseSessionsChanged();
+    }
+
+    /// <summary>
+    ///     测试种子：预置一个确认空白的会话（携带 cwd 供复用候选匹配），不经过创建入口。
+    /// </summary>
+    internal void SeedBlankSession(string sessionId, string? cwd, string? title = null)
+    {
+        lock (_syncRoot)
+        {
+            var summary = new SessionSummary(sessionId, title, DateTimeOffset.Now, false,
+                                             SessionBlankState.ConfirmedBlank, cwd);
+            _sessions.Add(sessionId, new SimulatedSession(summary, []));
+        }
+
+        RaiseSessionsChanged();
     }
 
     public Task<IReadOnlyList<ConversationMessage>> GetMessagesAsync(
@@ -181,7 +224,7 @@ public sealed class SimulatedSessionService : ISessionService
                                                       content.Trim(), now);
             session.Entries.Add(userMessage);
             session.PushUpdate(new SessionUpdate.MessageAppended(userMessage));
-            session.Summary = session.Summary with { UpdatedAt = now, Blank = false };
+            session.Summary = session.Summary with { UpdatedAt = now, BlankState = SessionBlankState.Engaged };
         }
 
         RaiseSessionsChanged();

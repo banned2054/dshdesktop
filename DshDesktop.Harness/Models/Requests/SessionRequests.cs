@@ -57,6 +57,12 @@ public sealed record PromptTextPart(string Text)
 /// <summary>session/cancel 请求。</summary>
 public sealed record SessionCancelRequest(string SessionId);
 
+/// <summary>
+///     session/projections 请求：只读查询一个会话的完整投影（observeSession 计算，
+///     冷会话走 hydratePrepared，不激活 Agent、不发起模型请求、不持久化投影缓存）。
+/// </summary>
+public sealed record SessionProjectionsRequest(string SessionId);
+
 /// <summary>会话地址；阶段 2 只使用顶层会话形态 { "kind": "session", "sessionId": ... }。</summary>
 [JsonConverter(typeof(SessionAddressConverter))]
 public sealed record SessionAddress(string SessionId)

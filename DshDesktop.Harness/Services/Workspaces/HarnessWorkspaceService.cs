@@ -17,6 +17,9 @@ public sealed class HarnessWorkspaceService : IWorkspaceService, IAsyncDisposabl
     private readonly Lock              _sync = new();
 
     private IReadOnlyList<WorkspaceSummary> _items = [];
+
+    private IReadOnlySet<string> _archivedSessionIds = new HashSet<string>();
+
     private Task?                           _pump;
     private CancellationTokenSource?        _pumpCancellation;
 
@@ -67,6 +70,14 @@ public sealed class HarnessWorkspaceService : IWorkspaceService, IAsyncDisposabl
         lock (_sync)
         {
             return Task.FromResult(_items);
+        }
+    }
+
+    public IReadOnlySet<string> ArchivedSessionIds
+    {
+        get
+        {
+            lock (_sync) return _archivedSessionIds;
         }
     }
 
@@ -129,12 +140,22 @@ public sealed class HarnessWorkspaceService : IWorkspaceService, IAsyncDisposabl
                 bool changed;
                 lock (_sync)
                 {
-                    var next = ApplyFrame(_items, frame);
-                    // Baseline 无条件通知：它标记一代投影就绪（即使内容为空），
-                    // 消费方以此区分「基线未到达」与「确无工作区」。
-                    changed = frame is WorkspaceFollowFrame.Baseline
-                           || (!ReferenceEquals(next, _items) && !SameItems(next, _items));
-                    _items = next;
+                    if (frame is WorkspaceFollowFrame.Archived archived)
+                    {
+                        // 归档集合是 registry 级投影：全量替换，变化即通知。
+                        var nextArchived = archived.ArchivedSessionIds.ToHashSet();
+                        changed          = !nextArchived.SetEquals(_archivedSessionIds);
+                        _archivedSessionIds = nextArchived;
+                    }
+                    else
+                    {
+                        var next = ApplyFrame(_items, frame);
+                        // Baseline 无条件通知：它标记一代投影就绪（即使内容为空），
+                        // 消费方以此区分「基线未到达」与「确无工作区」。
+                        changed = frame is WorkspaceFollowFrame.Baseline
+                               || (!ReferenceEquals(next, _items) && !SameItems(next, _items));
+                        _items = next;
+                    }
                 }
 
                 if (changed) RaiseWorkspacesChanged();

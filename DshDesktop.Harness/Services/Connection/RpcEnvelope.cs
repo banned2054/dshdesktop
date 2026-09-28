@@ -61,6 +61,7 @@ public static class RpcEnvelope
 
         string? code    = null;
         string? message = null;
+        JsonElement? details = null;
         if (result.TryGetProperty("error", out var error) && error.ValueKind == JsonValueKind.Object)
         {
             code = error.TryGetProperty("code", out var codeElement) && codeElement.ValueKind == JsonValueKind.String
@@ -70,9 +71,14 @@ public static class RpcEnvelope
                    && messageElement.ValueKind == JsonValueKind.String
                 ? messageElement.GetString()
                 : null;
+            // 参考实现错误携带 details（如 session/writer-held 的 sessionId、
+            // workspace-attach-failed 的归属信息）；保留原始结构供按错误码消费。
+            if (error.TryGetProperty("details", out var detailsElement)
+             && detailsElement.ValueKind is not (JsonValueKind.Undefined or JsonValueKind.Null))
+                details = detailsElement.Clone();
         }
 
-        return new RpcResponse(rpcId, false, null, code, message);
+        return new RpcResponse(rpcId, false, null, code, message, details);
     }
 
     public readonly record struct RpcResponse(
@@ -80,5 +86,6 @@ public static class RpcEnvelope
         bool         Ok,
         JsonElement? Value,
         string?      ErrorCode,
-        string?      ErrorMessage);
+        string?      ErrorMessage,
+        JsonElement? ErrorDetails = null);
 }
