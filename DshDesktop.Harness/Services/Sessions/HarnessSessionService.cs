@@ -37,13 +37,13 @@ public sealed class HarnessSessionService : ISessionService
 
     public HarnessSessionService(HarnessConnection connection, (string Provider, string Model)? preferredModel = null)
     {
-        _connection                 =  connection;
-        _preferredModel             =  preferredModel;
-        _verifier                   =  new SessionBlankVerifier(ReadProjectionsAsync,
-                                                               sessionId => _engagedSessionIds.Contains(sessionId),
-                                                               RaiseSessionsChanged);
-        _connection.SessionActivity += OnConnectionNotified;
-        _connection.ConnectionReset += OnConnectionReset;
+        _connection     = connection;
+        _preferredModel = preferredModel;
+        _verifier = new SessionBlankVerifier(ReadProjectionsAsync,
+                                             sessionId => _engagedSessionIds.Contains(sessionId),
+                                             RaiseSessionsChanged);
+        _connection.SessionActivity          += OnConnectionNotified;
+        _connection.ConnectionReset          += OnConnectionReset;
         _connection.SessionActivityAddressed += OnSessionActivityAddressed;
     }
 
@@ -60,10 +60,10 @@ public sealed class HarnessSessionService : ISessionService
                                      .ConfigureAwait(false);
         var rows = value.Items
                         .Select(static wire =>
-                        {
-                            var (summary, listMetadata) = ToSummaryWithMetadata(wire);
-                            return new ListedSessionRow(summary, listMetadata);
-                        })
+                         {
+                             var (summary, listMetadata) = ToSummaryWithMetadata(wire);
+                             return new ListedSessionRow(summary, listMetadata);
+                         })
                         .ToArray();
         return _verifier.Resolve(rows)
                         .OrderByDescending(summary => summary.UpdatedAt)
@@ -80,12 +80,10 @@ public sealed class HarnessSessionService : ISessionService
             if (_engagedSessionIds.Add(sessionId)) changed = _engagedSessionIds;
         }
 
-        if (changed is not null)
-        {
-            // 本端已参与：同步清除可能存在的空白核实结论，迟到的核实结果不得再隐藏它。
-            _verifier.OnSessionEngaged(sessionId);
-            RaiseSessionsChanged();
-        }
+        if (changed is null) return;
+        // 本端已参与：同步清除可能存在的空白核实结论，迟到的核实结果不得再隐藏它。
+        _verifier.OnSessionEngaged(sessionId);
+        RaiseSessionsChanged();
     }
 
     public async Task<SessionSummary> CreateSessionAsync(
@@ -128,7 +126,7 @@ public sealed class HarnessSessionService : ISessionService
     }
 
     public async Task<ModelSelection> SelectModelAsync(
-        string sessionId, string provider, string model,
+        string  sessionId,              string            provider, string model,
         string? reasoningEffort = null, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(sessionId)) throw new ArgumentException("会话 id 不能为空。", nameof(sessionId));
@@ -139,7 +137,7 @@ public sealed class HarnessSessionService : ISessionService
 
         var value = await _connection.InvokeAsync("session/selectModel",
                                                   new SessionSelectModelRequest(sessionId, provider, model,
-                                                                                reasoningEffort),
+                                                                                    reasoningEffort),
                                                   HarnessJsonContext.Default.SessionSelectModelRequest,
                                                   HarnessJsonContext.Default.SessionSelectModelValue,
                                                   cancellationToken)
@@ -151,9 +149,7 @@ public sealed class HarnessSessionService : ISessionService
         string sessionId, CancellationToken cancellationToken = default)
     {
         var snapshot = await _connection.TakeSnapshotAsync(sessionId, cancellationToken).ConfigureAwait(false);
-        if (snapshot is null) throw new KeyNotFoundException($"未找到会话：{sessionId}");
-
-        return MapMessages(snapshot.Records);
+        return snapshot is null ? throw new KeyNotFoundException($"未找到会话：{sessionId}") : MapMessages(snapshot.Records);
     }
 
     public async Task<SessionHistoryPage> LoadOlderAsync(
@@ -327,8 +323,8 @@ public sealed class HarnessSessionService : ISessionService
 
             case FollowFrame.EventFrame { Event: var wireEvent } :
             {
-                if (WireEventJson.TryGetMessage(wireEvent) is { } message
-                 && IsDisplayable(message))
+                if (WireEventJson.TryGetMessage(wireEvent) is { } message &&
+                  IsDisplayable(message))
                 {
                     // 增量与快照走同一内容映射：取消产生的 interrupted 消息即时带中断标注。
                     yield return new SessionUpdate.MessageAppended(ToConversationMessage(wireEvent, message));
@@ -338,18 +334,18 @@ public sealed class HarnessSessionService : ISessionService
                     yield return new SessionUpdate.TurnEnded(endedTurn, wireEvent.Seq,
                                                              WireEventJson.TurnEndReason(wireEvent));
                 }
-                else if (wireEvent.Type == "tool/call"
-                      && WireEventJson.TryGetToolCall(wireEvent) is { } call)
+                else if (wireEvent.Type == "tool/call" &&
+                       WireEventJson.TryGetToolCall(wireEvent) is { } call)
                 {
                     long? turn = WireEventJson.TryGetTurnStep(wireEvent, out var callTurn, out _)
                         ? callTurn
                         : null;
                     yield return new SessionUpdate.ToolCallStarted(new ToolActivity(wireEvent.Seq, call.CallId,
-                                                                       call.Name, call.Arguments,
-                                                                       ToolActivityStatus.Running, null, null,
-                                                                       DateTimeOffset
-                                                                          .FromUnixTimeMilliseconds(wireEvent
-                                                                              .Time), Turn : turn));
+                                                                            call.Name, call.Arguments,
+                                                                            ToolActivityStatus.Running, null, null,
+                                                                            DateTimeOffset
+                                                                               .FromUnixTimeMilliseconds(wireEvent
+                                                                                            .Time), Turn : turn));
                 }
                 else if (WireEventJson.TryGetToolResult(wireEvent) is { } result)
                 {
@@ -362,8 +358,8 @@ public sealed class HarnessSessionService : ISessionService
                 else if (WireEventJson.TryGetModelSelection(wireEvent) is { } selection)
                 {
                     yield return new SessionUpdate.ModelSelected(new ModelSelection(selection.Provider,
-                                                                     selection.Model,
-                                                                     selection.ReasoningEffort));
+                                                                          selection.Model,
+                                                                          selection.ReasoningEffort));
                 }
 
                 break;
@@ -409,14 +405,14 @@ public sealed class HarnessSessionService : ISessionService
     internal static (SessionSummary Summary, SessionListMetadataWire? ListMetadata) ToSummaryWithMetadata(
         SessionSummaryWire wire)
     {
-        var title = wire.Projections?.Values is { } values
-                 && values.TryGetValue("title", out var titleElement)
-                 && titleElement.ValueKind == JsonValueKind.String
+        var title = wire.Projections?.Values is { } values &&
+                  values.TryGetValue("title", out var titleElement) &&
+                  titleElement.ValueKind == JsonValueKind.String
             ? titleElement.GetString()
             : null;
         var listMetadata = SessionProjectionsJson.TryParseListMetadata(wire.Projections?.Values);
-        var blankState   = listMetadata is { } metadata
-            ? metadata.Blank
+        var blankState = listMetadata != null
+            ? listMetadata.Blank
                 ? SessionBlankState.ConfirmedBlank
                 : SessionBlankState.Engaged
             : wire.Blank
@@ -443,8 +439,8 @@ public sealed class HarnessSessionService : ISessionService
         var messages = new List<ConversationMessage>();
         foreach (var wireEvent in records)
         {
-            if (WireEventJson.TryGetMessage(wireEvent) is not { } message
-             || !IsDisplayable(message))
+            if (WireEventJson.TryGetMessage(wireEvent) is not { } message ||
+              !IsDisplayable(message))
                 continue;
 
             messages.Add(ToConversationMessage(wireEvent, message));
@@ -469,9 +465,8 @@ public sealed class HarnessSessionService : ISessionService
     {
         var entries           = new List<ConversationEntry>();
         var toolIndexByCallId = new Dictionary<string, int>();
-        for (var index = 0; index < records.Count; index++)
+        foreach (var wireEvent in records)
         {
-            var wireEvent = records[index];
             switch (wireEvent.Type)
             {
                 case "user/message" or "assistant/message" :
@@ -616,11 +611,11 @@ public sealed class HarnessSessionService : ISessionService
         string sessionId, CancellationToken cancellationToken)
     {
         return await _connection.InvokeAsync("session/projections",
-                                              new SessionProjectionsRequest(sessionId),
-                                              HarnessJsonContext.Default.SessionProjectionsRequest,
-                                              HarnessJsonContext.Default.SessionProjectionsValue,
-                                              cancellationToken)
-                             .ConfigureAwait(false);
+                                             new SessionProjectionsRequest(sessionId),
+                                             HarnessJsonContext.Default.SessionProjectionsRequest,
+                                             HarnessJsonContext.Default.SessionProjectionsValue,
+                                             cancellationToken)
+                                .ConfigureAwait(false);
     }
 
     private void RaiseSessionsChanged()

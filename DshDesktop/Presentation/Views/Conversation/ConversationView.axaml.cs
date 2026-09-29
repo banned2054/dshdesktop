@@ -56,8 +56,8 @@ public partial class ConversationView : UserControl
         // 窗口内的 Reset 即前插起点，随后一次布局的 extent 增量需要锚定补偿，
         // 否则视口按原偏移落在新内容上（跳到已加载历史的顶端）。会话切换等其它
         // Reset 不置锚——其偏移归零属预期，补偿反而会把视口抬到错误位置。
-        if (e.Action == NotifyCollectionChangedAction.Reset
-         && DataContext is MainWindowViewModel { IsLoadingOlder: true })
+        if (e.Action == NotifyCollectionChangedAction.Reset &&
+          DataContext is MainWindowViewModel { IsLoadingOlder: true })
         {
             _anchoringPrepend = true;
         }
@@ -93,9 +93,9 @@ public partial class ConversationView : UserControl
 
         var previousExtent = _messagesExtent;
         _messagesExtent = scroll.Extent.Height;
-        if (previousExtent > 0
-         && !e.ExtentDelta.Y.Equals(0)
-         && WasNearBottom(scroll, previousExtent))
+        if (previousExtent > 0 &&
+          !e.ExtentDelta.Y.Equals(0) &&
+          WasNearBottom(scroll, previousExtent))
         {
             PostScrollToEnd(scroll);
         }

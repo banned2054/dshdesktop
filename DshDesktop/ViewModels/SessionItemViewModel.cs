@@ -4,11 +4,11 @@ namespace DshDesktop.ViewModels;
 
 public sealed class SessionItemViewModel(SessionSummary summary) : ObservableObject
 {
-    private bool             _isCurrent;
-    private bool             _running     = summary.Running;
     private SessionBlankState _blankState = summary.BlankState;
-    private string?          _title       = summary.Title;
-    private string           _updatedText = FormatUpdatedText(summary.UpdatedAt);
+    private bool              _isCurrent;
+    private bool              _running     = summary.Running;
+    private string?           _title       = summary.Title;
+    private string            _updatedText = FormatUpdatedText(summary.UpdatedAt);
 
     public string Id { get; } = summary.Id;
 

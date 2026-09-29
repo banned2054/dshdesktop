@@ -89,9 +89,9 @@ public sealed class NodeLauncherProtocolTests
         var environment = StubEnvironment.TryCreate("silent");
         if (environment is null) return;
 
-        using var _ = environment;
-        var options = environment.Options with { StopTimeout = TimeSpan.FromMilliseconds(100) };
-        await using var host = new NodeBackendHostService(options);
+        using var       _       = environment;
+        var             options = environment.Options with { StopTimeout = TimeSpan.FromMilliseconds(100) };
+        await using var host    = new NodeBackendHostService(options);
 
         var start = host.StartAsync();
         await host.StopAsync().WaitAsync(TimeSpan.FromSeconds(15));

@@ -188,7 +188,7 @@ public sealed class RealBackendE2ETests(ITestOutputHelper output)
         Skip.If(node is null, "PATH 中找不到 Node 可执行文件，跳过。");
         Skip.If(launcherScript is null, "找不到 launcher 脚本，跳过。");
 
-        var root        = Path.Combine(Path.GetTempPath(), $"dsh-e2e-{Guid.NewGuid():N}");
+        var root         = Path.Combine(Path.GetTempPath(), $"dsh-e2e-{Guid.NewGuid():N}");
         var workspaceDir = Path.Combine(root, "ws");
         Directory.CreateDirectory(workspaceDir);
         var options = RealBackendTestSupport.BuildOptions(node!, launcherScript!, runtimeDir!,
@@ -204,11 +204,11 @@ public sealed class RealBackendE2ETests(ITestOutputHelper output)
 
             // 登记工作区（幂等协议）：返回工作区行。
             var registered = await connection
-                                    .InvokeAsync("workspace/create", new WorkspaceCreateRequest(workspaceDir),
-                                                 HarnessJsonContext.Default.WorkspaceCreateRequest,
-                                                 HarnessJsonContext.Default.WorkspaceCreateValue,
-                                                 CancellationToken.None)
-                                    .WaitAsync(TimeSpan.FromSeconds(30));
+                                  .InvokeAsync("workspace/create", new WorkspaceCreateRequest(workspaceDir),
+                                               HarnessJsonContext.Default.WorkspaceCreateRequest,
+                                               HarnessJsonContext.Default.WorkspaceCreateValue,
+                                               CancellationToken.None)
+                                  .WaitAsync(TimeSpan.FromSeconds(30));
             Assert.True(registered.Created);
             Assert.Equal(workspaceDir, registered.Workspace.Path);
             var workspaceId = registered.Workspace.WorkspaceId;
@@ -217,37 +217,38 @@ public sealed class RealBackendE2ETests(ITestOutputHelper output)
             var created = await sessions.CreateSessionAsync(workspaceId).WaitAsync(TimeSpan.FromSeconds(30));
             await workspaces.GetWorkspacesAsync().WaitAsync(TimeSpan.FromSeconds(10));
             await RealBackendTestSupport.WaitForAsync(
-                () => workspaces.GetWorkspacesAsync().GetAwaiter().GetResult()
-                               .Any(workspace => workspace.Id == workspaceId
-                                              && workspace.SessionIds.Contains(created.Id)),
-                TimeSpan.FromSeconds(30), "工作区记账未回流");
+                                                      () => workspaces.GetWorkspacesAsync().GetAwaiter().GetResult()
+                                                                      .Any(workspace => workspace.Id == workspaceId &&
+                                                                               workspace.SessionIds
+                                                                                  .Contains(created.Id)),
+                                                      TimeSpan.FromSeconds(30), "工作区记账未回流");
 
             // 列表三态：活跃新会话 blank=true（sessionListMetadata 背书）→ 确认空白；cwd 随行。
             var row = (await sessions.GetSessionsAsync().WaitAsync(TimeSpan.FromSeconds(30)))
-                     .Single(summary => summary.Id == created.Id);
+               .Single(summary => summary.Id == created.Id);
             Assert.Equal(SessionBlankState.ConfirmedBlank, row.BlankState);
             Assert.Equal(workspaceDir, row.Cwd);
             output.WriteLine($"新会话行：blankState={row.BlankState} cwd={row.Cwd} title={row.Title ?? "<null>"}");
 
             // 按身份收养：同一 SessionId 复用，不产生第二个会话。
             var adopted = await sessions.CreateSessionAsync(workspaceId, created.Id)
-                                       .WaitAsync(TimeSpan.FromSeconds(30));
+                                        .WaitAsync(TimeSpan.FromSeconds(30));
             Assert.Equal(created.Id, adopted.Id);
             var listAfterAdopt = await sessions.GetSessionsAsync().WaitAsync(TimeSpan.FromSeconds(30));
             Assert.Single(listAfterAdopt, summary => summary.Id == created.Id);
 
             // 归档协议往返：归档集合经 workspace/archived 帧回流到服务投影。
             var archived = await connection
-                                  .InvokeAsync("workspace/archiveSession",
-                                               new WorkspaceArchiveSessionRequest(created.Id),
-                                               HarnessJsonContext.Default.WorkspaceArchiveSessionRequest,
-                                               HarnessJsonContext.Default.WorkspaceArchiveValue,
-                                               CancellationToken.None)
-                                  .WaitAsync(TimeSpan.FromSeconds(30));
+                                .InvokeAsync("workspace/archiveSession",
+                                             new WorkspaceArchiveSessionRequest(created.Id),
+                                             HarnessJsonContext.Default.WorkspaceArchiveSessionRequest,
+                                             HarnessJsonContext.Default.WorkspaceArchiveValue,
+                                             CancellationToken.None)
+                                .WaitAsync(TimeSpan.FromSeconds(30));
             Assert.Contains(created.Id, archived.ArchivedSessionIds);
             await RealBackendTestSupport.WaitForAsync(
-                () => workspaces.ArchivedSessionIds.Contains(created.Id),
-                TimeSpan.FromSeconds(30), "归档集合投影未回流");
+                                                      () => workspaces.ArchivedSessionIds.Contains(created.Id),
+                                                      TimeSpan.FromSeconds(30), "归档集合投影未回流");
             output.WriteLine($"归档投影回流：{string.Join(',', workspaces.ArchivedSessionIds)}");
 
             Assert.False(hostService.LastError is { Length: > 0 }, $"后端意外出错：{hostService.LastError}");
@@ -278,9 +279,9 @@ public sealed class RealBackendE2ETests(ITestOutputHelper output)
     [SkippableFact]
     public async Task RealHomeListBlankStateReadOnlyDiagnostic()
     {
-        var runtimeDir = Environment.GetEnvironmentVariable(RealBackendTestSupport.RuntimeDirVariable);
-        var realHome   = Environment.GetEnvironmentVariable(RealBackendTestSupport.RealHomeVariable);
-        var node       = RealBackendTestSupport.FindNodeExecutable();
+        var runtimeDir     = Environment.GetEnvironmentVariable(RealBackendTestSupport.RuntimeDirVariable);
+        var realHome       = Environment.GetEnvironmentVariable(RealBackendTestSupport.RealHomeVariable);
+        var node           = RealBackendTestSupport.FindNodeExecutable();
         var launcherScript = RealBackendTestSupport.FindLauncherScript();
         Skip.If(string.IsNullOrWhiteSpace(runtimeDir),
                 $"未设置 {RealBackendTestSupport.RuntimeDirVariable}，跳过。");
@@ -355,10 +356,10 @@ public sealed class RealBackendE2ETests(ITestOutputHelper output)
 
         string blankId;
         string promptedId;
-        var   promptedStarted = false;
-        var   hostService = new NodeBackendHostService(options);
-        var   connection  = new HarnessConnection(hostService.StartAsync);
-        var   sessions    = new HarnessSessionService(connection);
+        var    promptedStarted = false;
+        var    hostService     = new NodeBackendHostService(options);
+        var    connection      = new HarnessConnection(hostService.StartAsync);
+        var    sessions        = new HarnessSessionService(connection);
         try
         {
             await hostService.StartAsync().WaitAsync(TimeSpan.FromSeconds(150));
@@ -382,7 +383,7 @@ public sealed class RealBackendE2ETests(ITestOutputHelper output)
             // prompt 会触发 agent 尝试并立即失败（turn/start 已发生 → blank=false 不可逆）；
             // 若后端行为不同（仅入队）则保持 blank=true，两种都是有效投影，阶段 2 期望随此观测。
             SessionListMetadataWire? promptedMetadata = null;
-            var settleBy = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(30);
+            var                      settleBy         = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(30);
             while (DateTimeOffset.UtcNow < settleBy)
             {
                 var probe = await ReadProjectionsAsync(connection, promptedId).WaitAsync(TimeSpan.FromSeconds(30));
@@ -403,7 +404,8 @@ public sealed class RealBackendE2ETests(ITestOutputHelper output)
             var messagesBefore = await sessions.GetMessagesAsync(promptedId).WaitAsync(TimeSpan.FromSeconds(30));
 
             // 会话不存在：result 本身为 null。
-            Assert.Null(await ReadProjectionsAsync(connection, "session-does-not-exist").WaitAsync(TimeSpan.FromSeconds(30)));
+            Assert.Null(await ReadProjectionsAsync(connection, "session-does-not-exist")
+                           .WaitAsync(TimeSpan.FromSeconds(30)));
 
             // 只读性：重复查询后列表数量与会话消息不变。
             await ReadProjectionsAsync(connection, blankId).WaitAsync(TimeSpan.FromSeconds(30));
@@ -443,10 +445,12 @@ public sealed class RealBackendE2ETests(ITestOutputHelper output)
             // 服务层后台核实（只读 projections）：Unknown → 有效空白状态，历史残留被确认并隐藏。
             var targetIds = new HashSet<string>([blankId, promptedId]);
             await RealBackendTestSupport.WaitForAsync(
-                () => restartedSessions.GetSessionsAsync().GetAwaiter().GetResult()
-                                  .Where(summary => targetIds.Contains(summary.Id))
-                                  .All(summary => summary.BlankState != SessionBlankState.Unknown),
-                TimeSpan.FromSeconds(60), "后台核实未将冷行 Unknown 转为有效状态");
+                                                      () => restartedSessions
+                                                           .GetSessionsAsync().GetAwaiter().GetResult()
+                                                           .Where(summary => targetIds.Contains(summary.Id))
+                                                           .All(summary => summary.BlankState !=
+                                                                           SessionBlankState.Unknown),
+                                                      TimeSpan.FromSeconds(60), "后台核实未将冷行 Unknown 转为有效状态");
 
             var verified = (await restartedSessions.GetSessionsAsync().WaitAsync(TimeSpan.FromSeconds(30)))
                           .Where(summary => targetIds.Contains(summary.Id))
@@ -484,9 +488,9 @@ public sealed class RealBackendE2ETests(ITestOutputHelper output)
     [SkippableFact]
     public async Task RealHomeProjectionsBlankVerificationReadOnly()
     {
-        var runtimeDir = Environment.GetEnvironmentVariable(RealBackendTestSupport.RuntimeDirVariable);
-        var realHome   = Environment.GetEnvironmentVariable(RealBackendTestSupport.RealHomeVariable);
-        var node       = RealBackendTestSupport.FindNodeExecutable();
+        var runtimeDir     = Environment.GetEnvironmentVariable(RealBackendTestSupport.RuntimeDirVariable);
+        var realHome       = Environment.GetEnvironmentVariable(RealBackendTestSupport.RealHomeVariable);
+        var node           = RealBackendTestSupport.FindNodeExecutable();
         var launcherScript = RealBackendTestSupport.FindLauncherScript();
         Skip.If(string.IsNullOrWhiteSpace(runtimeDir),
                 $"未设置 {RealBackendTestSupport.RuntimeDirVariable}，跳过。");
@@ -508,22 +512,21 @@ public sealed class RealBackendE2ETests(ITestOutputHelper output)
         try
         {
             await hostService.StartAsync().WaitAsync(TimeSpan.FromSeconds(150));
-            var list    = await sessions.GetSessionsAsync().WaitAsync(TimeSpan.FromSeconds(60));
+            var list = await sessions.GetSessionsAsync().WaitAsync(TimeSpan.FromSeconds(60));
             var unknown = list.Where(summary => summary.BlankState == SessionBlankState.Unknown)
                               .Select(summary => summary.Id)
                               .ToArray();
             output.WriteLine($"核实前：总数 {list.Count}，确认空白 "
-                           + $"{list.Count(summary => summary.BlankState == SessionBlankState.ConfirmedBlank)}，"
+                           + $"{list.Count(summary => summary.BlankState     == SessionBlankState.ConfirmedBlank)}，"
                            + $"已开始 {list.Count(summary => summary.BlankState == SessionBlankState.Engaged)}，"
                            + $"未知 {unknown.Length}");
 
             // 逐个只读核实（顺序执行，不对共享 home 施加并发压力）。
             int confirmedBlank = 0, engaged = 0, inconclusive = 0, failures = 0;
             foreach (var sessionId in unknown)
-            {
                 try
                 {
-                    var value    = await ReadProjectionsAsync(connection, sessionId).WaitAsync(TimeSpan.FromSeconds(30));
+                    var value = await ReadProjectionsAsync(connection, sessionId).WaitAsync(TimeSpan.FromSeconds(30));
                     var metadata = value is null ? null : SessionProjectionsJson.TryParseListMetadata(value.Values);
                     if (metadata is null) inconclusive++;
                     else if (metadata.Blank) confirmedBlank++;
@@ -533,7 +536,6 @@ public sealed class RealBackendE2ETests(ITestOutputHelper output)
                 {
                     failures++;
                 }
-            }
 
             output.WriteLine($"只读核实 {unknown.Length} 个未知会话：确认空白 {confirmedBlank}，"
                            + $"已开始（blank=false）{engaged}，不判定 {inconclusive}，失败 {failures}");

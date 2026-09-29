@@ -28,8 +28,8 @@ public sealed record SessionSummaryWire(
 ///     持久缓存冷行；两类水印不可按同一 seq 空间比较。
 /// </summary>
 public sealed record SessionProjectionHintsWire(
-    string                      Kind,
-    long                        AsOfSeq,
+    string                           Kind,
+    long                             AsOfSeq,
     Dictionary<string, JsonElement>? Values);
 
 /// <summary>
@@ -60,8 +60,8 @@ public static class SessionProjectionsJson
     /// <summary>从投影 values 字典解析 sessionListMetadata；键缺失或形状错误返回 null。</summary>
     public static SessionListMetadataWire? TryParseListMetadata(Dictionary<string, JsonElement>? values)
     {
-        return values is not null
-            && values.TryGetValue(ListMetadataKey, out var element)
+        return values is not null &&
+               values.TryGetValue(ListMetadataKey, out var element)
             ? ParseListMetadata(element)
             : null;
     }
@@ -69,15 +69,15 @@ public static class SessionProjectionsJson
     /// <summary>解析一个 sessionListMetadata JSON 元素；blank 必须是真实布尔值才有效。</summary>
     public static SessionListMetadataWire? ParseListMetadata(JsonElement element)
     {
-        if (element.ValueKind != JsonValueKind.Object
-         || !element.TryGetProperty("blank", out var blankElement)
-         || blankElement.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+        if (element.ValueKind != JsonValueKind.Object              ||
+            !element.TryGetProperty("blank", out var blankElement) ||
+            blankElement.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
             return null;
 
         long? lastPromptAt = null;
-        if (element.TryGetProperty("lastPromptAt", out var lastPromptElement)
-         && lastPromptElement.ValueKind == JsonValueKind.Number
-         && lastPromptElement.TryGetInt64(out var parsed))
+        if (element.TryGetProperty("lastPromptAt", out var lastPromptElement) &&
+            lastPromptElement.ValueKind == JsonValueKind.Number               &&
+            lastPromptElement.TryGetInt64(out var parsed))
             lastPromptAt = parsed;
 
         return new SessionListMetadataWire(blankElement.ValueKind == JsonValueKind.True, lastPromptAt);

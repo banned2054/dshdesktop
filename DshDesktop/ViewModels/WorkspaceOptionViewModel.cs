@@ -7,10 +7,10 @@ namespace DshDesktop.ViewModels;
 ///     点选只改本地草稿预选（经 root 注入的命令），不调用 session/create。
 /// </summary>
 public sealed class WorkspaceOptionViewModel(
-    string?      id,
-    string       title,
-    string       path,
-    bool         isWithoutWorkspace,
+    string?                                id,
+    string                                 title,
+    string                                 path,
+    bool                                   isWithoutWorkspace,
     RelayCommand<WorkspaceOptionViewModel> selectCommand) : ObservableObject
 {
     private bool _isSelected;
@@ -37,17 +37,15 @@ public sealed class WorkspaceOptionViewModel(
     public RelayCommand<WorkspaceOptionViewModel> SelectCommand { get; } = selectCommand;
 
     public static WorkspaceOptionViewModel CreateWorkspace(
-        WorkspaceSummary                       workspace,
-        RelayCommand<WorkspaceOptionViewModel> selectCommand)
+        WorkspaceSummary workspace, RelayCommand<WorkspaceOptionViewModel> selectCommand)
     {
-        return new WorkspaceOptionViewModel(workspace.Id, workspace.Title, workspace.Path,
-                                            isWithoutWorkspace: false, selectCommand);
+        return new WorkspaceOptionViewModel(workspace.Id, workspace.Title, workspace.Path, false,
+                                            selectCommand);
     }
 
     public static WorkspaceOptionViewModel CreateWithoutWorkspace(
         RelayCommand<WorkspaceOptionViewModel> selectCommand)
     {
-        return new WorkspaceOptionViewModel(null, "不使用工作区", string.Empty,
-                                            isWithoutWorkspace: true, selectCommand);
+        return new WorkspaceOptionViewModel(null, "不使用工作区", string.Empty, true, selectCommand);
     }
 }

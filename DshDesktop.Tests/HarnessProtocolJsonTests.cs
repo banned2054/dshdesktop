@@ -487,7 +487,7 @@ public sealed class HarnessProtocolJsonTests
         // 空白判定对齐参考实现 sessionListMetadata：blank=true 是权威空白；blank=false
         // 只有在行投影携带 sessionListMetadata 时才解释为已开始；元数据缺失（v3 旧会话
         // 被投影缓存拒认的冷行、cache miss）是保守回退，标记未知并保持可见。
-        var metadataLess = new SessionSummaryWire("session-1", 1700000000000, false, false);
+        var metadataLess        = new SessionSummaryWire("session-1", 1700000000000, false, false);
         var metadataLessSummary = HarnessSessionService.ToSummary(metadataLess);
         Assert.Equal(SessionBlankState.Unknown, metadataLessSummary.BlankState);
         Assert.Null(metadataLessSummary.Title);
@@ -522,9 +522,10 @@ public sealed class HarnessProtocolJsonTests
                                                 new SessionProjectionHintsWire("sequenced", 0,
                                                                                new Dictionary<string, JsonElement>
                                                                                {
-                                                                                   ["sessionListMetadata"] = JsonDocument
-                                                                                      .Parse("""{"blank":true,"lastPromptAt":null}""")
-                                                                                      .RootElement.Clone()
+                                                                                   ["sessionListMetadata"] =
+                                                                                       JsonDocument
+                                                                                          .Parse("""{"blank":true,"lastPromptAt":null}""")
+                                                                                          .RootElement.Clone()
                                                                                }));
         var blankSummary = HarnessSessionService.ToSummary(blankDraft);
         Assert.Equal(SessionBlankState.ConfirmedBlank, blankSummary.BlankState);

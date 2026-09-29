@@ -35,9 +35,9 @@ public sealed record PromptTextPart(string Text)
             {
                 if (reader.TokenType == JsonTokenType.EndObject) break;
 
-                if (reader.TokenType == JsonTokenType.PropertyName
-                 && reader.ValueTextEquals("text"u8)
-                 && reader.Read())
+                if (reader.TokenType == JsonTokenType.PropertyName &&
+                    reader.ValueTextEquals("text"u8)               &&
+                    reader.Read())
                     text = reader.GetString();
             }
 
@@ -77,9 +77,9 @@ public sealed record SessionAddress(string SessionId)
             {
                 if (reader.TokenType == JsonTokenType.EndObject) break;
 
-                if (reader.TokenType == JsonTokenType.PropertyName
-                 && reader.ValueTextEquals("sessionId"u8)
-                 && reader.Read())
+                if (reader.TokenType == JsonTokenType.PropertyName &&
+                    reader.ValueTextEquals("sessionId"u8)          &&
+                    reader.Read())
                     sessionId = reader.GetString();
             }
 

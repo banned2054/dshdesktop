@@ -35,9 +35,9 @@ public static class RemoteEventJson
 
     public static RemoteEventFrame? Parse(JsonElement element)
     {
-        if (element.ValueKind != JsonValueKind.Object
-         || !element.TryGetProperty("type", out var typeElement)
-         || typeElement.ValueKind != JsonValueKind.String)
+        if (element.ValueKind != JsonValueKind.Object            ||
+            !element.TryGetProperty("type", out var typeElement) ||
+            typeElement.ValueKind != JsonValueKind.String)
             return null;
 
         switch (typeElement.GetString())
@@ -56,20 +56,20 @@ public static class RemoteEventJson
                 return new RemoteEventFrame.Emit(eventElement.GetString() ?? string.Empty, args);
             }
 
-            case "waterfall" when element.TryGetProperty("event", out var waterfallEvent)
-                               && waterfallEvent.ValueKind == JsonValueKind.String
-                               && element.TryGetProperty("eventId", out var eventIdElement)
-                               && eventIdElement.ValueKind == JsonValueKind.String
-                               && element.TryGetProperty("agentId", out var agentIdElement)
-                               && agentIdElement.ValueKind == JsonValueKind.String
-                               && element.TryGetProperty("request", out var requestElement) :
+            case "waterfall" when element.TryGetProperty("event", out var waterfallEvent)   &&
+                                  waterfallEvent.ValueKind == JsonValueKind.String          &&
+                                  element.TryGetProperty("eventId", out var eventIdElement) &&
+                                  eventIdElement.ValueKind == JsonValueKind.String          &&
+                                  element.TryGetProperty("agentId", out var agentIdElement) &&
+                                  agentIdElement.ValueKind == JsonValueKind.String          &&
+                                  element.TryGetProperty("request", out var requestElement) :
                 return new RemoteEventFrame.Waterfall(waterfallEvent.GetString() ?? string.Empty,
                                                       eventIdElement.GetString() ?? string.Empty,
                                                       agentIdElement.GetString() ?? string.Empty,
                                                       requestElement.Clone());
 
-            case "cancel" when element.TryGetProperty("eventId", out var cancelEventId)
-                            && cancelEventId.ValueKind == JsonValueKind.String :
+            case "cancel" when element.TryGetProperty("eventId", out var cancelEventId) &&
+                               cancelEventId.ValueKind == JsonValueKind.String :
                 return new RemoteEventFrame.Cancelled(cancelEventId.GetString() ?? string.Empty);
 
             default :
@@ -80,17 +80,17 @@ public static class RemoteEventJson
     /// <summary>解析 approval/request 载荷；toolName 缺失时返回 null（视为不可呈现）。</summary>
     public static ApprovalRequestWire? TryGetApprovalRequest(RemoteEventFrame.Waterfall waterfall)
     {
-        if (waterfall.Event             != ApprovalRequestEvent
-         || waterfall.Request.ValueKind != JsonValueKind.Object
-         || !TryGetString(waterfall.Request, "toolName", out var toolName))
+        if (waterfall.Event             != ApprovalRequestEvent ||
+            waterfall.Request.ValueKind != JsonValueKind.Object ||
+            !TryGetString(waterfall.Request, "toolName", out var toolName))
             return null;
 
-        var callId = waterfall.Request.TryGetProperty("callId", out var callIdElement)
-                  && callIdElement.ValueKind == JsonValueKind.String
+        var callId = waterfall.Request.TryGetProperty("callId", out var callIdElement) &&
+                     callIdElement.ValueKind == JsonValueKind.String
             ? callIdElement.GetString()
             : null;
-        var reason = waterfall.Request.TryGetProperty("reason", out var reasonElement)
-                  && reasonElement.ValueKind == JsonValueKind.String
+        var reason = waterfall.Request.TryGetProperty("reason", out var reasonElement) &&
+                     reasonElement.ValueKind == JsonValueKind.String
             ? reasonElement.GetString()
             : null;
         return new ApprovalRequestWire(toolName, callId, reason);
@@ -112,24 +112,17 @@ public static class RemoteEventJson
             return sessionId is not null;
         }
 
-        if (first.ValueKind == JsonValueKind.Object)
-        {
-            var summaryId = first.TryGetProperty("sessionId", out var idElement)
-                         && idElement.ValueKind == JsonValueKind.String
-                ? idElement.GetString()
-                : null;
-            if (summaryId is not null)
-            {
-                sessionId = summaryId;
-                return true;
-            }
-        }
-
-        return false;
+        if (first.ValueKind != JsonValueKind.Object) return false;
+        var summaryId = first.TryGetProperty("sessionId", out var idElement) &&
+                        idElement.ValueKind == JsonValueKind.String
+            ? idElement.GetString()
+            : null;
+        if (summaryId is null) return false;
+        sessionId = summaryId;
+        return true;
     }
 
-    private static bool TryGetString(JsonElement                     element, string name,
-                                     [NotNullWhen(true)] out string? value)
+    private static bool TryGetString(JsonElement element, string name, [NotNullWhen(true)] out string? value)
     {
         if (element.TryGetProperty(name, out var property) && property.ValueKind == JsonValueKind.String)
         {

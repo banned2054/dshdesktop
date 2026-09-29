@@ -11,6 +11,7 @@ using System.Text.Json;
 using System.Threading.Channels;
 using Xunit;
 using Xunit.Abstractions;
+using Xunit.Sdk;
 
 namespace DshDesktop.Tests;
 
@@ -27,7 +28,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         {
             await WaitUntilAsync(condition, timeoutMilliseconds);
         }
-        catch (Xunit.Sdk.XunitException)
+        catch (XunitException)
         {
             output.WriteLine($"等待超时现场：selected={viewModel.SelectedSession?.Id} "          +
                              $"usage={viewModel.Composer.Usage?.ToString() ?? "<null>"} " +
@@ -263,8 +264,8 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
 
         // 切换会话：另一会话的快照携带各自的当前选型。
         viewModel.SelectedSession = viewModel.Sidebar.Sessions.First(session => session.Id == "session-native");
-        await WaitUntilAsync(() => viewModel.SelectedSession!.Id == "session-native"
-                                && viewModel.Composer.CurrentModel is { Provider: "sim", Model: "sim-reasoner" });
+        await WaitUntilAsync(() => viewModel.SelectedSession!.Id == "session-native" &&
+                                   viewModel.Composer.CurrentModel is { Provider: "sim", Model: "sim-reasoner" });
         Assert.False(viewModel.HasError);
 
         await viewModel.DisposeAsync();
@@ -338,8 +339,8 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         // 视图的口径），统计条保持隐藏，不显示占位「—」。
         viewModel.Sidebar.NewSessionCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
-        viewModel.SelectWorkspaceCommand.Execute(
-            viewModel.WorkspaceOptions.Single(option => option.IsWithoutWorkspace));
+        viewModel.SelectWorkspaceCommand.Execute(viewModel.WorkspaceOptions
+                                                          .Single(option => option.IsWithoutWorkspace));
         viewModel.Composer.DraftMessage = "第一条消息";
         viewModel.SendDraftCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.SelectedSession is { Id: not "session-history" });
@@ -358,13 +359,13 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         // 再次经草稿页首发送进入另一个空会话：按会话重置后重新隐藏。
         viewModel.Sidebar.NewSessionCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
-        viewModel.SelectWorkspaceCommand.Execute(
-            viewModel.WorkspaceOptions.Single(option => option.IsWithoutWorkspace));
+        viewModel.SelectWorkspaceCommand.Execute(viewModel.WorkspaceOptions
+                                                          .Single(option => option.IsWithoutWorkspace));
         viewModel.Composer.DraftMessage = "第二条消息";
         viewModel.SendDraftCommand.Execute(null);
         await WaitOrDumpAsync(viewModel,
-                              () => viewModel.SelectedSession is { Id: not "session-history" }
-                                 && viewModel.SelectedSession.Id != blankSessionId, 5000);
+                              () => viewModel.SelectedSession is { Id: not "session-history" } &&
+                                    viewModel.SelectedSession.Id != blankSessionId, 5000);
         await WaitOrDumpAsync(viewModel,
                               () => viewModel.Composer is
                                   { Usage : { OutputTokens: 0, UncachedInputTokens: 0 }, Stats.Steps: 0 }, 5000);
@@ -457,8 +458,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         // 过程组内的条目：两段思考、中间说明与两枚工具；思考条目不算「消息」。
         Assert.Equal(5, group.Process.Count);
         Assert.Equal(2, group.Process.OfType<MessageItemViewModel>()
-                             .Count(message => message.HasReasoning
-                                            && string.IsNullOrWhiteSpace(message.Content)));
+                             .Count(message => message.HasReasoning && string.IsNullOrWhiteSpace(message.Content)));
         Assert.Contains(group.Process, item => item is MessageItemViewModel { Content: "先查看第 1 轮的相关记录，再做定点更新。" });
         // 最终回复保持独立气泡，且自带可折叠的思考行。
         var answer = viewModel.ConversationItems.OfType<MessageItemViewModel>()
@@ -502,109 +502,6 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         Assert.False(viewModel.HasError);
 
         await viewModel.DisposeAsync();
-    }
-
-    /// <summary>
-    ///     中途 attach 桩：快照窗口含未完结轮的条目，尾部是 Host 合成的 interrupted 边界；
-    ///     随后可推送该轮的真实收尾事件（工具、最终回复与 turn/end）。
-    /// </summary>
-    private sealed class SyntheticBoundarySessionService : ISessionService
-    {
-        private readonly SimulatedSessionService _inner = new();
-
-        private readonly Channel<SessionUpdate> _liveTail = Channel.CreateUnbounded<SessionUpdate>();
-
-        public event EventHandler? SessionsChanged
-        {
-            add => _inner.SessionsChanged += value;
-            remove => _inner.SessionsChanged -= value;
-        }
-
-        public Task<IReadOnlyList<SessionSummary>> GetSessionsAsync(CancellationToken cancellationToken = default)
-        {
-            return _inner.GetSessionsAsync(cancellationToken);
-        }
-
-        public Task<SessionSummary> CreateSessionAsync(
-            string? workspaceId = null, string? sessionId = null, CancellationToken cancellationToken = default)
-        {
-            return _inner.CreateSessionAsync(workspaceId, sessionId, cancellationToken);
-        }
-
-        public void MarkSessionEngaged(string sessionId)
-        {
-            _inner.MarkSessionEngaged(sessionId);
-        }
-
-        public Task<ModelCatalog> GetModelCatalogAsync(CancellationToken cancellationToken = default)
-        {
-            return _inner.GetModelCatalogAsync(cancellationToken);
-        }
-
-        public Task<ModelSelection> SelectModelAsync(
-            string sessionId, string provider, string model,
-            string? reasoningEffort = null, CancellationToken cancellationToken = default)
-        {
-            return _inner.SelectModelAsync(sessionId, provider, model, reasoningEffort, cancellationToken);
-        }
-
-        public Task<IReadOnlyList<ConversationMessage>> GetMessagesAsync(
-            string sessionId, CancellationToken cancellationToken = default)
-        {
-            return _inner.GetMessagesAsync(sessionId, cancellationToken);
-        }
-
-        public Task<SessionHistoryPage> LoadOlderAsync(
-            string sessionId, long throughSeq, long beforeSeq, CancellationToken cancellationToken = default)
-        {
-            return _inner.LoadOlderAsync(sessionId, throughSeq, beforeSeq, cancellationToken);
-        }
-
-        public Task SendPromptAsync(
-            string sessionId, string requestId, string content, CancellationToken cancellationToken = default)
-        {
-            return _inner.SendPromptAsync(sessionId, requestId, content, cancellationToken);
-        }
-
-        public Task CancelAsync(string sessionId, CancellationToken cancellationToken = default)
-        {
-            return _inner.CancelAsync(sessionId, cancellationToken);
-        }
-
-        public async IAsyncEnumerable<SessionUpdate> FollowSessionAsync(
-            string sessionId, [EnumeratorCancellation] CancellationToken cancellationToken = default)
-        {
-            var now = DateTimeOffset.Now;
-            ConversationEntry[] entries =
-            [
-                new ConversationMessage(1, "attach-user", MessageRole.User, "中途 attach 的问题", now, 1),
-                new ConversationMessage(2, "attach-interim", MessageRole.Assistant, "先看快照形状。", now, 1),
-                new ToolActivity(3, "call-attach-1", "fs.read", "{}", ToolActivityStatus.Succeeded,
-                                 "读取结果", null, now, now.AddSeconds(1), 1),
-                new ConversationMessage(4, "attach-mid", MessageRole.Assistant, "阶段性回复", now, 1),
-                // Host 为开放轮合成的边界：interrupted、seq 即 cursor，持久日志中不存在。
-                new TurnBoundary(5, 1, now, "interrupted")
-            ];
-            yield return new SessionUpdate.Snapshot(entries, 5, 1, false, "中途 attach");
-            await foreach (var update in _liveTail.Reader.ReadAllAsync(cancellationToken)) yield return update;
-        }
-
-        public void PushLiveTail()
-        {
-            var now = DateTimeOffset.Now;
-            _liveTail.Writer.TryWrite(new SessionUpdate.ToolCallStarted(new ToolActivity(
-                                                                         6, "call-attach-2", "fs.read", "{}",
-                                                                         ToolActivityStatus.Running,
-                                                                         null, null, now, Turn : 1)));
-            _liveTail.Writer.TryWrite(new SessionUpdate.MessageAppended(new ConversationMessage(
-                                                                         7, "attach-final", MessageRole.Assistant,
-                                                                         "真正的最终回复", now, 1)));
-        }
-
-        public void PushRealTurnEnd()
-        {
-            _liveTail.Writer.TryWrite(new SessionUpdate.TurnEnded(1, 8, "completed"));
-        }
     }
 
     [Fact]
@@ -704,13 +601,11 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         // turn/end 之前条目逐项显示（生成中的轮次不折叠）；思考条目与工具卡片一样逐项出现。
         Assert.DoesNotContain(viewModel.ConversationItems, item => item is TurnProcessGroupViewModel);
         Assert.Equal(2, viewModel.ConversationItems.OfType<MessageItemViewModel>()
-                                 .Count(message => message.HasReasoning
-                                                && string.IsNullOrWhiteSpace(message.Content)));
+                                 .Count(message => message.HasReasoning && string.IsNullOrWhiteSpace(message.Content)));
         // 无正文助手提交不产生空气泡。
         Assert.DoesNotContain(viewModel.ConversationItems.OfType<MessageItemViewModel>(),
-                              message => message is { Role: MessageRole.Assistant }
-                                      && string.IsNullOrWhiteSpace(message.Content)
-                                      && !message.HasReasoning);
+                              message => message is { Role: MessageRole.Assistant } &&
+                                         string.IsNullOrWhiteSpace(message.Content) && !message.HasReasoning);
 
         sessionService.PushTurnEnded(sessionId, 2);
 
@@ -754,11 +649,10 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
 
         // 被打断的轮次：思考与说明之后直接中断，没有可展示的最终回复；
         // 该轮过程（含思考条目）保持逐项展示，不折叠。
-        sessionService.PushCommittedAssistantMessage(sessionId, string.Empty, 2,
-                                                     reasoning : "准备读取文件，先确认路径。");
+        sessionService.PushCommittedAssistantMessage(sessionId, string.Empty, 2, reasoning : "准备读取文件，先确认路径。");
         sessionService.PushToolActivity(sessionId, "fs.read", "文件内容摘要", false, 2);
-        sessionService.PushCommittedAssistantMessage(sessionId, string.Empty, 2,
-                                                     reasoning : "读到一半被取消了。", isInterrupted : true);
+        sessionService.PushCommittedAssistantMessage(sessionId, string.Empty, 2, reasoning : "读到一半被取消了。",
+                                                     isInterrupted : true);
         sessionService.PushTurnEnded(sessionId, 2);
 
         await WaitUntilAsync(() => viewModel.ConversationItems.OfType<MessageItemViewModel>()
@@ -956,14 +850,14 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         viewModel.Sidebar.NewSessionCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
         Assert.DoesNotContain(viewModel.Sidebar.SessionRows.OfType<SessionItemViewModel>(),
-                              session => session.BlankState == SessionBlankState.ConfirmedBlank
-                                      && !session.IsCurrent);
+                              session => session is { BlankState: SessionBlankState.ConfirmedBlank, IsCurrent: false });
         viewModel.SelectWorkspaceCommand.Execute(
-            viewModel.WorkspaceOptions.Single(option => option.IsWithoutWorkspace));
+                                                 viewModel.WorkspaceOptions
+                                                          .Single(option => option.IsWithoutWorkspace));
         viewModel.Composer.DraftMessage = "未分组新会话的第一条消息";
         viewModel.SendDraftCommand.Execute(null);
-        await WaitUntilAsync(() => viewModel.SelectedSession is { Id: not "session-native" }
-                                && viewModel.SelectedSession.BlankState == SessionBlankState.Engaged);
+        await WaitUntilAsync(() => viewModel.SelectedSession is
+                                 { Id: not "session-native", BlankState: SessionBlankState.Engaged });
 
         var ungroupedHeader = viewModel.Sidebar.SessionRows.OfType<SessionGroupHeaderViewModel>()
                                        .Single(header => header.Key == "$ungrouped");
@@ -1005,8 +899,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
                                   _                                  => "other"
                               })
                              .ToArray();
-        Assert.Equal(
-        [
+        Assert.Equal([
             "header:后到的工作区", "session:session-welcome",
             "header:未分组", "session:session-history", "session:session-native", "session:session-design"
         ], shape);
@@ -1055,12 +948,12 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         viewModel.Sidebar.NewSessionCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
         Assert.Equal(createsBefore, sessionService.CreatedSessionCount);
-        viewModel.SelectWorkspaceCommand.Execute(
-            viewModel.WorkspaceOptions.Single(option => option.IsWithoutWorkspace));
+        viewModel.SelectWorkspaceCommand.Execute(viewModel.WorkspaceOptions
+                                                          .Single(option => option.IsWithoutWorkspace));
         viewModel.Composer.DraftMessage = "第一条消息";
         viewModel.SendDraftCommand.Execute(null);
-        await WaitUntilAsync(() => viewModel.SelectedSession is not null
-                                && !ReferenceEquals(viewModel.SelectedSession, previousSelection));
+        await WaitUntilAsync(() => viewModel.SelectedSession is not null &&
+                                   !ReferenceEquals(viewModel.SelectedSession, previousSelection));
         Assert.Equal(createsBefore + 1, sessionService.CreatedSessionCount);
         var current = viewModel.SelectedSession!;
         Assert.Contains(viewModel.Sidebar.Sessions, session => session.Id == current.Id);
@@ -1098,8 +991,8 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         Assert.True(viewModel.ShowNewConversationPage);
         Assert.DoesNotContain(viewModel.Sidebar.Sessions, session => session.Id == "blank-a");
 
-        viewModel.SelectWorkspaceCommand.Execute(
-            viewModel.WorkspaceOptions.Single(option => option.IsWithoutWorkspace));
+        viewModel.SelectWorkspaceCommand.Execute(viewModel.WorkspaceOptions
+                                                          .Single(option => option.IsWithoutWorkspace));
         Assert.Equal("不使用工作区", viewModel.WorkspacePickerLabel);
         Assert.True(viewModel.CanSendDraft);
         Assert.Equal(createsBefore, sessionService.CreatedSessionCount);
@@ -1114,7 +1007,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
             new WorkspaceSummary("ws-2", "工作区二", "C:/Code/WS2", [], DateTimeOffset.Now)
         ]);
         var sessionService = new AdoptionSessionService();
-        var viewModel = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
+        var viewModel      = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
         await viewModel.InitializeAsync();
         await WaitUntilAsync(() => viewModel.SelectedSession is not null);
 
@@ -1141,7 +1034,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
             new WorkspaceSummary("ws-1", "工作区一", "C:/Code/WS1", [], DateTimeOffset.Now)
         ]);
         var sessionService = new AdoptionSessionService(workspaces.AddSession);
-        var viewModel = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
+        var viewModel      = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
         await viewModel.InitializeAsync();
         await WaitUntilAsync(() => viewModel.Composer.ModelOptions.Count > 0);
         viewModel.Sidebar.NewSessionCommand.Execute(null);
@@ -1172,9 +1065,9 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         // 插入行后按工作区记账核对分组：新会话落在 ws-1 组内（默认分组视图）。
         var groupedRows = viewModel.Sidebar.SessionRows;
         var headerIndex = groupedRows.IndexOf(groupedRows.OfType<SessionGroupHeaderViewModel>()
-                                                        .Single(header => header.Key == "ws-1"));
+                                                         .Single(header => header.Key == "ws-1"));
         var rowIndex = groupedRows.IndexOf(groupedRows.OfType<SessionItemViewModel>()
-                                                  .Single(session => session.Id == created.Id));
+                                                      .Single(session => session.Id == created.Id));
         Assert.True(headerIndex >= 0 && rowIndex == headerIndex + 1);
 
         await viewModel.DisposeAsync();
@@ -1227,9 +1120,9 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         var sessionService = new AdoptionSessionService();
         // 会话本体已创建（错误 details 携带 sessionId）：种子该会话供后续发送命中。
         sessionService.SeedBlankSession("created-9", null);
-        sessionService.EnqueueCreateError(new HarnessRpcException(
-                                             "session/workspace-attach-failed", "工作区挂接失败（模拟）",
-                                             JsonDocument.Parse("""{"sessionId":"created-9"}""").RootElement.Clone()));
+        sessionService.EnqueueCreateError(new HarnessRpcException("session/workspace-attach-failed", "工作区挂接失败（模拟）",
+                                                                  JsonDocument.Parse("""{"sessionId":"created-9"}""")
+                                                                              .RootElement.Clone()));
         var viewModel = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
         await viewModel.InitializeAsync();
         await WaitUntilAsync(() => viewModel.SelectedSession is not null);
@@ -1264,7 +1157,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
             new WorkspaceSummary("ws-2", "工作区二", "C:/Code/WS2", [], DateTimeOffset.Now)
         ]);
         var sessionService = new AdoptionSessionService();
-        var viewModel = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
+        var viewModel      = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
         await viewModel.InitializeAsync();
         await WaitUntilAsync(() => viewModel.SelectedSession is not null);
         var selectedBefore = viewModel.SelectedSession!;
@@ -1304,7 +1197,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
             new WorkspaceSummary("ws-1", "工作区一", "C:/Code/WS1", [], DateTimeOffset.Now)
         ]);
         var sessionService = new AdoptionSessionService();
-        var viewModel = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
+        var viewModel      = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
         await viewModel.InitializeAsync();
         await WaitUntilAsync(() => viewModel.Composer.ModelOptions.Count > 0);
         var selectedBefore = viewModel.SelectedSession;
@@ -1394,8 +1287,8 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         Assert.True(viewModel.ShowNewConversationPage);
 
         // 手动点击行不受守卫影响；再进草稿页文本仍在。
-        viewModel.Sidebar.SelectSessionCommand.Execute(
-            viewModel.Sidebar.Sessions.First(session => session.Id != created.Id));
+        viewModel.Sidebar.SelectSessionCommand.Execute(viewModel.Sidebar.Sessions.First(session => session.Id !=
+                                                                    created.Id));
         await WaitUntilAsync(() => !viewModel.ShowNewConversationPage);
         viewModel.Sidebar.NewSessionCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
@@ -1412,7 +1305,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
             new WorkspaceSummary("ws-2", "工作区二", "C:/Code/WS2", [], DateTimeOffset.Now.AddMinutes(-1))
         ]);
         var sessionService = new AdoptionSessionService();
-        var viewModel = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
+        var viewModel      = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
         await viewModel.InitializeAsync();
         await WaitUntilAsync(() => viewModel.SelectedSession is not null);
         viewModel.Sidebar.NewSessionCommand.Execute(null);
@@ -1430,9 +1323,9 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         viewModel.SelectWorkspaceCommand.Execute(viewModel.WorkspaceOptions.Single(option => option.Id == "ws-2"));
         gate.TrySetResult();
         await WaitOrDumpAsync(viewModel,
-                              () => viewModel.Sidebar.Sessions.Any(session =>
-                                        !knownIds.Contains(session.Id)
-                                     && session.BlankState == SessionBlankState.Engaged), 5000);
+                              () => viewModel.Sidebar.Sessions.Any(session => !knownIds.Contains(session.Id) &&
+                                                                              session.BlankState ==
+                                                                              SessionBlankState.Engaged), 5000);
         Assert.True(viewModel.ShowNewConversationPage);
         Assert.Equal("工作区二", viewModel.WorkspacePickerLabel);
         Assert.Equal("发送快照文本", viewModel.Composer.DraftMessage);
@@ -1441,8 +1334,8 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
 
         // 迟到会话未记为待复用：按新目标重试会创建新会话（ws-2）并正常导航收束。
         viewModel.SendDraftCommand.Execute(null);
-        await WaitUntilAsync(() => viewModel.SelectedSession is { BlankState: SessionBlankState.Engaged }
-                                && viewModel.SelectedSession.Id != staleRow.Id);
+        await WaitUntilAsync(() => viewModel.SelectedSession is { BlankState: SessionBlankState.Engaged } &&
+                                   viewModel.SelectedSession.Id != staleRow.Id);
         Assert.Equal(2, sessionService.CreatedSessionCount);
         Assert.Equal(2, sessionService.CreateRequests.Count);
         Assert.Equal("ws-2", sessionService.CreateRequests[1].WorkspaceId);
@@ -1458,7 +1351,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
             new WorkspaceSummary("ws-1", "工作区一", "C:/Code/WS1", [], DateTimeOffset.Now)
         ]);
         var sessionService = new AdoptionSessionService();
-        var viewModel = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
+        var viewModel      = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
         await viewModel.InitializeAsync();
         await WaitUntilAsync(() => viewModel.SelectedSession is not null);
         var otherSession = viewModel.SelectedSession!;
@@ -1492,126 +1385,6 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         Assert.Equal(string.Empty, viewModel.Composer.DraftMessage);
 
         await viewModel.DisposeAsync();
-    }
-
-    /// <summary>
-    ///     创建/收养可控桩：记录每次 session/create 请求（workspaceId, sessionId），可注入
-    ///     业务错误与阻塞门；会话列表可整体接管（SessionsOverride）。其余行为委托模拟实现。
-    /// </summary>
-    private sealed class AdoptionSessionService : ISessionService
-    {
-        private readonly SimulatedSessionService _inner;
-
-        public AdoptionSessionService(Action<string, string>? onSessionCreatedInWorkspace = null)
-        {
-            _inner = new SimulatedSessionService(onSessionCreatedInWorkspace);
-        }
-
-        private readonly Queue<(Exception Error, bool OnlyForNewSession)> _createErrors = [];
-
-        /// <summary>下一次 create 阻塞到手动放行（并发合并与迟到结果测试用）。</summary>
-        public TaskCompletionSource? BlockNextCreate { get; set; }
-
-        public List<(string? WorkspaceId, string? SessionId)> CreateRequests { get; } = [];
-
-        public List<string> ModelSelectionRequests { get; } = [];
-
-        /// <summary>接管会话列表输出（未知状态会话测试用）；null 时走模拟实现。</summary>
-        public Func<IReadOnlyList<SessionSummary>>? SessionsOverride { get; set; }
-
-        public void SeedBlankSession(string sessionId, string? cwd) => _inner.SeedBlankSession(sessionId, cwd);
-
-        /// <summary>模拟实现的真实新建（非收养）计数。</summary>
-        public int CreatedSessionCount => _inner.CreatedSessionCount;
-
-        /// <summary>模拟实现当前目录快照（供 SessionsOverride 组合）。</summary>
-        public IReadOnlyList<SessionSummary> Snapshot() => _inner.GetSessionsAsync().Result;
-
-        /// <summary>
-        ///     注入一次 create 业务错误。onlyForNewSession 为 true 时只作用于新建调用
-        ///     （sessionId 为空），收养调用（复用候选）不受影响。
-        /// </summary>
-        public void EnqueueCreateError(Exception exception, bool onlyForNewSession = true)
-        {
-            _createErrors.Enqueue((exception, onlyForNewSession));
-        }
-
-        public event EventHandler? SessionsChanged
-        {
-            add => _inner.SessionsChanged += value;
-            remove => _inner.SessionsChanged -= value;
-        }
-
-        public async Task<IReadOnlyList<SessionSummary>> GetSessionsAsync(
-            CancellationToken cancellationToken = default)
-        {
-            if (SessionsOverride is { } @override) return @override();
-
-            return await _inner.GetSessionsAsync(cancellationToken);
-        }
-
-        public async Task<SessionSummary> CreateSessionAsync(
-            string? workspaceId = null, string? sessionId = null, CancellationToken cancellationToken = default)
-        {
-            CreateRequests.Add((workspaceId, sessionId));
-            if (BlockNextCreate is { } gate)
-            {
-                BlockNextCreate = null;
-                await gate.Task.WaitAsync(cancellationToken);
-            }
-
-            if (_createErrors.TryPeek(out var entry) && (!entry.OnlyForNewSession || sessionId is null))
-            {
-                _createErrors.Dequeue();
-                throw entry.Error;
-            }
-
-            return await _inner.CreateSessionAsync(workspaceId, sessionId, cancellationToken);
-        }
-
-        public void MarkSessionEngaged(string sessionId) => _inner.MarkSessionEngaged(sessionId);
-
-        public async Task<ModelSelection> SelectModelAsync(
-            string sessionId, string provider, string model,
-            string? reasoningEffort = null, CancellationToken cancellationToken = default)
-        {
-            ModelSelectionRequests.Add(sessionId);
-            return await _inner.SelectModelAsync(sessionId, provider, model, reasoningEffort, cancellationToken);
-        }
-
-        public Task<ModelCatalog> GetModelCatalogAsync(CancellationToken cancellationToken = default)
-        {
-            return _inner.GetModelCatalogAsync(cancellationToken);
-        }
-
-        public Task<IReadOnlyList<ConversationMessage>> GetMessagesAsync(
-            string sessionId, CancellationToken cancellationToken = default)
-        {
-            return _inner.GetMessagesAsync(sessionId, cancellationToken);
-        }
-
-        public Task<SessionHistoryPage> LoadOlderAsync(
-            string sessionId, long throughSeq, long beforeSeq, CancellationToken cancellationToken = default)
-        {
-            return _inner.LoadOlderAsync(sessionId, throughSeq, beforeSeq, cancellationToken);
-        }
-
-        public Task SendPromptAsync(
-            string sessionId, string requestId, string content, CancellationToken cancellationToken = default)
-        {
-            return _inner.SendPromptAsync(sessionId, requestId, content, cancellationToken);
-        }
-
-        public Task CancelAsync(string sessionId, CancellationToken cancellationToken = default)
-        {
-            return _inner.CancelAsync(sessionId, cancellationToken);
-        }
-
-        public IAsyncEnumerable<SessionUpdate> FollowSessionAsync(
-            string sessionId, CancellationToken cancellationToken = default)
-        {
-            return _inner.FollowSessionAsync(sessionId, cancellationToken);
-        }
     }
 
     private static void EnsureAvaloniaPlatform()
@@ -1654,6 +1427,232 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         }
     }
 
+    /// <summary>
+    ///     中途 attach 桩：快照窗口含未完结轮的条目，尾部是 Host 合成的 interrupted 边界；
+    ///     随后可推送该轮的真实收尾事件（工具、最终回复与 turn/end）。
+    /// </summary>
+    private sealed class SyntheticBoundarySessionService : ISessionService
+    {
+        private readonly SimulatedSessionService _inner = new();
+
+        private readonly Channel<SessionUpdate> _liveTail = Channel.CreateUnbounded<SessionUpdate>();
+
+        public event EventHandler? SessionsChanged
+        {
+            add => _inner.SessionsChanged += value;
+            remove => _inner.SessionsChanged -= value;
+        }
+
+        public Task<IReadOnlyList<SessionSummary>> GetSessionsAsync(CancellationToken cancellationToken = default)
+        {
+            return _inner.GetSessionsAsync(cancellationToken);
+        }
+
+        public Task<SessionSummary> CreateSessionAsync(
+            string? workspaceId = null, string? sessionId = null, CancellationToken cancellationToken = default)
+        {
+            return _inner.CreateSessionAsync(workspaceId, sessionId, cancellationToken);
+        }
+
+        public void MarkSessionEngaged(string sessionId)
+        {
+            _inner.MarkSessionEngaged(sessionId);
+        }
+
+        public Task<ModelCatalog> GetModelCatalogAsync(CancellationToken cancellationToken = default)
+        {
+            return _inner.GetModelCatalogAsync(cancellationToken);
+        }
+
+        public Task<ModelSelection> SelectModelAsync(
+            string  sessionId,              string            provider, string model,
+            string? reasoningEffort = null, CancellationToken cancellationToken = default)
+        {
+            return _inner.SelectModelAsync(sessionId, provider, model, reasoningEffort, cancellationToken);
+        }
+
+        public Task<IReadOnlyList<ConversationMessage>> GetMessagesAsync(
+            string sessionId, CancellationToken cancellationToken = default)
+        {
+            return _inner.GetMessagesAsync(sessionId, cancellationToken);
+        }
+
+        public Task<SessionHistoryPage> LoadOlderAsync(
+            string sessionId, long throughSeq, long beforeSeq, CancellationToken cancellationToken = default)
+        {
+            return _inner.LoadOlderAsync(sessionId, throughSeq, beforeSeq, cancellationToken);
+        }
+
+        public Task SendPromptAsync(
+            string sessionId, string requestId, string content, CancellationToken cancellationToken = default)
+        {
+            return _inner.SendPromptAsync(sessionId, requestId, content, cancellationToken);
+        }
+
+        public Task CancelAsync(string sessionId, CancellationToken cancellationToken = default)
+        {
+            return _inner.CancelAsync(sessionId, cancellationToken);
+        }
+
+        public async IAsyncEnumerable<SessionUpdate> FollowSessionAsync(
+            string sessionId, [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            var now = DateTimeOffset.Now;
+            ConversationEntry[] entries =
+            [
+                new ConversationMessage(1, "attach-user", MessageRole.User, "中途 attach 的问题", now, 1),
+                new ConversationMessage(2, "attach-interim", MessageRole.Assistant, "先看快照形状。", now, 1),
+                new ToolActivity(3, "call-attach-1", "fs.read", "{}", ToolActivityStatus.Succeeded,
+                                 "读取结果", null, now, now.AddSeconds(1), 1),
+                new ConversationMessage(4, "attach-mid", MessageRole.Assistant, "阶段性回复", now, 1),
+                // Host 为开放轮合成的边界：interrupted、seq 即 cursor，持久日志中不存在。
+                new TurnBoundary(5, 1, now, "interrupted")
+            ];
+            yield return new SessionUpdate.Snapshot(entries, 5, 1, false, "中途 attach");
+            await foreach (var update in _liveTail.Reader.ReadAllAsync(cancellationToken)) yield return update;
+        }
+
+        public void PushLiveTail()
+        {
+            var now = DateTimeOffset.Now;
+            _liveTail.Writer.TryWrite(new SessionUpdate.ToolCallStarted(new ToolActivity(6, "call-attach-2", "fs.read",
+                                                                                 "{}", ToolActivityStatus.Running, null,
+                                                                                 null, now, Turn : 1)));
+            _liveTail.Writer.TryWrite(new SessionUpdate.MessageAppended(new ConversationMessage(7, "attach-final",
+                                                                                 MessageRole.Assistant, "真正的最终回复", now,
+                                                                                 1)));
+        }
+
+        public void PushRealTurnEnd()
+        {
+            _liveTail.Writer.TryWrite(new SessionUpdate.TurnEnded(1, 8, "completed"));
+        }
+    }
+
+    /// <summary>
+    ///     创建/收养可控桩：记录每次 session/create 请求（workspaceId, sessionId），可注入
+    ///     业务错误与阻塞门；会话列表可整体接管（SessionsOverride）。其余行为委托模拟实现。
+    /// </summary>
+    private sealed class AdoptionSessionService(Action<string, string>? onSessionCreatedInWorkspace = null)
+        : ISessionService
+    {
+        private readonly Queue<(Exception Error, bool OnlyForNewSession)> _createErrors = [];
+        private readonly SimulatedSessionService                          _inner = new(onSessionCreatedInWorkspace);
+
+        /// <summary>下一次 create 阻塞到手动放行（并发合并与迟到结果测试用）。</summary>
+        public TaskCompletionSource? BlockNextCreate { get; set; }
+
+        public List<(string? WorkspaceId, string? SessionId)> CreateRequests { get; } = [];
+
+        public List<string> ModelSelectionRequests { get; } = [];
+
+        /// <summary>接管会话列表输出（未知状态会话测试用）；null 时走模拟实现。</summary>
+        public Func<IReadOnlyList<SessionSummary>>? SessionsOverride { get; set; }
+
+        /// <summary>模拟实现的真实新建（非收养）计数。</summary>
+        public int CreatedSessionCount => _inner.CreatedSessionCount;
+
+        public event EventHandler? SessionsChanged
+        {
+            add => _inner.SessionsChanged += value;
+            remove => _inner.SessionsChanged -= value;
+        }
+
+        public async Task<IReadOnlyList<SessionSummary>> GetSessionsAsync(
+            CancellationToken cancellationToken = default)
+        {
+            if (SessionsOverride is { } @override) return @override();
+
+            return await _inner.GetSessionsAsync(cancellationToken);
+        }
+
+        public async Task<SessionSummary> CreateSessionAsync(
+            string? workspaceId = null, string? sessionId = null, CancellationToken cancellationToken = default)
+        {
+            CreateRequests.Add((workspaceId, sessionId));
+            if (BlockNextCreate is { } gate)
+            {
+                BlockNextCreate = null;
+                await gate.Task.WaitAsync(cancellationToken);
+            }
+
+            if (_createErrors.TryPeek(out var entry) && (!entry.OnlyForNewSession || sessionId is null))
+            {
+                _createErrors.Dequeue();
+                throw entry.Error;
+            }
+
+            return await _inner.CreateSessionAsync(workspaceId, sessionId, cancellationToken);
+        }
+
+        public void MarkSessionEngaged(string sessionId)
+        {
+            _inner.MarkSessionEngaged(sessionId);
+        }
+
+        public async Task<ModelSelection> SelectModelAsync(
+            string  sessionId,              string            provider, string model,
+            string? reasoningEffort = null, CancellationToken cancellationToken = default)
+        {
+            ModelSelectionRequests.Add(sessionId);
+            return await _inner.SelectModelAsync(sessionId, provider, model, reasoningEffort, cancellationToken);
+        }
+
+        public Task<ModelCatalog> GetModelCatalogAsync(CancellationToken cancellationToken = default)
+        {
+            return _inner.GetModelCatalogAsync(cancellationToken);
+        }
+
+        public Task<IReadOnlyList<ConversationMessage>> GetMessagesAsync(
+            string sessionId, CancellationToken cancellationToken = default)
+        {
+            return _inner.GetMessagesAsync(sessionId, cancellationToken);
+        }
+
+        public Task<SessionHistoryPage> LoadOlderAsync(
+            string sessionId, long throughSeq, long beforeSeq, CancellationToken cancellationToken = default)
+        {
+            return _inner.LoadOlderAsync(sessionId, throughSeq, beforeSeq, cancellationToken);
+        }
+
+        public Task SendPromptAsync(
+            string sessionId, string requestId, string content, CancellationToken cancellationToken = default)
+        {
+            return _inner.SendPromptAsync(sessionId, requestId, content, cancellationToken);
+        }
+
+        public Task CancelAsync(string sessionId, CancellationToken cancellationToken = default)
+        {
+            return _inner.CancelAsync(sessionId, cancellationToken);
+        }
+
+        public IAsyncEnumerable<SessionUpdate> FollowSessionAsync(
+            string sessionId, CancellationToken cancellationToken = default)
+        {
+            return _inner.FollowSessionAsync(sessionId, cancellationToken);
+        }
+
+        public void SeedBlankSession(string sessionId, string? cwd)
+        {
+            _inner.SeedBlankSession(sessionId, cwd);
+        }
+
+        /// <summary>模拟实现当前目录快照（供 SessionsOverride 组合）。</summary>
+        public IReadOnlyList<SessionSummary> Snapshot()
+        {
+            return _inner.GetSessionsAsync().Result;
+        }
+
+        /// <summary>
+        ///     注入一次 create 业务错误。onlyForNewSession 为 true 时只作用于新建调用
+        ///     （sessionId 为空），收养调用（复用候选）不受影响。
+        /// </summary>
+        public void EnqueueCreateError(Exception exception, bool onlyForNewSession = true)
+        {
+            _createErrors.Enqueue((exception, onlyForNewSession));
+        }
+    }
+
     /// <summary>可控工作区桩：静态集合 + 手动触发变更事件；AddSession 模拟创建记账回流。</summary>
     private sealed class StaticWorkspaceService(IReadOnlyList<WorkspaceSummary>? items = null) : IWorkspaceService
     {
@@ -1673,8 +1672,8 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         public void AddSession(string workspaceId, string sessionId)
         {
             _items = _items.Select(workspace => workspace.Id == workspaceId
-                ? workspace with { SessionIds = [.. workspace.SessionIds, sessionId] }
-                : workspace)
+                                       ? workspace with { SessionIds = [.. workspace.SessionIds, sessionId] }
+                                       : workspace)
                            .ToArray();
         }
 
@@ -1727,7 +1726,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         }
 
         public Task<ModelSelection> SelectModelAsync(
-            string sessionId, string provider, string model,
+            string  sessionId,              string            provider, string model,
             string? reasoningEffort = null, CancellationToken cancellationToken = default)
         {
             return Task.FromException<ModelSelection>(new InvalidOperationException("选型失败（模拟）"));
@@ -1799,7 +1798,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         }
 
         public Task<ModelSelection> SelectModelAsync(
-            string sessionId, string provider, string model,
+            string  sessionId,              string            provider, string model,
             string? reasoningEffort = null, CancellationToken cancellationToken = default)
         {
             return _inner.SelectModelAsync(sessionId, provider, model, reasoningEffort, cancellationToken);

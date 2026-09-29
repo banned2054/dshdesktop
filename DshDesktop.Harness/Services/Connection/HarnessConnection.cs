@@ -393,9 +393,9 @@ public sealed class HarnessConnection(Func<CancellationToken, Task<BackendConnec
 
                 if (frame.Kind == MuxFrameKind.End) return;
 
-                if (frame.Kind == MuxFrameKind.Item
-                 && frame.Value is not null
-                 && parse(frame.Value.Value) is { } parsed)
+                if (frame.Kind == MuxFrameKind.Item &&
+                  frame.Value is not null &&
+                  parse(frame.Value.Value) is { } parsed)
                     await writer.WriteAsync(parsed, cancellationToken).ConfigureAwait(false);
             }
         }
@@ -438,10 +438,14 @@ public sealed class HarnessConnection(Func<CancellationToken, Task<BackendConnec
             while (true)
             {
                 var frame = await reader.ReadAsync(CancellationToken.None).ConfigureAwait(false);
-                if (frame.Kind == MuxFrameKind.End) throw new HarnessConnectionException("后端关闭了事件流。");
-
-                if (frame.Kind == MuxFrameKind.Error)
-                    throw new HarnessRpcException(frame.ErrorCode ?? "gateway/unknown", frame.ErrorMessage ?? "事件流错误。");
+                switch (frame.Kind)
+                {
+                    case MuxFrameKind.End :
+                        throw new HarnessConnectionException("后端关闭了事件流。");
+                    case MuxFrameKind.Error :
+                        throw new HarnessRpcException(frame.ErrorCode    ?? "gateway/unknown",
+                                                      frame.ErrorMessage ?? "事件流错误。");
+                }
 
                 if (frame.Kind != MuxFrameKind.Item || frame.Value is null) continue;
 
@@ -462,12 +466,10 @@ public sealed class HarnessConnection(Func<CancellationToken, Task<BackendConnec
                         when emit.Event.StartsWith("api-session/", StringComparison.Ordinal) :
                         RaiseSessionActivity();
                         if (RemoteEventJson.TryGetSessionId(emit, out var activitySessionId))
-                            RaiseSessionActivityAddressed(
-                                new SessionActivityNotice(emit.Event, activitySessionId));
+                            RaiseSessionActivityAddressed(new SessionActivityNotice(emit.Event, activitySessionId));
                         break;
 
-                    case RemoteEventFrame.Waterfall waterfall
-                        when waterfall.Event == RemoteEventJson.ApprovalRequestEvent :
+                    case RemoteEventFrame.Waterfall { Event: RemoteEventJson.ApprovalRequestEvent } waterfall :
                         // 审批走交互闭环：交给待决列表等待用户裁决，不再自动拒绝。
                         RaiseApprovalRequested(waterfall);
                         break;

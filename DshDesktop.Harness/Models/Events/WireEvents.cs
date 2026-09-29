@@ -43,14 +43,14 @@ public static class WireEventJson
 {
     public static SessionWireEvent? ParseEvent(JsonElement element)
     {
-        if (element.ValueKind != JsonValueKind.Object
-         || !TryGetString(element, "type", out var type)
-         || !TryGetNumber(element, "seq", out var seq)
-         || !TryGetNumber(element, "time", out var time))
+        if (element.ValueKind != JsonValueKind.Object    ||
+            !TryGetString(element, "type", out var type) ||
+            !TryGetNumber(element, "seq", out var seq)   ||
+            !TryGetNumber(element, "time", out var time))
             return null;
 
-        var data = element.TryGetProperty("data", out var dataElement)
-                && dataElement.ValueKind is JsonValueKind.Object or JsonValueKind.Array
+        var data = element.TryGetProperty("data", out var dataElement) &&
+                   dataElement.ValueKind is JsonValueKind.Object or JsonValueKind.Array
             ? dataElement.Clone()
             : default;
         return new SessionWireEvent(type, seq, time, data);
@@ -62,8 +62,8 @@ public static class WireEventJson
         return wireEvent.Type switch
         {
             "user/message" => ParseMessage(wireEvent.Data),
-            "assistant/message" => wireEvent.Data.ValueKind == JsonValueKind.Object
-                                && wireEvent.Data.TryGetProperty("message", out var message)
+            "assistant/message" => wireEvent.Data.ValueKind == JsonValueKind.Object &&
+                                   wireEvent.Data.TryGetProperty("message", out var message)
                 ? ParseMessage(message)
                 : null,
             _ => null
@@ -73,9 +73,9 @@ public static class WireEventJson
     /// <summary>assistant/message 的中断标记。</summary>
     public static bool IsInterrupted(SessionWireEvent wireEvent)
     {
-        return wireEvent is { Type: "assistant/message", Data.ValueKind: JsonValueKind.Object }
-            && wireEvent.Data.TryGetProperty("interrupted", out var interrupted)
-            && interrupted.ValueKind == JsonValueKind.True;
+        return wireEvent is { Type: "assistant/message", Data.ValueKind: JsonValueKind.Object } &&
+               wireEvent.Data.TryGetProperty("interrupted", out var interrupted)                &&
+               interrupted.ValueKind == JsonValueKind.True;
     }
 
     /// <summary>
@@ -86,17 +86,17 @@ public static class WireEventJson
     {
         turn = 0;
         step = 0;
-        return wireEvent.Data.ValueKind == JsonValueKind.Object
-            && TryGetNumber(wireEvent.Data, "turn", out turn)
-            && TryGetNumber(wireEvent.Data, "step", out step);
+        return wireEvent.Data.ValueKind == JsonValueKind.Object &&
+               TryGetNumber(wireEvent.Data, "turn", out turn)   &&
+               TryGetNumber(wireEvent.Data, "step", out step);
     }
 
     /// <summary>turn/end 边界事件的轮次序号。</summary>
     public static bool TryGetTurnEnd(SessionWireEvent wireEvent, out long turn)
     {
         turn = 0;
-        return wireEvent is { Type: "turn/end", Data.ValueKind: JsonValueKind.Object }
-            && TryGetNumber(wireEvent.Data, "turn", out turn);
+        return wireEvent is { Type: "turn/end", Data.ValueKind: JsonValueKind.Object } &&
+               TryGetNumber(wireEvent.Data, "turn", out turn);
     }
 
     /// <summary>
@@ -127,9 +127,9 @@ public static class WireEventJson
     /// </summary>
     public static string? GetUserSourceKind(WireMessage message)
     {
-        return message.Source.ValueKind == JsonValueKind.Object
-            && message.Source.TryGetProperty("kind", out var kind)
-            && kind.ValueKind == JsonValueKind.String
+        return message.Source.ValueKind == JsonValueKind.Object    &&
+               message.Source.TryGetProperty("kind", out var kind) &&
+               kind.ValueKind == JsonValueKind.String
             ? kind.GetString()
             : null;
     }
@@ -138,9 +138,9 @@ public static class WireEventJson
     public static bool TryGetTitle(SessionWireEvent wireEvent, out string? title)
     {
         title = null;
-        if (wireEvent.Type           != "session/title"
-         || wireEvent.Data.ValueKind != JsonValueKind.Object
-         || !wireEvent.Data.TryGetProperty("title", out var titleElement))
+        if (wireEvent.Type           != "session/title"      ||
+            wireEvent.Data.ValueKind != JsonValueKind.Object ||
+            !wireEvent.Data.TryGetProperty("title", out var titleElement))
             return false;
 
         title = titleElement.ValueKind == JsonValueKind.String ? titleElement.GetString() : null;
@@ -152,12 +152,12 @@ public static class WireEventJson
     {
         if (wireEvent.Type != "model/selection" || wireEvent.Data.ValueKind != JsonValueKind.Object) return null;
 
-        if (!TryGetString(wireEvent.Data, "provider", out var provider)
-         || !TryGetString(wireEvent.Data, "model", out var model))
+        if (!TryGetString(wireEvent.Data, "provider", out var provider) ||
+            !TryGetString(wireEvent.Data, "model", out var model))
             return null;
 
-        var reasoningEffort = wireEvent.Data.TryGetProperty("reasoningEffort", out var effort)
-                           && effort.ValueKind == JsonValueKind.String
+        var reasoningEffort = wireEvent.Data.TryGetProperty("reasoningEffort", out var effort) &&
+                              effort.ValueKind == JsonValueKind.String
             ? effort.GetString()
             : null;
         return new SessionModelSelectionWire(provider, model, reasoningEffort);
@@ -168,12 +168,12 @@ public static class WireEventJson
     {
         if (wireEvent.Type != "tool/call" || wireEvent.Data.ValueKind != JsonValueKind.Object) return null;
 
-        if (!TryGetString(wireEvent.Data, "callId", out var callId)
-         || !TryGetString(wireEvent.Data, "name", out var name))
+        if (!TryGetString(wireEvent.Data, "callId", out var callId) ||
+            !TryGetString(wireEvent.Data, "name", out var name))
             return null;
 
-        var arguments = wireEvent.Data.TryGetProperty("arguments", out var argumentsElement)
-                     && argumentsElement.ValueKind == JsonValueKind.String
+        var arguments = wireEvent.Data.TryGetProperty("arguments", out var argumentsElement) &&
+                        argumentsElement.ValueKind == JsonValueKind.String
             ? argumentsElement.GetString()
             : null;
         return new ToolCallWire(callId, name, arguments);
@@ -186,15 +186,15 @@ public static class WireEventJson
     /// </summary>
     public static ToolResultWire? TryGetToolResult(SessionWireEvent wireEvent)
     {
-        if (wireEvent.Type           != "tool/result"
-         || wireEvent.Data.ValueKind != JsonValueKind.Object
-         || !wireEvent.Data.TryGetProperty("message", out var message)
-         || message.ValueKind != JsonValueKind.Object)
+        if (wireEvent.Type           != "tool/result"                  ||
+            wireEvent.Data.ValueKind != JsonValueKind.Object           ||
+            !wireEvent.Data.TryGetProperty("message", out var message) ||
+            message.ValueKind != JsonValueKind.Object)
             return null;
 
-        var callId = message.TryGetProperty("source", out var source)
-                  && source.ValueKind == JsonValueKind.Object
-                  && TryGetString(source, "callId", out var sourceCallId)
+        var callId = message.TryGetProperty("source", out var source) &&
+                     source.ValueKind == JsonValueKind.Object         &&
+                     TryGetString(source, "callId", out var sourceCallId)
             ? sourceCallId
             : null;
         if (callId is null && TryGetString(message, "toolCallId", out var messageCallId)) callId = messageCallId;
@@ -205,31 +205,31 @@ public static class WireEventJson
         if (message.TryGetProperty("content", out var blocks) && blocks.ValueKind == JsonValueKind.Array)
             foreach (var block in blocks.EnumerateArray())
             {
-                if (block.ValueKind != JsonValueKind.Object
-                 || !TryGetString(block, "type", out var blockType))
+                if (block.ValueKind != JsonValueKind.Object ||
+                    !TryGetString(block, "type", out var blockType))
                     continue;
 
                 if (blockType == "tool-result")
                 {
                     // v3 wrapper 块：结果与文本嵌在内层 content。
-                    if (callId is null
-                     && block.TryGetProperty("toolCallId", out var wrapperCallId)
-                     && wrapperCallId.ValueKind == JsonValueKind.String)
+                    if (callId is null                                            &&
+                        block.TryGetProperty("toolCallId", out var wrapperCallId) &&
+                        wrapperCallId.ValueKind == JsonValueKind.String)
                         callId = wrapperCallId.GetString();
 
-                    if (block.TryGetProperty("isError", out var isErrorElement)
-                    && isErrorElement.ValueKind == JsonValueKind.True)
+                    if (block.TryGetProperty("isError", out var isErrorElement) &&
+                        isErrorElement.ValueKind == JsonValueKind.True)
                         isError = true;
 
                     if (block.TryGetProperty("content", out var inner) && inner.ValueKind == JsonValueKind.Array)
                     {
                         var parts = inner.EnumerateArray()
-                                         .Where(item => item.ValueKind == JsonValueKind.Object
-                                                     && item.TryGetProperty("type", out var typeElement)
-                                                     && typeElement.ValueKind   == JsonValueKind.String
-                                                     && typeElement.GetString() == "text"
-                                                     && item.TryGetProperty("text", out var textElement)
-                                                     && textElement.ValueKind == JsonValueKind.String)
+                                         .Where(item => item.ValueKind == JsonValueKind.Object           &&
+                                                        item.TryGetProperty("type", out var typeElement) &&
+                                                        typeElement.ValueKind   == JsonValueKind.String  &&
+                                                        typeElement.GetString() == "text"                &&
+                                                        item.TryGetProperty("text", out var textElement) &&
+                                                        textElement.ValueKind == JsonValueKind.String)
                                          .Select(item => item.GetProperty("text").GetString());
                         contentText = string.Join("\n", parts);
                     }
@@ -237,9 +237,9 @@ public static class WireEventJson
                     break; // 线形约定 content 为单个 tool-result 块。
                 }
 
-                if (blockType == "text"
-                 && block.TryGetProperty("text", out var text)
-                 && text.ValueKind == JsonValueKind.String)
+                if (blockType == "text"                        &&
+                    block.TryGetProperty("text", out var text) &&
+                    text.ValueKind == JsonValueKind.String)
                     textParts.Add(text.GetString()!);
             }
 
@@ -247,9 +247,9 @@ public static class WireEventJson
         if (contentText is null && textParts.Count > 0) contentText = string.Join("\n", textParts);
 
         // v4 的失败标记在消息顶层。
-        if (!isError
-         && message.TryGetProperty("isError", out var messageIsError)
-         && messageIsError.ValueKind == JsonValueKind.True)
+        if (!isError                                                  &&
+            message.TryGetProperty("isError", out var messageIsError) &&
+            messageIsError.ValueKind == JsonValueKind.True)
             isError = true;
 
         if (callId is null) return null;
@@ -257,12 +257,11 @@ public static class WireEventJson
         string? errorName   = null;
         string? errorCode   = null;
         string? errorReason = null;
-        if (wireEvent.Data.TryGetProperty("error", out var error) && error.ValueKind == JsonValueKind.Object)
-        {
-            TryGetString(error, "name", out errorName);
-            TryGetString(error, "code", out errorCode);
-            TryGetString(error, "reason", out errorReason);
-        }
+        if (!wireEvent.Data.TryGetProperty("error", out var error) || error.ValueKind != JsonValueKind.Object)
+            return new ToolResultWire(callId, isError, contentText, errorName, errorCode, errorReason);
+        TryGetString(error, "name", out errorName);
+        TryGetString(error, "code", out errorCode);
+        TryGetString(error, "reason", out errorReason);
 
         return new ToolResultWire(callId, isError, contentText, errorName, errorCode, errorReason);
     }
@@ -285,39 +284,39 @@ public static class WireEventJson
 
     private static WireMessage? ParseMessage(JsonElement element)
     {
-        if (element.ValueKind != JsonValueKind.Object
-         || !TryGetString(element, "id", out var id)
-         || !TryGetString(element, "role", out var role))
+        if (element.ValueKind != JsonValueKind.Object ||
+            !TryGetString(element, "id", out var id)  ||
+            !TryGetString(element, "role", out var role))
             return null;
 
         var blocks = new List<WireContentBlock>();
         if (element.TryGetProperty("content", out var content) && content.ValueKind == JsonValueKind.Array)
             foreach (var block in content.EnumerateArray())
             {
-                if (block.ValueKind != JsonValueKind.Object
-                 || !TryGetString(block, "type", out var blockType))
+                if (block.ValueKind != JsonValueKind.Object ||
+                    !TryGetString(block, "type", out var blockType))
                     continue;
 
-                var text = block.TryGetProperty("text", out var textElement)
-                        && textElement.ValueKind == JsonValueKind.String
+                var text = block.TryGetProperty("text", out var textElement) &&
+                           textElement.ValueKind == JsonValueKind.String
                     ? textElement.GetString()
                     : null;
-                var name = block.TryGetProperty("name", out var nameElement)
-                        && nameElement.ValueKind == JsonValueKind.String
+                var name = block.TryGetProperty("name", out var nameElement) &&
+                           nameElement.ValueKind == JsonValueKind.String
                     ? nameElement.GetString()
                     : null;
                 blocks.Add(new WireContentBlock(blockType, text, name, block.Clone()));
             }
 
-        var source = element.TryGetProperty("source", out var sourceElement)
-                  && sourceElement.ValueKind == JsonValueKind.Object
+        var source = element.TryGetProperty("source", out var sourceElement) &&
+                     sourceElement.ValueKind == JsonValueKind.Object
             ? sourceElement.Clone()
             : default;
         return new WireMessage(id, role, blocks, source);
     }
 
-    private static bool TryGetString(JsonElement                     element, string name,
-                                     [NotNullWhen(true)] out string? value)
+    private static bool TryGetString(
+        JsonElement element, string name, [NotNullWhen(true)] out string? value)
     {
         if (element.TryGetProperty(name, out var property) && property.ValueKind == JsonValueKind.String)
         {

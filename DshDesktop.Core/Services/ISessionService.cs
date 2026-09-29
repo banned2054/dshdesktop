@@ -34,9 +34,9 @@ public interface ISessionService
     ///     档位（off/low/high/max），null 表示不指定档位，由后端按其默认行为处理。
     /// </summary>
     Task<ModelSelection> SelectModelAsync(
-        string sessionId,
-        string provider,
-        string model,
+        string  sessionId,
+        string  provider,
+        string  model,
         string? reasoningEffort = null, CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<ConversationMessage>> GetMessagesAsync(
@@ -46,11 +46,9 @@ public interface ISessionService
     ///     向前翻一页更早历史（session/page）。throughSeq 是快照携带的游标，
     ///     beforeSeq 是当前窗口首条事件 seq（下一页从它之前开始）。只读，可安全重试。
     /// </summary>
-    Task<SessionHistoryPage> LoadOlderAsync(
-        string            sessionId,
-        long              throughSeq,
-        long              beforeSeq,
-        CancellationToken cancellationToken = default);
+    Task<SessionHistoryPage> LoadOlderAsync(string sessionId,
+                                            long   throughSeq,
+                                            long   beforeSeq, CancellationToken cancellationToken = default);
 
     /// <summary>
     ///     发送用户消息。requestId 是幂等键：同一 requestId 重复发送会被后端去重；

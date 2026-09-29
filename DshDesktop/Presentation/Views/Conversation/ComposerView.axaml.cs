@@ -23,11 +23,10 @@ public partial class ComposerView : UserControl
             return;
         }
 
-        if (DataContext is MainWindowViewModel viewModel && viewModel.Composer.SendMessageCommand.CanExecute(null))
-        {
-            e.Handled = true;
-            viewModel.Composer.SendMessageCommand.Execute(null);
-        }
+        if (DataContext is not MainWindowViewModel viewModel ||
+            !viewModel.Composer.SendMessageCommand.CanExecute(null)) return;
+        e.Handled = true;
+        viewModel.Composer.SendMessageCommand.Execute(null);
     }
 
     /// <summary>

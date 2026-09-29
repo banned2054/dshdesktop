@@ -1,36 +1,36 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <RootNamespace>DshDesktop</RootNamespace>
-    <OutputType>WinExe</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <ApplicationManifest>app.manifest</ApplicationManifest>
-    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
-    <PublishAot>true</PublishAot>
-    <TrimMode>partial</TrimMode>
-    <InvariantGlobalization>true</InvariantGlobalization>
-    <!-- 旧空白流程视图（WorkspaceHeroView）已被 NewConversationView 取代：源文件按约定
+	<PropertyGroup>
+		<RootNamespace>DshDesktop</RootNamespace>
+		<OutputType>WinExe</OutputType>
+		<TargetFramework>net10.0</TargetFramework>
+		<Nullable>enable</Nullable>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<ApplicationManifest>app.manifest</ApplicationManifest>
+		<AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+		<PublishAot>true</PublishAot>
+		<TrimMode>partial</TrimMode>
+		<InvariantGlobalization>true</InvariantGlobalization>
+		<!-- 旧空白流程视图（WorkspaceHeroView）已被 NewConversationView 取代：源文件按约定
          原样保留在仓库，但不参与编译——其编译绑定指向已收束的空白流程状态，保留在
          编译范围会让完整构建失败（AVLN2000，见阶段记录）。 -->
-    <DefaultItemExcludes>$(DefaultItemExcludes);Presentation\Views\Conversation\WorkspaceHeroView.axaml;Presentation\Views\Conversation\WorkspaceHeroView.axaml.cs</DefaultItemExcludes>
-  </PropertyGroup>
+		<DefaultItemExcludes>$(DefaultItemExcludes);Presentation\Views\Conversation\WorkspaceHeroView.axaml;Presentation\Views\Conversation\WorkspaceHeroView.axaml.cs</DefaultItemExcludes>
+	</PropertyGroup>
 
-  <ItemGroup>
-    <ProjectReference Include="..\DshDesktop.Core\DshDesktop.Core.csproj" />
-    <ProjectReference Include="..\DshDesktop.Harness\DshDesktop.Harness.csproj" />
-    <ProjectReference Include="..\DshDesktop.Infrastructure\DshDesktop.Infrastructure.csproj" />
-  </ItemGroup>
+	<ItemGroup>
+		<ProjectReference Include="..\DshDesktop.Core\DshDesktop.Core.csproj" />
+		<ProjectReference Include="..\DshDesktop.Harness\DshDesktop.Harness.csproj" />
+		<ProjectReference Include="..\DshDesktop.Infrastructure\DshDesktop.Infrastructure.csproj" />
+	</ItemGroup>
 
-  <ItemGroup>
-    <PackageReference Include="Avalonia" Version="12.1.0" />
-    <PackageReference Include="Avalonia.Desktop" Version="12.1.0" />
-    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.0" />
-    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.0" />
-    <PackageReference Include="LiveMarkdown.Avalonia" Version="2.4.3" />
-    <PackageReference Include="AvaloniaUI.DiagnosticsSupport" Version="2.2.3">
-      <IncludeAssets Condition="'$(Configuration)' != 'Debug'">None</IncludeAssets>
-      <PrivateAssets Condition="'$(Configuration)' != 'Debug'">All</PrivateAssets>
-    </PackageReference>
-  </ItemGroup>
+	<ItemGroup>
+		<PackageReference Include="Avalonia" Version="12.1.0" />
+		<PackageReference Include="Avalonia.Desktop" Version="12.1.0" />
+		<PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.0" />
+		<PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.0" />
+		<PackageReference Include="LiveMarkdown.Avalonia" Version="2.4.3" />
+		<PackageReference Include="AvaloniaUI.DiagnosticsSupport" Version="2.2.3">
+			<IncludeAssets Condition="'$(Configuration)' != 'Debug'">None</IncludeAssets>
+			<PrivateAssets Condition="'$(Configuration)' != 'Debug'">All</PrivateAssets>
+		</PackageReference>
+	</ItemGroup>
 </Project>

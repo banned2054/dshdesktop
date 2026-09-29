@@ -24,18 +24,16 @@ public partial class NewConversationView : UserControl
     {
         if (e.Key != Key.Enter || e.KeyModifiers != KeyModifiers.None) return;
 
-        if (DataContext is MainWindowViewModel viewModel && viewModel.SendDraftCommand.CanExecute(null))
-        {
-            e.Handled = true;
-            viewModel.SendDraftCommand.Execute(null);
-        }
+        if (DataContext is not MainWindowViewModel viewModel || !viewModel.SendDraftCommand.CanExecute(null)) return;
+        e.Handled = true;
+        viewModel.SendDraftCommand.Execute(null);
     }
 
     private void OnWorkspacePickerPopupKeyDown(object? sender, KeyEventArgs e)
     {
         if (e.Key != Key.Escape || DataContext is not MainWindowViewModel viewModel) return;
 
-        e.Handled = true;
+        e.Handled                     = true;
         viewModel.IsWorkspaceMenuOpen = false;
     }
 

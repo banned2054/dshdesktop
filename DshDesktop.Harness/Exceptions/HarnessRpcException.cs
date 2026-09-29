@@ -17,9 +17,9 @@ public sealed class HarnessRpcException(string code, string message, JsonElement
     /// <summary>从 details 中读取字符串字段；缺失或形状不符返回 null。</summary>
     public string? FindDetailString(string name)
     {
-        if (Details is not { ValueKind: JsonValueKind.Object } detailsElement
-         || !detailsElement.TryGetProperty(name, out var element)
-         || element.ValueKind != JsonValueKind.String)
+        if (Details is not { ValueKind: JsonValueKind.Object } detailsElement ||
+            !detailsElement.TryGetProperty(name, out var element)             ||
+            element.ValueKind != JsonValueKind.String)
             return null;
 
         return element.GetString();

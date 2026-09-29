@@ -1,6 +1,5 @@
 using Avalonia.Controls;
 using Avalonia.Input;
-using Avalonia.Interactivity;
 using DshDesktop.ViewModels;
 
 namespace DshDesktop.Presentation.Views.Conversation;
@@ -22,7 +21,7 @@ public partial class ModelPickerView : UserControl
     {
         if (e.Key != Key.Escape || DataContext is not ComposerViewModel composer) return;
 
-        e.Handled = true;
+        e.Handled                = true;
         composer.IsModelMenuOpen = false;
     }
 }

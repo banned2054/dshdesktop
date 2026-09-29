@@ -22,7 +22,12 @@ internal sealed record ListedSessionRow(SessionSummary Summary, SessionListMetad
 ///       旧代结论保持生效（避免隐藏行闪现）但会在新代重新核实；
 ///     - 结论只在内存中，随进程结束消失；不持久化，不写任何会话数据。
 /// </summary>
-internal sealed class SessionBlankVerifier : IDisposable
+internal sealed class SessionBlankVerifier(
+    SessionBlankVerifier.ProjectionsReader reader,
+    Func<string, bool>                     isEngaged,
+    Action                                 changed,
+    Func<DateTimeOffset>?                  now = null)
+    : IDisposable
 {
     /// <summary>session/projections 只读读取器；返回 null 表示后端确认会话不存在。</summary>
     internal delegate Task<SessionProjectionsValue?> ProjectionsReader(
@@ -34,15 +39,12 @@ internal sealed class SessionBlankVerifier : IDisposable
     /// <summary>同一连接代内每会话的最大核实尝试数；超过后等待重连或活动触发。</summary>
     internal const int MaxAttemptsPerGeneration = 5;
 
-    private static readonly TimeSpan RequestTimeout  = TimeSpan.FromSeconds(10);
-    private static readonly TimeSpan RetryBaseDelay  = TimeSpan.FromSeconds(2);
-    private static readonly TimeSpan RetryMaxDelay   = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan RetryBaseDelay = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan RetryMaxDelay  = TimeSpan.FromSeconds(30);
 
-    private readonly ProjectionsReader   _reader;
-    private readonly Func<string, bool>  _isEngaged;
-    private readonly Action              _changed;
-    private readonly Func<DateTimeOffset> _now;
-    private readonly object              _sync = new();
+    private readonly Func<DateTimeOffset> _now  = now ?? (() => DateTimeOffset.UtcNow);
+    private readonly Lock                 _sync = new();
 
     /// <summary>已核实结论；State=null 表示"不判定"结论（如会话不存在），仅抑制本轮重复扫描。</summary>
     private readonly Dictionary<string, VerifiedEntry> _results = [];
@@ -59,27 +61,17 @@ internal sealed class SessionBlankVerifier : IDisposable
     /// <summary>在途核实的会话。</summary>
     private readonly HashSet<string> _inFlight = [];
 
-    private readonly SemaphoreSlim    _gate = new(MaxConcurrency, MaxConcurrency);
-    private          long             _generation;
-    private          bool             _unsupported;
-    private          bool             _disposed;
-    private          CancellationTokenSource _lifetime = new();
-    private          int              _pending;
-    private          TaskCompletionSource _idle = NewIdleSource();
+    private readonly SemaphoreSlim _gate = new(MaxConcurrency, MaxConcurrency);
+
+    private CancellationTokenSource _lifetime = new();
+    private TaskCompletionSource    _idle     = NewIdleSource();
+
+    private long _generation;
+    private bool _unsupported;
+    private bool _disposed;
+    private int  _pending;
 
     private readonly record struct VerifiedEntry(SessionBlankState? State, long Generation);
-
-    public SessionBlankVerifier(
-        ProjectionsReader      reader,
-        Func<string, bool>     isEngaged,
-        Action                 changed,
-        Func<DateTimeOffset>?  now = null)
-    {
-        _reader    = reader;
-        _isEngaged = isEngaged;
-        _changed   = changed;
-        _now       = now ?? (() => DateTimeOffset.UtcNow);
-    }
 
     /// <summary>后端拒绝了 projections 接口（不支持或请求形状不符）；为 true 时不再发起核实。</summary>
     internal bool IsUnsupported
@@ -142,8 +134,8 @@ internal sealed class SessionBlankVerifier : IDisposable
     {
         lock (_sync)
         {
-            if (_results.TryGetValue(sessionId, out var entry)
-             && entry.State == SessionBlankState.ConfirmedBlank)
+            if (_results.TryGetValue(sessionId, out var entry) &&
+              entry.State == SessionBlankState.ConfirmedBlank)
                 _results[sessionId] = new VerifiedEntry(SessionBlankState.Engaged, entry.Generation);
 
             _failures.Remove(sessionId);
@@ -156,8 +148,8 @@ internal sealed class SessionBlankVerifier : IDisposable
     /// </summary>
     public void OnSessionActivity(SessionActivityNotice notice)
     {
-        var shouldRaise   = false;
-        var hasScheduled  = false;
+        var shouldRaise  = false;
+        var hasScheduled = false;
         lock (_sync)
         {
             if (notice.Event == "api-session/removed")
@@ -172,24 +164,25 @@ internal sealed class SessionBlankVerifier : IDisposable
 
             if (_results.TryGetValue(notice.SessionId, out var entry))
             {
-                if (entry.State == SessionBlankState.ConfirmedBlank)
+                switch (entry.State)
                 {
-                    // 曾确认空白的会话出现活动（可能已被其他客户端使用）：结论失效，重新可见并重验。
-                    _results.Remove(notice.SessionId);
-                    hasScheduled = ScheduleCore(notice.SessionId);
-                    shouldRaise  = true;
-                }
-                else if (entry.State is null)
-                {
-                    // "不判定"结论（如会话不存在）随活动失效，允许重验。
-                    _results.Remove(notice.SessionId);
-                    hasScheduled = ScheduleCore(notice.SessionId);
+                    case SessionBlankState.ConfirmedBlank :
+                        // 曾确认空白的会话出现活动（可能已被其他客户端使用）：结论失效，重新可见并重验。
+                        _results.Remove(notice.SessionId);
+                        hasScheduled = ScheduleCore(notice.SessionId);
+                        shouldRaise  = true;
+                        break;
+                    case null :
+                        // "不判定"结论（如会话不存在）随活动失效，允许重验。
+                        _results.Remove(notice.SessionId);
+                        hasScheduled = ScheduleCore(notice.SessionId);
+                        break;
                 }
             }
         }
 
         if (hasScheduled) DispatchScheduled();
-        if (shouldRaise) _changed();
+        if (shouldRaise) changed();
     }
 
     /// <summary>连接重置：取消旧代在途请求、递增代际并重建退避状态。</summary>
@@ -200,8 +193,8 @@ internal sealed class SessionBlankVerifier : IDisposable
         {
             _generation++;
             _failures.Clear();
-            previous   = _lifetime;
-            _lifetime  = new CancellationTokenSource();
+            previous  = _lifetime;
+            _lifetime = new CancellationTokenSource();
         }
 
         previous.Cancel();
@@ -225,7 +218,7 @@ internal sealed class SessionBlankVerifier : IDisposable
     /// <summary>计算一行的最终空白状态。行内有效元数据视为当前代权威证据并写回核实结果。</summary>
     private SessionBlankState ResolveRowState(ListedSessionRow row)
     {
-        if (_isEngaged(row.Summary.Id)) return SessionBlankState.Engaged;
+        if (isEngaged(row.Summary.Id)) return SessionBlankState.Engaged;
 
         switch (row.Summary.BlankState)
         {
@@ -240,9 +233,9 @@ internal sealed class SessionBlankVerifier : IDisposable
                 return SessionBlankState.ConfirmedBlank;
         }
 
-        if (_results.TryGetValue(row.Summary.Id, out var entry)
-         && entry.Generation == _generation
-         && entry.State is { } verified)
+        if (_results.TryGetValue(row.Summary.Id, out var entry) &&
+          entry.Generation == _generation &&
+          entry.State is { } verified)
             // 普通列表返回的 Unknown 行不得撤销当前连接上下文中的有效核实结论。
             return verified;
 
@@ -266,9 +259,8 @@ internal sealed class SessionBlankVerifier : IDisposable
     private static void RemoveAbsentKeys<TValue>(Dictionary<string, TValue> source, HashSet<string> listedIds)
     {
         List<string>? absent = null;
-        foreach (var sessionId in source.Keys)
-            if (!listedIds.Contains(sessionId))
-                (absent ??= []).Add(sessionId);
+        foreach (var sessionId in source.Keys.Where(sessionId => !listedIds.Contains(sessionId)))
+            (absent ??= []).Add(sessionId);
 
         if (absent is null) return;
 
@@ -278,14 +270,14 @@ internal sealed class SessionBlankVerifier : IDisposable
     /// <summary>排队一次核实（调用方持有锁）；返回是否真正入队。单飞 + 退避 + 当前代结论去重。</summary>
     private bool ScheduleCore(string sessionId)
     {
-        if (_disposed || _unsupported || _isEngaged(sessionId)) return false;
+        if (_disposed                      || _unsupported || isEngaged(sessionId)) return false;
         if (_scheduled.Contains(sessionId) || _inFlight.Contains(sessionId)) return false;
 
         // 当前代已有结论（含"不判定"）：不重复扫描；重连或活动才触发重验。
         if (_results.TryGetValue(sessionId, out var entry) && entry.Generation == _generation) return false;
 
-        if (_failures.TryGetValue(sessionId, out var failure)
-         && (failure.Attempts >= MaxAttemptsPerGeneration || failure.NotBefore > _now()))
+        if (_failures.TryGetValue(sessionId, out var failure) &&
+          (failure.Attempts >= MaxAttemptsPerGeneration || failure.NotBefore > _now()))
             return false;
 
         _scheduled.Add(sessionId);
@@ -313,6 +305,7 @@ internal sealed class SessionBlankVerifier : IDisposable
         long activityAtIssue   = 0;
         var  lifetimeToken     = CancellationToken.None;
         var  staleResult       = false;
+
         CancellationTokenSource? timeout = null;
         try
         {
@@ -338,7 +331,7 @@ internal sealed class SessionBlankVerifier : IDisposable
             await _gate.WaitAsync(timeout.Token).ConfigureAwait(false);
             try
             {
-                var value = await _reader(sessionId, timeout.Token).ConfigureAwait(false);
+                var value = await reader(sessionId, timeout.Token).ConfigureAwait(false);
                 staleResult = ApplyResult(sessionId, value, generationAtIssue, activityAtIssue);
             }
             finally
@@ -401,7 +394,7 @@ internal sealed class SessionBlankVerifier : IDisposable
                 // 核实期间观察到会话活动：这份结果可能已过期，作废并重验。
                 stale = true;
             }
-            else if (_isEngaged(sessionId))
+            else if (isEngaged(sessionId))
             {
                 // 本端已参与：不采纳空白结论（迟到的 blank=true 不能隐藏已开始的会话）。
                 _results[sessionId] = new VerifiedEntry(SessionBlankState.Engaged, _generation);
@@ -430,7 +423,7 @@ internal sealed class SessionBlankVerifier : IDisposable
             }
         }
 
-        if (stored) _changed();
+        if (stored) changed();
 
         return stale;
     }
@@ -447,14 +440,14 @@ internal sealed class SessionBlankVerifier : IDisposable
     private void RegisterFailureLocked(string sessionId)
     {
         var attempts = _failures.TryGetValue(sessionId, out var failure) ? failure.Attempts + 1 : 1;
-        var delay    = TimeSpan.FromMilliseconds(Math.Min(RetryBaseDelay.TotalMilliseconds * Math.Pow(2, attempts - 1),
-                                                          RetryMaxDelay.TotalMilliseconds));
+        var delay = TimeSpan.FromMilliseconds(Math.Min(RetryBaseDelay.TotalMilliseconds * Math.Pow(2, attempts - 1),
+                                                       RetryMaxDelay.TotalMilliseconds));
         _failures[sessionId] = (attempts, _now().Add(delay));
     }
 
     private long ActivityVersionOf(string sessionId)
     {
-        return _activityVersions.TryGetValue(sessionId, out var version) ? version : 0;
+        return _activityVersions.GetValueOrDefault(sessionId, 0);
     }
 
     /// <summary>projections 接口级不可用：不支持该 RPC 或请求形状被拒（协议不兼容），停止全部核实。</summary>

@@ -15,20 +15,32 @@ namespace DshDesktop.ViewModels;
 /// </summary>
 public sealed class ComposerViewModel : ObservableObject
 {
-    private readonly ISessionService _sessionService;
-
-    // 错误仍由 MainWindow 级共享 ErrorText 呈现：null 表示清除当前错误。
-    private readonly Action<string?> _reportError;
+    // 新对话草稿页的本地预选模型（无 SessionId 时不发 RPC，root 记入草稿，创建后应用）。
+    private readonly Action<ModelSelection>? _onDraftModelChanged;
 
     // 发送被接受后的过渡信号（root 据此把会话标记为已开始，隐藏空白流程界面）。
     private readonly Action? _onPromptAccepted;
 
-    // 新对话草稿页的本地预选模型（无 SessionId 时不发 RPC，root 记入草稿，创建后应用）。
-    private readonly Action<ModelSelection>? _onDraftModelChanged;
+    // 错误仍由 MainWindow 级共享 ErrorText 呈现：null 表示清除当前错误。
+    private readonly Action<string?> _reportError;
+    private readonly ISessionService _sessionService;
 
-    private ModelSelection?       _currentModel;
-    private ModelCatalog?         _modelCatalog;
+    private ModelSelection? _currentModel;
+
+    private string        _draftMessage = string.Empty;
+    private bool          _isBackendConnected;
+    private bool          _isCancelling;
+    private bool          _isDraftTarget;
+    private bool          _isModelMenuOpen;
+    private bool          _isSelectingModel;
+    private bool          _isSending;
+    private bool          _isSessionRunning;
+    private ModelCatalog? _modelCatalog;
+
+    // 模型/推理等级弹出菜单的两级页签；IsOpen 由 Popup 双向绑定。
+    private ModelMenuPageKind     _modelMenuPage = ModelMenuPageKind.Root;
     private ModelOptionViewModel? _selectedModelOption;
+    private string?               _sessionId;
 
     // 会话统计：整值更新带投影 seq 做乱序 gating；seq 归 root 转发，本类持有判定。
     private SessionStats? _stats;
@@ -36,33 +48,20 @@ public sealed class ComposerViewModel : ObservableObject
     private SessionUsage? _usage;
     private long          _usageSeq;
 
-    private string  _draftMessage = string.Empty;
-    private bool    _isBackendConnected;
-    private bool    _isCancelling;
-    private bool    _isDraftTarget;
-    private bool    _isModelMenuOpen;
-    private bool    _isSelectingModel;
-    private bool    _isSending;
-    private bool    _isSessionRunning;
-    private string? _sessionId;
-
-    // 模型/推理等级弹出菜单的两级页签；IsOpen 由 Popup 双向绑定。
-    private ModelMenuPageKind _modelMenuPage = ModelMenuPageKind.Root;
-
-    public ComposerViewModel(ISessionService sessionService, Action<string?> reportError,
-                             Action? onPromptAccepted = null,
+    public ComposerViewModel(ISessionService         sessionService, Action<string?> reportError,
+                             Action?                 onPromptAccepted    = null,
                              Action<ModelSelection>? onDraftModelChanged = null)
     {
         _sessionService      = sessionService;
         _reportError         = reportError;
         _onPromptAccepted    = onPromptAccepted;
         _onDraftModelChanged = onDraftModelChanged;
-        SendMessageCommand = new AsyncRelayCommand(SendMessageAsync, CanSendMessage);
-        CancelCommand      = new AsyncRelayCommand(CancelGenerationAsync, CanCancelGeneration);
-        EffortOptions      = ReasoningEffortLevels.All
-                           .Select(value => new EffortOptionViewModel(value, EffortLabel(value),
-                                                                      option => _ = SelectEffortOptionAsync(option)))
-                           .ToArray();
+        SendMessageCommand   = new AsyncRelayCommand(SendMessageAsync, CanSendMessage);
+        CancelCommand        = new AsyncRelayCommand(CancelGenerationAsync, CanCancelGeneration);
+        EffortOptions = ReasoningEffortLevels.All
+                                             .Select(value => new EffortOptionViewModel(value, EffortLabel(value),
+                                                              option => _ = SelectEffortOptionAsync(option)))
+                                             .ToArray();
         // 可用性只由 XAML 的 IsEnabled 绑定（IsModelPickerEnabled）承担：自研 RelayCommand
         // 不自动重算 CanExecute，命令谓词会在目录未加载时把按钮永久禁用。
         ToggleModelMenuCommand   = new RelayCommand(ToggleModelMenu);
@@ -116,11 +115,9 @@ public sealed class ComposerViewModel : ObservableObject
         get => _sessionId;
         private set
         {
-            if (SetProperty(ref _sessionId, value))
-            {
-                SendMessageCommand.RaiseCanExecuteChanged();
-                OnPropertyChanged(nameof(IsModelPickerEnabled));
-            }
+            if (!SetProperty(ref _sessionId, value)) return;
+            SendMessageCommand.RaiseCanExecuteChanged();
+            OnPropertyChanged(nameof(IsModelPickerEnabled));
         }
     }
 
@@ -138,11 +135,9 @@ public sealed class ComposerViewModel : ObservableObject
         get => _isBackendConnected;
         private set
         {
-            if (SetProperty(ref _isBackendConnected, value))
-            {
-                SendMessageCommand.RaiseCanExecuteChanged();
-                OnPropertyChanged(nameof(IsModelPickerEnabled));
-            }
+            if (!SetProperty(ref _isBackendConnected, value)) return;
+            SendMessageCommand.RaiseCanExecuteChanged();
+            OnPropertyChanged(nameof(IsModelPickerEnabled));
         }
     }
 
@@ -186,8 +181,8 @@ public sealed class ComposerViewModel : ObservableObject
     public bool IsEffortsMenuPage => _modelMenuPage == ModelMenuPageKind.Efforts;
 
     /// <summary>下拉是否可用：目录已加载、后端已连接，且有选中会话或处于新对话草稿页。</summary>
-    public bool IsModelPickerEnabled => ModelOptions.Count > 0 && IsBackendConnected
-                                     && (SessionId is not null || _isDraftTarget);
+    public bool IsModelPickerEnabled => ModelOptions.Count > 0 && IsBackendConnected &&
+                                        (SessionId is not null || _isDraftTarget);
 
     /// <summary>底栏按钮文案：生效模型名 + 当前推理等级；无生效选型时显示「模型」。</summary>
     public string ModelPickerLabel
@@ -207,7 +202,7 @@ public sealed class ComposerViewModel : ObservableObject
 
     /// <summary>主菜单「推理等级」行的当前值；后端未下发档位时「默认」。</summary>
     public string CurrentEffortText =>
-        EffectiveModel is { } selection && selection.ReasoningEffort is { } effort
+        EffectiveModel is { ReasoningEffort: { } effort }
             ? EffortLabel(effort)
             : "默认";
 
@@ -217,13 +212,11 @@ public sealed class ComposerViewModel : ObservableObject
         get => _usage;
         private set
         {
-            if (SetProperty(ref _usage, value))
-            {
-                OnPropertyChanged(nameof(UsageValueText));
-                OnPropertyChanged(nameof(CacheHitValueText));
-                OnPropertyChanged(nameof(UsageDetailText));
-                OnPropertyChanged(nameof(HasStatsData));
-            }
+            if (!SetProperty(ref _usage, value)) return;
+            OnPropertyChanged(nameof(UsageValueText));
+            OnPropertyChanged(nameof(CacheHitValueText));
+            OnPropertyChanged(nameof(UsageDetailText));
+            OnPropertyChanged(nameof(HasStatsData));
         }
     }
 
@@ -233,12 +226,10 @@ public sealed class ComposerViewModel : ObservableObject
         get => _stats;
         private set
         {
-            if (SetProperty(ref _stats, value))
-            {
-                OnPropertyChanged(nameof(SpeedValueText));
-                OnPropertyChanged(nameof(StatsDetailText));
-                OnPropertyChanged(nameof(HasStatsData));
-            }
+            if (!SetProperty(ref _stats, value)) return;
+            OnPropertyChanged(nameof(SpeedValueText));
+            OnPropertyChanged(nameof(StatsDetailText));
+            OnPropertyChanged(nameof(HasStatsData));
         }
     }
 
@@ -301,6 +292,18 @@ public sealed class ComposerViewModel : ObservableObject
     /// <summary>展示用生效选型：会话未选过型时回退目录默认。</summary>
     private ModelSelection? EffectiveModel => _currentModel ?? _modelCatalog?.Default;
 
+    private ModelMenuPageKind ModelMenuPage
+    {
+        get => _modelMenuPage;
+        set
+        {
+            if (!SetProperty(ref _modelMenuPage, value)) return;
+            OnPropertyChanged(nameof(IsModelMenuRootPage));
+            OnPropertyChanged(nameof(IsModelsMenuPage));
+            OnPropertyChanged(nameof(IsEffortsMenuPage));
+        }
+    }
+
     /// <summary>
     ///     选中会话变化时整体替换上下文；isRunning 取新会话当前的运行状态，draft 装载该会话
     ///     的草稿（按会话记账由 root 提供）。会话身份变化时重置会话级选型并让下拉回退目录
@@ -311,17 +314,17 @@ public sealed class ComposerViewModel : ObservableObject
     public void SetSession(string? sessionId, bool isRunning, string draft)
     {
         var sessionChanged = sessionId != SessionId;
-        SessionId          = sessionId;
-        IsSessionRunning   = isRunning;
-        DraftMessage       = draft;
+        SessionId        = sessionId;
+        IsSessionRunning = isRunning;
+        DraftMessage     = draft;
         if (!sessionChanged) return;
 
         IsModelMenuOpen = false;
-        CurrentModel = null;
-        _usageSeq    = 0;
-        _statsSeq    = 0;
-        Usage        = null;
-        Stats        = null;
+        CurrentModel    = null;
+        _usageSeq       = 0;
+        _statsSeq       = 0;
+        Usage           = null;
+        Stats           = null;
         SyncSelectedModelOption();
     }
 
@@ -427,9 +430,10 @@ public sealed class ComposerViewModel : ObservableObject
             return;
         }
 
-        if (SessionId is null || _isSelectingModel
-                              || (EffectiveModel is { } effective && option.Matches(effective)
-                                  && effective.ReasoningEffort == reasoningEffort))
+        if (SessionId is null || _isSelectingModel ||
+            (EffectiveModel is { } effective &&
+             option.Matches(effective)       &&
+             effective.ReasoningEffort == reasoningEffort))
         {
             SyncSelectedModelOption();
             return;
@@ -488,8 +492,8 @@ public sealed class ComposerViewModel : ObservableObject
             option.IsSelected = effective is not null && option.Matches(effective);
 
         foreach (var effort in EffortOptions)
-            effort.IsSelected = effective?.ReasoningEffort is { } value
-                                && string.Equals(value, effort.Value, StringComparison.OrdinalIgnoreCase);
+            effort.IsSelected = effective?.ReasoningEffort is { } value &&
+                                string.Equals(value, effort.Value, StringComparison.OrdinalIgnoreCase);
 
         OnPropertyChanged(nameof(ModelPickerLabel));
         OnPropertyChanged(nameof(CurrentModelNameText));
@@ -505,9 +509,9 @@ public sealed class ComposerViewModel : ObservableObject
             foreach (var group in catalog.Groups)
             {
                 var options = group.Models.Select(model => new ModelOptionViewModel(
-                                                        group.Id, group.Name, model.Id, model.Name,
-                                                        option => _ = SelectModelOptionAsync(option)))
-                                       .ToArray();
+                                                       group.Id, group.Name, model.Id, model.Name,
+                                                       option => _ = SelectModelOptionAsync(option)))
+                                   .ToArray();
                 foreach (var option in options) ModelOptions.Add(option);
 
                 ModelGroups.Add(new ModelGroupMenuViewModel(group.Name, options));
@@ -557,28 +561,6 @@ public sealed class ComposerViewModel : ObservableObject
     private void ShowEffortsMenuPage()
     {
         ModelMenuPage = ModelMenuPageKind.Efforts;
-    }
-
-    private ModelMenuPageKind ModelMenuPage
-    {
-        get => _modelMenuPage;
-        set
-        {
-            if (SetProperty(ref _modelMenuPage, value))
-            {
-                OnPropertyChanged(nameof(IsModelMenuRootPage));
-                OnPropertyChanged(nameof(IsModelsMenuPage));
-                OnPropertyChanged(nameof(IsEffortsMenuPage));
-            }
-        }
-    }
-
-    /// <summary>弹出菜单的两级页签。</summary>
-    private enum ModelMenuPageKind
-    {
-        Root,
-        Models,
-        Efforts
     }
 
     /// <summary>档位 wire 值到展示名；后端新档位先原样展示，不猜语义。</summary>
@@ -651,14 +633,22 @@ public sealed class ComposerViewModel : ObservableObject
 
     private bool CanSendMessage()
     {
-        return SessionId is not null
-            && !IsSending
-            && !string.IsNullOrWhiteSpace(DraftMessage)
-            && IsBackendConnected;
+        return SessionId is not null                    &&
+               !IsSending                               &&
+               !string.IsNullOrWhiteSpace(DraftMessage) &&
+               IsBackendConnected;
     }
 
     private bool CanCancelGeneration()
     {
         return IsSessionRunning && !_isCancelling;
+    }
+
+    /// <summary>弹出菜单的两级页签。</summary>
+    private enum ModelMenuPageKind
+    {
+        Root,
+        Models,
+        Efforts
     }
 }

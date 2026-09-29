@@ -21,58 +21,22 @@ public sealed class SessionBlankVerificationTests
     private const string BlankFalseMetadata = """{"blank":false,"lastPromptAt":123}""";
     private const string BadBlankMetadata   = """{"blank":"yes"}""";
 
-    /// <summary>可控读取器与可注入时钟的核实器装配；Requests 记录每次真实查询。</summary>
-    private sealed class VerifierSetup
-    {
-        public Func<string, CancellationToken, Task<SessionProjectionsValue?>>? Responder;
-        public readonly HashSet<string> EngagedIds = [];
-        public readonly List<string>    Requests   = [];
-        public int ChangedCount;
-        public int  CurrentReaders;
-        public int  PeakReaders;
-        public DateTimeOffset UtcNow = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
-
-        public SessionBlankVerifier Build()
-        {
-            return new SessionBlankVerifier(ReadAsync, EngagedIds.Contains, () => ChangedCount++, () => UtcNow);
-        }
-
-        private async Task<SessionProjectionsValue?> ReadAsync(
-            string sessionId, CancellationToken cancellationToken)
-        {
-            lock (this)
-            {
-                Requests.Add(sessionId);
-                CurrentReaders++;
-                if (CurrentReaders > PeakReaders) PeakReaders = CurrentReaders;
-            }
-
-            try
-            {
-                return Responder is null ? null : await Responder(sessionId, cancellationToken);
-            }
-            finally
-            {
-                lock (this) CurrentReaders--;
-            }
-        }
-    }
-
-    private static ListedSessionRow Row(string        id,
-                                        SessionBlankState state = SessionBlankState.Unknown,
+    private static ListedSessionRow Row(string                   id,
+                                        SessionBlankState        state        = SessionBlankState.Unknown,
                                         SessionListMetadataWire? listMetadata = null,
-                                        string? cwd = null)
+                                        string?                  cwd          = null)
     {
-        return new ListedSessionRow(
-            new SessionSummary(id, null, DateTimeOffset.FromUnixTimeMilliseconds(1_000), false, state, cwd),
-            listMetadata);
+        return new ListedSessionRow(new SessionSummary(id, null, DateTimeOffset.FromUnixTimeMilliseconds(1_000), false,
+                                                       state, cwd), listMetadata);
     }
 
     private static SessionProjectionsValue ProjectionsWithMetadata(string metadataJson)
     {
         using var document = JsonDocument.Parse(metadataJson);
-        return new SessionProjectionsValue(
-            7, new Dictionary<string, JsonElement> { [SessionProjectionsJson.ListMetadataKey] = document.RootElement.Clone() });
+        return new SessionProjectionsValue(7, new Dictionary<string, JsonElement>
+        {
+            [SessionProjectionsJson.ListMetadataKey] = document.RootElement.Clone()
+        });
     }
 
     private static SessionProjectionsValue ProjectionsWithoutMetadata()
@@ -105,7 +69,7 @@ public sealed class SessionBlankVerificationTests
             Responder = (_, _) => Task.FromResult<SessionProjectionsValue?>(ProjectionsWithMetadata(BlankTrueMetadata))
         };
         using var verifier = setup.Build();
-        var rows = new[] { Row("s-1", cwd: @"C:\workspace\demo") };
+        var       rows     = new[] { Row("s-1", cwd : @"C:\workspace\demo") };
 
         // 首屏不等待：核实完成前列表保持 Unknown 可见。
         var first = verifier.Resolve(rows);
@@ -118,8 +82,8 @@ public sealed class SessionBlankVerificationTests
         Assert.Equal(SessionBlankState.ConfirmedBlank, summary.BlankState);
         Assert.Equal(@"C:\workspace\demo", summary.Cwd);
         // 完整目录保留该行：复用候选（确认空白 + cwd 匹配）可直接命中。
-        Assert.Contains(resolved, item => item.BlankState == SessionBlankState.ConfirmedBlank
-                                       && item.Cwd == @"C:\workspace\demo");
+        Assert.Contains(resolved,
+                        item => item is { BlankState: SessionBlankState.ConfirmedBlank, Cwd: @"C:\workspace\demo" });
         Assert.Equal(1, setup.Requests.Count);
         Assert.True(setup.ChangedCount > 0);
     }
@@ -133,7 +97,7 @@ public sealed class SessionBlankVerificationTests
             Responder = (_, _) => Task.FromResult<SessionProjectionsValue?>(ProjectionsWithMetadata(BlankFalseMetadata))
         };
         using var verifier = setup.Build();
-        var rows = new[] { Row("s-1") };
+        var       rows     = new[] { Row("s-1") };
 
         verifier.Resolve(rows);
         await WaitForIdleAsync(verifier);
@@ -151,18 +115,18 @@ public sealed class SessionBlankVerificationTests
         {
             Responder = (sessionId, _) => sessionId switch
             {
-                "s-null"    => Task.FromResult<SessionProjectionsValue?>(null),
-                "s-empty"   => Task.FromResult<SessionProjectionsValue?>(ProjectionsWithoutMetadata()),
-                "s-bad"     => Task.FromResult<SessionProjectionsValue?>(ProjectionsWithMetadata(BadBlankMetadata)),
-                "s-fail"    => Task.FromException<SessionProjectionsValue?>(
-                                   new HarnessRpcException("gateway/internal", "内部错误")),
+                "s-null"  => Task.FromResult<SessionProjectionsValue?>(null),
+                "s-empty" => Task.FromResult<SessionProjectionsValue?>(ProjectionsWithoutMetadata()),
+                "s-bad"   => Task.FromResult<SessionProjectionsValue?>(ProjectionsWithMetadata(BadBlankMetadata)),
+                "s-fail" => Task.FromException<SessionProjectionsValue?>(new HarnessRpcException("gateway/internal",
+                                                                                  "内部错误")),
                 "s-timeout" => Task.FromException<SessionProjectionsValue?>(new OperationCanceledException()),
-                _ => Task.FromResult<SessionProjectionsValue?>(null)
+                _           => Task.FromResult<SessionProjectionsValue?>(null)
             }
         };
         using var verifier = setup.Build();
-        var ids    = new[] { "s-null", "s-empty", "s-bad", "s-fail", "s-timeout" };
-        var rows   = ids.Select(id => Row(id)).ToArray();
+        var       ids      = new[] { "s-null", "s-empty", "s-bad", "s-fail", "s-timeout" };
+        var       rows     = ids.Select(id => Row(id)).ToArray();
 
         verifier.Resolve(rows);
         await WaitForIdleAsync(verifier);
@@ -189,7 +153,7 @@ public sealed class SessionBlankVerificationTests
             Responder = (_, _) => Task.FromResult<SessionProjectionsValue?>(ProjectionsWithMetadata(BlankTrueMetadata))
         };
         using var verifier = setup.Build();
-        var rows = new[] { Row("s-1") };
+        var       rows     = new[] { Row("s-1") };
 
         verifier.Resolve(rows);
         await WaitForIdleAsync(verifier);
@@ -222,7 +186,7 @@ public sealed class SessionBlankVerificationTests
             }
         };
         using var verifier = setup.Build();
-        var rows = Enumerable.Range(1, 6).Select(index => Row($"s-{index}")).ToArray();
+        var       rows     = Enumerable.Range(1, 6).Select(index => Row($"s-{index}")).ToArray();
 
         verifier.Resolve(rows);
         await WaitForIdleAsync(verifier);
@@ -240,7 +204,7 @@ public sealed class SessionBlankVerificationTests
     [Fact]
     public async Task DuplicateEnqueueMergesIntoSingleInFlightRequest()
     {
-        var gate  = new TaskCompletionSource();
+        var gate = new TaskCompletionSource();
         var setup = new VerifierSetup
         {
             Responder = async (_, cancellationToken) =>
@@ -250,7 +214,7 @@ public sealed class SessionBlankVerificationTests
             }
         };
         using var verifier = setup.Build();
-        var rows = new[] { Row("s-1") };
+        var       rows     = new[] { Row("s-1") };
 
         verifier.Resolve(rows);
         await UntilAsync(() => setup.Requests.Count == 1);
@@ -267,7 +231,7 @@ public sealed class SessionBlankVerificationTests
     [Fact]
     public async Task LateBlankResultAfterEngagementDoesNotHideSession()
     {
-        var gate  = new TaskCompletionSource();
+        var gate = new TaskCompletionSource();
         var setup = new VerifierSetup
         {
             Responder = async (_, cancellationToken) =>
@@ -277,7 +241,7 @@ public sealed class SessionBlankVerificationTests
             }
         };
         using var verifier = setup.Build();
-        var rows = new[] { Row("s-1") };
+        var       rows     = new[] { Row("s-1") };
 
         verifier.Resolve(rows);
         await UntilAsync(() => setup.Requests.Count == 1);
@@ -298,7 +262,7 @@ public sealed class SessionBlankVerificationTests
         var firstGate  = new TaskCompletionSource();
         var secondGate = new TaskCompletionSource();
         var calls      = 0;
-        var setup      = new VerifierSetup
+        var setup = new VerifierSetup
         {
             Responder = async (_, cancellationToken) =>
             {
@@ -313,7 +277,7 @@ public sealed class SessionBlankVerificationTests
             }
         };
         using var verifier = setup.Build();
-        var rows = new[] { Row("s-1") };
+        var       rows     = new[] { Row("s-1") };
 
         verifier.Resolve(rows);
         await UntilAsync(() => setup.Requests.Count == 1);
@@ -340,11 +304,12 @@ public sealed class SessionBlankVerificationTests
         var setup = new VerifierSetup
         {
             Responder = (_, _) =>
-                Task.FromResult<SessionProjectionsValue?>(ProjectionsWithMetadata(
-                    Interlocked.Increment(ref calls) == 1 ? BlankTrueMetadata : BlankFalseMetadata))
+                Task.FromResult<SessionProjectionsValue?>(ProjectionsWithMetadata(Interlocked.Increment(ref calls) == 1
+                                                                       ? BlankTrueMetadata
+                                                                       : BlankFalseMetadata))
         };
         using var verifier = setup.Build();
-        var rows = new[] { Row("s-1") };
+        var       rows     = new[] { Row("s-1") };
 
         verifier.Resolve(rows);
         await WaitForIdleAsync(verifier);
@@ -365,7 +330,7 @@ public sealed class SessionBlankVerificationTests
         var firstGate  = new TaskCompletionSource();
         var secondGate = new TaskCompletionSource();
         var calls      = 0;
-        var setup      = new VerifierSetup
+        var setup = new VerifierSetup
         {
             Responder = async (_, cancellationToken) =>
             {
@@ -380,7 +345,7 @@ public sealed class SessionBlankVerificationTests
             }
         };
         using var verifier = setup.Build();
-        var rows = new[] { Row("s-1") };
+        var       rows     = new[] { Row("s-1") };
 
         verifier.Resolve(rows);
         await UntilAsync(() => setup.Requests.Count == 1);
@@ -403,11 +368,11 @@ public sealed class SessionBlankVerificationTests
     {
         var setup = new VerifierSetup
         {
-            Responder = (_, _) => Task.FromException<SessionProjectionsValue?>(
-                new HarnessRpcException("gateway/internal", "内部错误"))
+            Responder = (_, _) =>
+                Task.FromException<SessionProjectionsValue?>(new HarnessRpcException("gateway/internal", "内部错误"))
         };
         using var verifier = setup.Build();
-        var rows = new[] { Row("s-1") };
+        var       rows     = new[] { Row("s-1") };
 
         verifier.Resolve(rows);
         await WaitForIdleAsync(verifier);
@@ -444,11 +409,12 @@ public sealed class SessionBlankVerificationTests
     {
         var setup = new VerifierSetup
         {
-            Responder = (_, _) => Task.FromException<SessionProjectionsValue?>(
-                new HarnessRpcException("session/projections-unavailable", "接口不可用"))
+            Responder = (_, _) =>
+                Task.FromException<SessionProjectionsValue?>(new HarnessRpcException("session/projections-unavailable",
+                                                                      "接口不可用"))
         };
         using var verifier = setup.Build();
-        var rows = new[] { Row("s-1"), Row("s-2") };
+        var       rows     = new[] { Row("s-1"), Row("s-2") };
 
         verifier.Resolve(rows);
         await WaitForIdleAsync(verifier);
@@ -467,7 +433,7 @@ public sealed class SessionBlankVerificationTests
             Responder = (_, _) => Task.FromResult<SessionProjectionsValue?>(ProjectionsWithMetadata(BlankTrueMetadata))
         };
         using var verifier = setup.Build();
-        var rows = new[] { Row("s-1") };
+        var       rows     = new[] { Row("s-1") };
 
         verifier.Resolve(rows);
         await WaitForIdleAsync(verifier);
@@ -488,23 +454,28 @@ public sealed class SessionBlankVerificationTests
     [Fact]
     public void ListRowMetadataBooleanValueDecidesBlankState()
     {
-        var engaged = HarnessSessionService.ToSummary(new SessionSummaryWire(
-            "s-1", 1, false, true,
-            Projections: new SessionProjectionHintsWire("sequenced", 4, MetadataValues(BlankFalseMetadata))));
+        var engaged = HarnessSessionService.ToSummary(new SessionSummaryWire("s-1", 1, false, true,
+                                                                             Projections :
+                                                                             new SessionProjectionHintsWire("sequenced",
+                                                                                      4,
+                                                                                      MetadataValues(BlankFalseMetadata))));
         Assert.Equal(SessionBlankState.Engaged, engaged.BlankState);
 
-        var blank = HarnessSessionService.ToSummary(new SessionSummaryWire(
-            "s-1", 1, false, false,
-            Projections: new SessionProjectionHintsWire("cached", 4, MetadataValues(BlankTrueMetadata))));
+        var blank = HarnessSessionService.ToSummary(new SessionSummaryWire("s-1", 1, false, false,
+                                                                           Projections :
+                                                                           new SessionProjectionHintsWire("cached", 4,
+                                                                                    MetadataValues(BlankTrueMetadata))));
         Assert.Equal(SessionBlankState.ConfirmedBlank, blank.BlankState);
 
-        var malformed = HarnessSessionService.ToSummary(new SessionSummaryWire(
-            "s-1", 1, false, false,
-            Projections: new SessionProjectionHintsWire("cached", 4, MetadataValues(BadBlankMetadata))));
+        var malformed = HarnessSessionService.ToSummary(new SessionSummaryWire("s-1", 1, false, false,
+                                                                               Projections :
+                                                                               new SessionProjectionHintsWire("cached",
+                                                                                        4,
+                                                                                        MetadataValues(BadBlankMetadata))));
         Assert.Equal(SessionBlankState.Unknown, malformed.BlankState);
 
-        var fallbackBlank = HarnessSessionService.ToSummary(new SessionSummaryWire(
-            "s-1", 1, false, true, Projections: null));
+        var fallbackBlank =
+            HarnessSessionService.ToSummary(new SessionSummaryWire("s-1", 1, false, true, Projections : null));
         Assert.Equal(SessionBlankState.ConfirmedBlank, fallbackBlank.BlankState);
     }
 
@@ -516,14 +487,13 @@ public sealed class SessionBlankVerificationTests
         var json    = JsonSerializer.Serialize(request, HarnessJsonContext.Default.SessionProjectionsRequest);
         Assert.Equal("""{"sessionId":"session-1"}""", json);
 
-        var response = RpcEnvelope.ParseResponse(
-            """{"rpcId":"r1","result":{"ok":true,"value":{"asOfSeq":9,"values":{"sessionListMetadata":{"blank":true,"lastPromptAt":123}}}}}""");
+        var response =
+            RpcEnvelope.ParseResponse("""{"rpcId":"r1","result":{"ok":true,"value":{"asOfSeq":9,"values":{"sessionListMetadata":{"blank":true,"lastPromptAt":123}}}}}""");
         Assert.True(response.Ok);
         var value = response.Value!.Value.Deserialize(HarnessJsonContext.Default.SessionProjectionsValue);
         Assert.NotNull(value);
         Assert.Equal(9, value.AsOfSeq);
-        var metadata = SessionProjectionsJson.ParseListMetadata(
-            value.Values![SessionProjectionsJson.ListMetadataKey]);
+        var metadata = SessionProjectionsJson.ParseListMetadata(value.Values![SessionProjectionsJson.ListMetadataKey]);
         Assert.True(metadata!.Blank);
         Assert.Equal(123, metadata.LastPromptAt);
 
@@ -540,5 +510,45 @@ public sealed class SessionBlankVerificationTests
         {
             [SessionProjectionsJson.ListMetadataKey] = document.RootElement.Clone()
         };
+    }
+
+    /// <summary>可控读取器与可注入时钟的核实器装配；Requests 记录每次真实查询。</summary>
+    private sealed class VerifierSetup
+    {
+        public readonly HashSet<string> EngagedIds = [];
+        public readonly List<string> Requests = [];
+        public          int ChangedCount;
+        public          int CurrentReaders;
+        public          int PeakReaders;
+        public          Func<string, CancellationToken, Task<SessionProjectionsValue?>>? Responder;
+        public          DateTimeOffset UtcNow = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+
+        public SessionBlankVerifier Build()
+        {
+            return new SessionBlankVerifier(ReadAsync, EngagedIds.Contains, () => ChangedCount++, () => UtcNow);
+        }
+
+        private async Task<SessionProjectionsValue?> ReadAsync(
+            string sessionId, CancellationToken cancellationToken)
+        {
+            lock (this)
+            {
+                Requests.Add(sessionId);
+                CurrentReaders++;
+                if (CurrentReaders > PeakReaders) PeakReaders = CurrentReaders;
+            }
+
+            try
+            {
+                return Responder is null ? null : await Responder(sessionId, cancellationToken);
+            }
+            finally
+            {
+                lock (this)
+                {
+                    CurrentReaders--;
+                }
+            }
+        }
     }
 }

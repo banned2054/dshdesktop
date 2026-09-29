@@ -20,29 +20,29 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
 
     private const string UngroupedKey = "$ungrouped";
 
-    private readonly ISessionService   _sessionService;
-    private readonly IWorkspaceService _workspaceService;
+    private readonly HashSet<string>     _collapsedGroups = [];
+    private readonly Action<Action>      _postToUi;
+    private readonly Action<string?>     _reportError;
+    private readonly Func<string?, Task> _requestNewSession;
 
     // 用户点击行/新建入口时请求 root 切换选中或编排创建；错误上报到窗口级 ErrorText（null 表示清除）。
     private readonly Action<SessionItemViewModel?> _requestSelection;
-    private readonly Func<string?, Task>           _requestNewSession;
-    private readonly Action<string?>               _reportError;
-    private readonly Action<Action>                _postToUi;
+
+    private readonly ISessionService   _sessionService;
+    private readonly IWorkspaceService _workspaceService;
 
     /// <summary>完整会话目录（后端返回顺序，含未选中空白会话）；可由列表刷新整体重建。</summary>
     private IReadOnlyList<SessionSummary> _catalog = [];
 
-    private readonly HashSet<string> _collapsedGroups = [];
-
-    private bool _isRequestingNewSession;
-    private bool _isCreatingWorkspaceSession;
-
     // root 最近推送的选中会话：用于 IsCurrent 标记、空白行可见性与刷新后的选中决策。
     private SessionItemViewModel? _currentSession;
+    private bool                  _isCreatingWorkspaceSession;
 
     // 用户主动停留在新对话草稿页：刷新触发的回退选中不得把草稿页抢回旧会话；
     // 手动点击行与选中会话被删除的回退不受此守卫影响。标记由 root 推送。
     private bool _isDraftPageActive;
+
+    private bool _isRequestingNewSession;
 
     private int _listRefreshPending;
 
@@ -59,15 +59,15 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
         Action<string?>               reportError,
         Action<Action>?               postToUi = null)
     {
-        _sessionService                     =  sessionService;
-        _workspaceService                   =  workspaceService;
-        _requestSelection                   =  requestSelection;
-        _requestNewSession                  =  requestNewSession;
-        _reportError                        =  reportError;
-        _postToUi                           =  postToUi ?? (action => action());
-        NewSessionCommand                   =  new RelayCommand(() => _ = RequestNewSessionAsync(null));
-        CreateWorkspaceSessionCommand       =  new RelayCommand<SessionGroupHeaderViewModel>(
-            CreateWorkspaceSession, group => !_isCreatingWorkspaceSession && group is { IsWorkspace: true });
+        _sessionService    = sessionService;
+        _workspaceService  = workspaceService;
+        _requestSelection  = requestSelection;
+        _requestNewSession = requestNewSession;
+        _reportError       = reportError;
+        _postToUi          = postToUi ?? (action => action());
+        NewSessionCommand  = new RelayCommand(() => _ = RequestNewSessionAsync(null));
+        CreateWorkspaceSessionCommand = new RelayCommand<SessionGroupHeaderViewModel>(
+             CreateWorkspaceSession, group => !_isCreatingWorkspaceSession && group is { IsWorkspace: true });
         SelectSessionCommand                =  new RelayCommand<SessionItemViewModel>(requestSelection);
         ToggleGroupCommand                  =  new RelayCommand<SessionGroupHeaderViewModel>(ToggleGroup);
         _sessionService.SessionsChanged     += OnSessionsChanged;
@@ -97,6 +97,12 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
         }
     }
 
+    public void Dispose()
+    {
+        _sessionService.SessionsChanged     -= OnSessionsChanged;
+        _workspaceService.WorkspacesChanged -= OnWorkspacesChanged;
+    }
+
     /// <summary>
     ///     接收 root 推送的当前选中会话（每次实际切换时调用）：维护 IsCurrent 行高亮并重建
     ///     行投影——工作区头的 IsCurrent（是否包含当前会话）随选中变化。已确认空白的会话只在
@@ -109,8 +115,9 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
         _currentSession?.IsCurrent = false;
         _currentSession            = session;
         session?.IsCurrent         = true;
-        if (previous is not null && !ReferenceEquals(previous, session)
-                               && previous.BlankState == SessionBlankState.ConfirmedBlank)
+        if (previous is not null                &&
+            !ReferenceEquals(previous, session) &&
+            previous.BlankState == SessionBlankState.ConfirmedBlank)
             Sessions.Remove(previous);
 
         RebuildSessionRows();
@@ -164,9 +171,10 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
     {
         _catalog = await _sessionService.GetSessionsAsync(cancellationToken);
         var selectedSessionId = _currentSession?.Id;
-        var visible = _catalog.Where(summary => summary.BlankState != SessionBlankState.ConfirmedBlank
-                                             || summary.Id == selectedSessionId)
-                              .ToArray();
+        var visible = _catalog
+                     .Where(summary => summary.BlankState != SessionBlankState.ConfirmedBlank ||
+                                       summary.Id         == selectedSessionId)
+                     .ToArray();
 
         // 就地更新既有条目：重建 ObservableCollection 会替换选中实例，
         // 触发重新订阅并让新快照清掉流式气泡，生成中的内容会闪动。
@@ -236,17 +244,16 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
         var accounted = new HashSet<string>();
         foreach (var workspace in _workspaces)
             AppendGroup(workspace.Id, workspace.Title,
-                        Sessions.Where(session => workspace.SessionIds.Contains(session.Id)),
-                        accounted, isWorkspace: true);
+                        Sessions.Where(session => workspace.SessionIds.Contains(session.Id)), accounted,
+                        true);
 
-        AppendGroup(UngroupedKey, "未分组",
-                    Sessions.Where(session => !accounted.Contains(session.Id)),
-                    accounted, isWorkspace: false);
+        AppendGroup(UngroupedKey, "未分组", Sessions.Where(session => !accounted.Contains(session.Id)), accounted,
+                    false);
     }
 
     private void AppendGroup(
         string key, string title, IEnumerable<SessionItemViewModel> members, HashSet<string> accounted,
-        bool isWorkspace)
+        bool   isWorkspace)
     {
         var memberList = members.ToList();
         if (key == UngroupedKey && memberList.Count == 0) return;
@@ -373,11 +380,5 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
         {
             _isRequestingNewSession = false;
         }
-    }
-
-    public void Dispose()
-    {
-        _sessionService.SessionsChanged     -= OnSessionsChanged;
-        _workspaceService.WorkspacesChanged -= OnWorkspacesChanged;
     }
 }

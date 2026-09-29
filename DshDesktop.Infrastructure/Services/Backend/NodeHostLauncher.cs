@@ -167,22 +167,22 @@ public sealed class NodeHostLauncher : IAsyncDisposable
         using (document)
         {
             var root = document.RootElement;
-            if (root.ValueKind != JsonValueKind.Object
-             || !root.TryGetProperty("type", out var typeElement)
-             || typeElement.ValueKind != JsonValueKind.String)
+            if (root.ValueKind != JsonValueKind.Object ||
+              !root.TryGetProperty("type", out var typeElement) ||
+              typeElement.ValueKind != JsonValueKind.String)
                 return;
 
             switch (typeElement.GetString())
             {
-                case "ready" when root.TryGetProperty("url", out var urlElement)
-                               && Uri.TryCreate(urlElement.GetString(), UriKind.Absolute, out var url) :
+                case "ready" when root.TryGetProperty("url", out var urlElement) &&
+                                Uri.TryCreate(urlElement.GetString(), UriKind.Absolute, out var url) :
                     _ready.TrySetResult(url);
                     break;
 
                 case "fatal" or "error" :
                 {
-                    var message = root.TryGetProperty("message", out var messageElement)
-                               && messageElement.ValueKind == JsonValueKind.String
+                    var message = root.TryGetProperty("message", out var messageElement) &&
+                                messageElement.ValueKind == JsonValueKind.String
                         ? messageElement.GetString()
                         : "后端报告了未知的致命错误。";
                     var stderrTail = GetString(root, "stderrTail");
@@ -192,13 +192,13 @@ public sealed class NodeHostLauncher : IAsyncDisposable
 
                 case "exited" :
                 {
-                    int? code = root.TryGetProperty("code", out var codeElement)
-                             && codeElement.ValueKind == JsonValueKind.Number
-                             && codeElement.TryGetInt32(out var exitCode)
+                    int? code = root.TryGetProperty("code", out var codeElement) &&
+                              codeElement.ValueKind == JsonValueKind.Number &&
+                              codeElement.TryGetInt32(out var exitCode)
                         ? exitCode
                         : null;
-                    var clean = root.TryGetProperty("clean", out var cleanElement)
-                             && cleanElement.ValueKind == JsonValueKind.True;
+                    var clean = root.TryGetProperty("clean", out var cleanElement) &&
+                              cleanElement.ValueKind == JsonValueKind.True;
                     CompleteExit(code, clean);
                     break;
                 }

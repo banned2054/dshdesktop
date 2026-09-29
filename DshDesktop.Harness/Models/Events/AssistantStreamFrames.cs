@@ -30,10 +30,10 @@ public static class AssistantStreamFrameJson
 {
     public static AssistantStreamFrame? ParseFrame(JsonElement element)
     {
-        if (element.ValueKind != JsonValueKind.Object
-         || !TryGetString(element, "type", out var type)
-         || !TryGetString(element, "attemptId", out var attemptId)
-         || !TryGetNumber(element, "revision", out var revision))
+        if (element.ValueKind != JsonValueKind.Object              ||
+            !TryGetString(element, "type", out var type)           ||
+            !TryGetString(element, "attemptId", out var attemptId) ||
+            !TryGetNumber(element, "revision", out var revision))
             return null;
 
         switch (type)
@@ -49,8 +49,8 @@ public static class AssistantStreamFrameJson
                                                           ? stepValue
                                                           : 0);
 
-            case "chunk" when TryGetNumber(element, "index", out var index)
-                           && element.TryGetProperty("chunk", out var chunkElement) :
+            case "chunk" when TryGetNumber(element, "index", out var index) &&
+                              element.TryGetProperty("chunk", out var chunkElement) :
                 return new AssistantStreamFrame.StreamChunkFrame(attemptId, revision, index,
                                                                  element.TryGetProperty("time", out var time) &&
                                                                  time.TryGetInt64(out var timeValue)
@@ -59,18 +59,18 @@ public static class AssistantStreamFrameJson
                                                                  ParseChunk(chunkElement) ??
                                                                  new StreamChunk.Other("unknown"));
 
-            case "end" when TryGetNumber(element, "index", out var endIndex)
-                         && element.TryGetProperty("outcome", out var outcomeElement)
-                         && outcomeElement.ValueKind == JsonValueKind.Object
-                         && TryGetString(outcomeElement, "kind", out var outcomeKind) :
+            case "end" when TryGetNumber(element, "index", out var endIndex)          &&
+                            element.TryGetProperty("outcome", out var outcomeElement) &&
+                            outcomeElement.ValueKind == JsonValueKind.Object          &&
+                            TryGetString(outcomeElement, "kind", out var outcomeKind) :
             {
-                var eventType = outcomeElement.TryGetProperty("eventType", out var eventTypeElement)
-                             && eventTypeElement.ValueKind == JsonValueKind.String
+                var eventType = outcomeElement.TryGetProperty("eventType", out var eventTypeElement) &&
+                                eventTypeElement.ValueKind == JsonValueKind.String
                     ? eventTypeElement.GetString()
                     : null;
-                var seq = outcomeElement.TryGetProperty("seq", out var seqElement)
-                       && seqElement.ValueKind == JsonValueKind.Number
-                       && seqElement.TryGetInt64(out var seqValue)
+                var seq = outcomeElement.TryGetProperty("seq", out var seqElement) &&
+                          seqElement.ValueKind == JsonValueKind.Number             &&
+                          seqElement.TryGetInt64(out var seqValue)
                     ? seqValue
                     : (long?)null;
                 return new AssistantStreamFrame.End(attemptId, revision, endIndex,
@@ -84,18 +84,18 @@ public static class AssistantStreamFrameJson
 
     private static StreamChunk? ParseChunk(JsonElement element)
     {
-        if (element.ValueKind != JsonValueKind.Object
-         || !TryGetString(element, "type", out var type))
+        if (element.ValueKind != JsonValueKind.Object ||
+            !TryGetString(element, "type", out var type))
             return null;
 
         switch (type)
         {
-            case "text-delta" when TryGetNumber(element, "index", out var index)
-                                && TryGetString(element, "text", out var text) :
+            case "text-delta" when TryGetNumber(element, "index", out var index) &&
+                                   TryGetString(element, "text", out var text) :
                 return new StreamChunk.TextDelta(index, text);
 
-            case "reasoning-delta" when TryGetNumber(element, "index", out var reasoningIndex)
-                                     && TryGetString(element, "text", out var reasoningText) :
+            case "reasoning-delta" when TryGetNumber(element, "index", out var reasoningIndex) &&
+                                        TryGetString(element, "text", out var reasoningText) :
                 return new StreamChunk.ReasoningDelta(reasoningIndex, reasoningText);
 
             default :
@@ -117,9 +117,9 @@ public static class AssistantStreamFrameJson
 
     private static bool TryGetNumber(JsonElement element, string name, out long value)
     {
-        if (element.TryGetProperty(name, out var property)
-         && property.ValueKind == JsonValueKind.Number
-         && property.TryGetInt64(out value))
+        if (element.TryGetProperty(name, out var property) &&
+            property.ValueKind == JsonValueKind.Number     &&
+            property.TryGetInt64(out value))
             return true;
 
         value = 0;

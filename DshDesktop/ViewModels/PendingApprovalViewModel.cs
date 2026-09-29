@@ -3,12 +3,15 @@ using System.Windows.Input;
 
 namespace DshDesktop.ViewModels;
 
-/// <summary>悬浮面板审批横幅的一个待决条目。
-/// 裁决命令（允许一次/拒绝）由 MainWindowViewModel 创建条目时注入，
-/// 使独立的 ApprovalPromptView 无需回查窗口级 DataContext。</summary>
-public sealed class PendingApprovalViewModel(PendingApproval approval,
-                                             ICommand approveCommand,
-                                             ICommand rejectCommand)
+/// <summary>
+///     悬浮面板审批横幅的一个待决条目。
+///     裁决命令（允许一次/拒绝）由 MainWindowViewModel 创建条目时注入，
+///     使独立的 ApprovalPromptView 无需回查窗口级 DataContext。
+/// </summary>
+public sealed class PendingApprovalViewModel(
+    PendingApproval approval,
+    ICommand        approveCommand,
+    ICommand        rejectCommand)
 {
     public PendingApproval Approval { get; } = approval;
 

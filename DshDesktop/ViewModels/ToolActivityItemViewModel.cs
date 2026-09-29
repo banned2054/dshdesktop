@@ -90,9 +90,9 @@ public sealed class ToolActivityItemViewModel : ConversationItemViewModel
     public string ArgumentsPreview => Truncate(ArgumentsText);
 
     public bool HasDetails =>
-        !string.IsNullOrWhiteSpace(ArgumentsText)
-     || !string.IsNullOrWhiteSpace(ResultText)
-     || HasError;
+        !string.IsNullOrWhiteSpace(ArgumentsText) ||
+        !string.IsNullOrWhiteSpace(ResultText)    ||
+        HasError;
 
     public bool IsExpanded
     {

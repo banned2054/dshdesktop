@@ -1,5 +1,5 @@
-using System.Windows.Input;
 using DshDesktop.Core.Models;
+using System.Windows.Input;
 
 namespace DshDesktop.ViewModels;
 
@@ -9,7 +9,7 @@ public sealed class ModelOptionViewModel : ObservableObject
     private bool _isSelected;
 
     public ModelOptionViewModel(
-        string provider, string providerName, string model, string modelName,
+        string                        provider, string providerName, string model, string modelName,
         Action<ModelOptionViewModel>? select = null)
     {
         Provider      = provider;

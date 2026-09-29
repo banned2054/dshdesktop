@@ -19,7 +19,7 @@ public sealed class ComposerViewModelTests
 
         // 三个前提逐项到位：会话、草稿、后端连接。
         composer.SetBackendConnected(true);
-        composer.SetSession("session-1", isRunning : false, string.Empty);
+        composer.SetSession("session-1", false, string.Empty);
         Assert.False(composer.SendMessageCommand.CanExecute(null));
 
         composer.DraftMessage = "你好";
@@ -46,7 +46,7 @@ public sealed class ComposerViewModelTests
     {
         var composer = CreateComposer();
 
-        composer.SetSession("session-1", isRunning : false, string.Empty);
+        composer.SetSession("session-1", false, string.Empty);
         composer.SetBackendConnected(false);
         composer.DraftMessage = "后端未连接时的草稿";
 
@@ -65,7 +65,7 @@ public sealed class ComposerViewModelTests
 
         Assert.False(composer.CancelCommand.CanExecute(null));
 
-        composer.SetSession("session-1", isRunning : true, string.Empty);
+        composer.SetSession("session-1", true, string.Empty);
         Assert.True(composer.CancelCommand.CanExecute(null));
 
         composer.CancelCommand.Execute(null);
@@ -82,7 +82,7 @@ public sealed class ComposerViewModelTests
     {
         var sessionService = new ControllableSessionService();
         var composer       = new ComposerViewModel(sessionService, _ => { });
-        composer.SetSession("session-1", isRunning : false, string.Empty);
+        composer.SetSession("session-1", false, string.Empty);
         composer.SetBackendConnected(true);
 
         composer.DraftMessage = "第一条消息";
@@ -103,7 +103,7 @@ public sealed class ComposerViewModelTests
         var     sessionService = new ControllableSessionService { FailSend = true };
         string? reported       = null;
         var     composer       = new ComposerViewModel(sessionService, text => reported = text);
-        composer.SetSession("session-1", isRunning : false, string.Empty);
+        composer.SetSession("session-1", false, string.Empty);
         composer.SetBackendConnected(true);
 
         composer.DraftMessage = "会失败的发送";
@@ -145,24 +145,23 @@ public sealed class ComposerViewModelTests
         Assert.Contains(nameof(ComposerViewModel.IsModelPickerEnabled), raised);
         Assert.False(composer.IsModelPickerEnabled); // 尚无会话。
 
-        composer.SetSession("session-1", isRunning : false, string.Empty);
+        composer.SetSession("session-1", false, string.Empty);
         Assert.True(composer.IsModelPickerEnabled);
 
         composer.SetBackendConnected(false);
         Assert.False(composer.IsModelPickerEnabled);
 
         composer.SetBackendConnected(true);
-        composer.SetSession(null, isRunning : false, string.Empty);
+        composer.SetSession(null, false, string.Empty);
         Assert.False(composer.IsModelPickerEnabled);
     }
 
     [Fact]
     public async Task DraftTargetEnablesLocalModelPreselectionWithoutRpc()
     {
-        var sessionService     = new ControllableSessionService();
-        var draftSelections    = new List<ModelSelection>();
-        var composer           = new ComposerViewModel(sessionService, _ => { },
-                                                       onDraftModelChanged : draftSelections.Add);
+        var sessionService = new ControllableSessionService();
+        var draftSelections = new List<ModelSelection>();
+        var composer = new ComposerViewModel(sessionService, _ => { }, onDraftModelChanged : draftSelections.Add);
         Assert.False(composer.IsModelPickerEnabled);
 
         // 草稿目标模式：无 SessionId 时目录 + 连接到位即启用，选型只走本地预选回调，
@@ -190,7 +189,7 @@ public sealed class ComposerViewModelTests
     {
         var composer = CreateComposer();
         await composer.RefreshModelCatalogAsync();
-        composer.SetSession("session-1", isRunning : false, string.Empty);
+        composer.SetSession("session-1", false, string.Empty);
 
         composer.ApplyCurrentModel(new ModelSelection("prov-b", "model-z"));
 
@@ -204,7 +203,7 @@ public sealed class ComposerViewModelTests
         var sessionService = new ControllableSessionService();
         var composer       = new ComposerViewModel(sessionService, _ => { });
         await composer.RefreshModelCatalogAsync();
-        composer.SetSession("session-1", isRunning : false, string.Empty);
+        composer.SetSession("session-1", false, string.Empty);
 
         composer.SelectedModelOption = composer.ModelOptions.Single(option => option.Model == "model-y");
 
@@ -228,7 +227,7 @@ public sealed class ComposerViewModelTests
         string? reported       = null;
         var     composer       = new ComposerViewModel(sessionService, text => reported = text);
         await composer.RefreshModelCatalogAsync();
-        composer.SetSession("session-1", isRunning : false, string.Empty);
+        composer.SetSession("session-1", false, string.Empty);
 
         composer.SelectedModelOption = composer.ModelOptions.Single(option => option.Model == "model-z");
         await WaitUntilAsync(() => reported is not null);
@@ -243,7 +242,7 @@ public sealed class ComposerViewModelTests
     {
         var composer = CreateComposer();
         await composer.RefreshModelCatalogAsync();
-        composer.SetSession("session-1", isRunning : false, string.Empty);
+        composer.SetSession("session-1", false, string.Empty);
 
         composer.ApplyCurrentModel(new ModelSelection("prov-ghost", "model-ghost"));
 
@@ -258,11 +257,11 @@ public sealed class ComposerViewModelTests
     {
         var composer = CreateComposer();
         await composer.RefreshModelCatalogAsync();
-        composer.SetSession("session-a", isRunning : false, string.Empty);
+        composer.SetSession("session-a", false, string.Empty);
         composer.ApplyCurrentModel(new ModelSelection("prov-b", "model-z"));
 
         // 切换会话：保留已加载目录，清除上一会话选型，下拉回退目录默认。
-        composer.SetSession("session-b", isRunning : false, string.Empty);
+        composer.SetSession("session-b", false, string.Empty);
         Assert.Null(composer.CurrentModel);
         Assert.Equal("model-x", composer.SelectedModelOption?.Model);
         Assert.Equal(3, composer.ModelOptions.Count);
@@ -279,7 +278,7 @@ public sealed class ComposerViewModelTests
         string? reported       = null;
         var     composer       = new ComposerViewModel(sessionService, text => reported = text);
         await composer.RefreshModelCatalogAsync();
-        composer.SetSession("session-a", isRunning : false, string.Empty);
+        composer.SetSession("session-a", false, string.Empty);
         composer.SetBackendConnected(true);
 
         // session A 发起选型（生效默认 model-x → 目标 model-y），请求在途。
@@ -287,7 +286,7 @@ public sealed class ComposerViewModelTests
         await sessionService.SelectStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
 
         // 切到 session B，其快照选型到达。
-        composer.SetSession("session-b", isRunning : false, string.Empty);
+        composer.SetSession("session-b", false, string.Empty);
         composer.ApplyCurrentModel(new ModelSelection("prov-b", "model-z"));
         Assert.Equal("model-z", composer.SelectedModelOption?.Model);
 
@@ -303,11 +302,11 @@ public sealed class ComposerViewModelTests
     public void UsageUpdateSetsStateAndDerivedDisplayTexts()
     {
         var composer = CreateComposer();
-        composer.SetSession("session-1", isRunning : false, string.Empty);
+        composer.SetSession("session-1", false, string.Empty);
         Assert.False(composer.HasStatsData);
 
-        composer.ApplyUsage(10, new SessionUsage(UncachedInputTokens : 400, OutputTokens : 100,
-                                                 CacheReadTokens : 100, CacheWriteTokens : 0));
+        composer.ApplyUsage(10, new SessionUsage(400, 100,
+                                                 100, 0));
 
         Assert.Equal(new SessionUsage(400, 100, 100, 0), composer.Usage);
         Assert.True(composer.HasStatsData);
@@ -321,7 +320,7 @@ public sealed class ComposerViewModelTests
     public void StaleUsageSeqDoesNotOverwriteNewerUsage()
     {
         var composer = CreateComposer();
-        composer.SetSession("session-1", isRunning : false, string.Empty);
+        composer.SetSession("session-1", false, string.Empty);
 
         composer.ApplyUsage(20, new SessionUsage(400, 100, 100, 0));
         // 乱序到达的旧 seq（重连竞态）被忽略。
@@ -337,12 +336,12 @@ public sealed class ComposerViewModelTests
     public void StatsUpdateSetsStateAndDerivedDisplayTexts()
     {
         var composer = CreateComposer();
-        composer.SetSession("session-1", isRunning : false, string.Empty);
+        composer.SetSession("session-1", false, string.Empty);
 
         // 仅凭 stats 的步数即满足统计条显示口径。
-        composer.ApplyStats(10, new SessionStats(Turns : 2, Steps : 3, LlmMs : 2400, ToolMs : 800,
-                                                 TtftMs : 0, TtftSteps : 0, DecodeMs : 2000,
-                                                 DecodeTokens : 300));
+        composer.ApplyStats(10, new SessionStats(2, 3, 2400, 800,
+                                                 0, 0, 2000,
+                                                 300));
 
         Assert.Equal(new SessionStats(2, 3, 2400, 800, 0, 0, 2000, 300), composer.Stats);
         Assert.True(composer.HasStatsData);
@@ -354,11 +353,11 @@ public sealed class ComposerViewModelTests
     public void StaleStatsSeqDoesNotOverwriteNewerStats()
     {
         var composer = CreateComposer();
-        composer.SetSession("session-1", isRunning : false, string.Empty);
+        composer.SetSession("session-1", false, string.Empty);
 
-        composer.ApplyStats(30, new SessionStats(Turns : 2, Steps : 3, LlmMs : 2400, ToolMs : 800,
-                                                 TtftMs : 0, TtftSteps : 0, DecodeMs : 2000,
-                                                 DecodeTokens : 300));
+        composer.ApplyStats(30, new SessionStats(2, 3, 2400, 800,
+                                                 0, 0, 2000,
+                                                 300));
         composer.ApplyStats(25, new SessionStats(9, 9, 9, 9, 9, 9, 9, 9));
 
         Assert.Equal(new SessionStats(2, 3, 2400, 800, 0, 0, 2000, 300), composer.Stats);
@@ -368,11 +367,11 @@ public sealed class ComposerViewModelTests
     public void SessionSwitchClearsUsageStatsAndRestartsSeqGating()
     {
         var composer = CreateComposer();
-        composer.SetSession("session-a", isRunning : false, string.Empty);
+        composer.SetSession("session-a", false, string.Empty);
         composer.ApplyUsage(100, new SessionUsage(400, 100, 100, 0));
         composer.ApplyStats(100, new SessionStats(2, 3, 2400, 800, 0, 0, 2000, 300));
 
-        composer.SetSession("session-b", isRunning : false, string.Empty);
+        composer.SetSession("session-b", false, string.Empty);
 
         // 上一会话的统计与 seq gating 一并清零，统计条隐藏。
         Assert.Null(composer.Usage);
@@ -390,7 +389,7 @@ public sealed class ComposerViewModelTests
     public void RunningAndConnectionChangesDoNotClearUsageStats()
     {
         var composer = CreateComposer();
-        composer.SetSession("session-a", isRunning : false, string.Empty);
+        composer.SetSession("session-a", false, string.Empty);
         var usage = new SessionUsage(400, 100, 100, 0);
         composer.ApplyUsage(10, usage);
         composer.ApplyStats(10, new SessionStats(2, 3, 2400, 800, 0, 0, 2000, 300));
@@ -400,7 +399,7 @@ public sealed class ComposerViewModelTests
         composer.SetSessionRunning(false);
         composer.SetBackendConnected(false);
         composer.SetBackendConnected(true);
-        composer.SetSession("session-a", isRunning : true, string.Empty);
+        composer.SetSession("session-a", true, string.Empty);
 
         Assert.Equal(usage, composer.Usage);
         Assert.NotNull(composer.Stats);
@@ -453,7 +452,7 @@ public sealed class ComposerViewModelTests
         public bool BlockSelect { get; set; }
 
         /// <summary>测试目录：默认 prov-a/model-x，两个提供方共三个模型。</summary>
-        public ModelCatalog Catalog { get; set; } = new(new ModelSelection("prov-a", "model-x"),
+        public ModelCatalog Catalog { get; } = new(new ModelSelection("prov-a", "model-x"),
         [
             new ModelProviderGroup("prov-a", "Provider A",
             [
@@ -491,8 +490,8 @@ public sealed class ComposerViewModelTests
         }
 
         public async Task<ModelSelection> SelectModelAsync(
-            string sessionId, string provider, string model,
-            string? reasoningEffort = null, CancellationToken cancellationToken = default)
+            string            sessionId, string provider, string model, string? reasoningEffort = null,
+            CancellationToken cancellationToken = default)
         {
             // 只记录请求并模拟后端应答，不落到模拟实现：目标会话不必存在于演示数据，
             // Composer 级测试不依赖选型副作用（回声由测试显式 ApplyCurrentModel 模拟）。

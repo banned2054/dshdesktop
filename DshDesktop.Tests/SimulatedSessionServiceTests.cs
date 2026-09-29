@@ -144,8 +144,8 @@ public sealed class SimulatedSessionServiceTests
     public async Task AdoptingExistingSessionReusesItWithoutCreatingNew()
     {
         var service = new SimulatedSessionService();
-        var first  = await service.CreateSessionAsync("ws-1");
-        var second = await service.CreateSessionAsync("ws-1", first.Id);
+        var first   = await service.CreateSessionAsync("ws-1");
+        var second  = await service.CreateSessionAsync("ws-1", first.Id);
 
         // 收养语义：按身份复用同一会话，不新建、不伪造空白摘要。
         Assert.Equal(first.Id, second.Id);

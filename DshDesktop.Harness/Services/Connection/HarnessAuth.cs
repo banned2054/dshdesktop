@@ -17,8 +17,8 @@ public static class HarnessAuth
         if (response.StatusCode is not (HttpStatusCode.SeeOther or HttpStatusCode.Found or HttpStatusCode.OK))
             throw new HarnessConnectionException($"后端认证交换失败：HTTP {(int)response.StatusCode}。请确认使用的是本次启动返回的地址。");
 
-        var issuedCookie = response.Headers.TryGetValues("Set-Cookie", out var cookies)
-                        && cookies.Any();
+        var issuedCookie = response.Headers.TryGetValues("Set-Cookie", out var cookies) &&
+                         cookies.Any();
         if (!issuedCookie && response.StatusCode != HttpStatusCode.OK)
             throw new HarnessConnectionException("后端认证交换未签发会话 Cookie。");
     }

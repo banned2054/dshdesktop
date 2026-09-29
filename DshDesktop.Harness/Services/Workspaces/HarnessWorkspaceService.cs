@@ -11,22 +11,16 @@ namespace DshDesktop.Harness.Services.Workspaces;
 ///     快照语义对齐参考客户端 ClientWorkspaceModel（baseline 整体替换、
 ///     upsert 新行插头部且旧投影不覆盖新、order 按给出的顺序重排）。
 /// </summary>
-public sealed class HarnessWorkspaceService : IWorkspaceService, IAsyncDisposable
+public sealed class HarnessWorkspaceService(HarnessConnection connection) : IWorkspaceService, IAsyncDisposable
 {
-    private readonly HarnessConnection _connection;
-    private readonly Lock              _sync = new();
+    private readonly Lock _sync = new();
 
     private IReadOnlyList<WorkspaceSummary> _items = [];
 
     private IReadOnlySet<string> _archivedSessionIds = new HashSet<string>();
 
-    private Task?                           _pump;
-    private CancellationTokenSource?        _pumpCancellation;
-
-    public HarnessWorkspaceService(HarnessConnection connection)
-    {
-        _connection = connection;
-    }
+    private Task?                    _pump;
+    private CancellationTokenSource? _pumpCancellation;
 
     public async ValueTask DisposeAsync()
     {
@@ -117,7 +111,7 @@ public sealed class HarnessWorkspaceService : IWorkspaceService, IAsyncDisposabl
                 for (var index = 0; index < reordered.WorkspaceIds.Count; index++)
                     rank[reordered.WorkspaceIds[index]] = index;
 
-                return items.OrderBy(item => rank.TryGetValue(item.Id, out var position) ? position : int.MaxValue)
+                return items.OrderBy(item => rank.GetValueOrDefault(item.Id, int.MaxValue))
                             .ToArray();
             }
 
@@ -135,7 +129,7 @@ public sealed class HarnessWorkspaceService : IWorkspaceService, IAsyncDisposabl
     {
         try
         {
-            await foreach (var frame in _connection.FollowWorkspacesAsync(cancellationToken).ConfigureAwait(false))
+            await foreach (var frame in connection.FollowWorkspacesAsync(cancellationToken).ConfigureAwait(false))
             {
                 bool changed;
                 lock (_sync)
@@ -144,7 +138,7 @@ public sealed class HarnessWorkspaceService : IWorkspaceService, IAsyncDisposabl
                     {
                         // 归档集合是 registry 级投影：全量替换，变化即通知。
                         var nextArchived = archived.ArchivedSessionIds.ToHashSet();
-                        changed          = !nextArchived.SetEquals(_archivedSessionIds);
+                        changed             = !nextArchived.SetEquals(_archivedSessionIds);
                         _archivedSessionIds = nextArchived;
                     }
                     else
@@ -152,8 +146,8 @@ public sealed class HarnessWorkspaceService : IWorkspaceService, IAsyncDisposabl
                         var next = ApplyFrame(_items, frame);
                         // Baseline 无条件通知：它标记一代投影就绪（即使内容为空），
                         // 消费方以此区分「基线未到达」与「确无工作区」。
-                        changed = frame is WorkspaceFollowFrame.Baseline
-                               || (!ReferenceEquals(next, _items) && !SameItems(next, _items));
+                        changed = frame is WorkspaceFollowFrame.Baseline ||
+                                (!ReferenceEquals(next, _items) && !SameItems(next, _items));
                         _items = next;
                     }
                 }
@@ -179,13 +173,9 @@ public sealed class HarnessWorkspaceService : IWorkspaceService, IAsyncDisposabl
     {
         if (left.Count != right.Count) return false;
 
-        for (var index = 0; index < left.Count; index++)
-            if (left[index].Id != right[index].Id
-             || !left[index].SessionIds.SequenceEqual(right[index].SessionIds)
-             || left[index].Title != right[index].Title)
-                return false;
-
-        return true;
+        return !left.Where((t, index) => t.Id != right[index].Id ||
+                                         !t.SessionIds.SequenceEqual(right[index].SessionIds) ||
+                                         t.Title != right[index].Title).Any();
     }
 
     private void RaiseWorkspacesChanged()

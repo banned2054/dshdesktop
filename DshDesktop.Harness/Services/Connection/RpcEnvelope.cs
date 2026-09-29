@@ -42,8 +42,8 @@ public static class RpcEnvelope
         var       root     = document.RootElement;
         if (root.ValueKind != JsonValueKind.Object) throw new JsonException("响应不是 JSON 对象。");
 
-        var rpcId = root.TryGetProperty("rpcId", out var rpcIdElement)
-                 && rpcIdElement.ValueKind == JsonValueKind.String
+        var rpcId = root.TryGetProperty("rpcId", out var rpcIdElement) &&
+                  rpcIdElement.ValueKind == JsonValueKind.String
             ? rpcIdElement.GetString() ?? string.Empty
             : string.Empty;
         if (!root.TryGetProperty("result", out var result) || result.ValueKind != JsonValueKind.Object)
@@ -52,31 +52,30 @@ public static class RpcEnvelope
         var ok = result.TryGetProperty("ok", out var okElement) && okElement.ValueKind == JsonValueKind.True;
         if (ok)
         {
-            var value = result.TryGetProperty("value", out var valueElement)
-                     && valueElement.ValueKind is not (JsonValueKind.Undefined or JsonValueKind.Null)
+            var value = result.TryGetProperty("value", out var valueElement) &&
+                      valueElement.ValueKind is not (JsonValueKind.Undefined or JsonValueKind.Null)
                 ? (JsonElement?)valueElement.Clone()
                 : null;
             return new RpcResponse(rpcId, true, value, null, null);
         }
 
-        string? code    = null;
-        string? message = null;
+        string?      code    = null;
+        string?      message = null;
         JsonElement? details = null;
-        if (result.TryGetProperty("error", out var error) && error.ValueKind == JsonValueKind.Object)
-        {
-            code = error.TryGetProperty("code", out var codeElement) && codeElement.ValueKind == JsonValueKind.String
-                ? codeElement.GetString()
-                : null;
-            message = error.TryGetProperty("message", out var messageElement)
-                   && messageElement.ValueKind == JsonValueKind.String
-                ? messageElement.GetString()
-                : null;
-            // 参考实现错误携带 details（如 session/writer-held 的 sessionId、
-            // workspace-attach-failed 的归属信息）；保留原始结构供按错误码消费。
-            if (error.TryGetProperty("details", out var detailsElement)
-             && detailsElement.ValueKind is not (JsonValueKind.Undefined or JsonValueKind.Null))
-                details = detailsElement.Clone();
-        }
+        if (!result.TryGetProperty("error", out var error) || error.ValueKind != JsonValueKind.Object)
+            return new RpcResponse(rpcId, false, null, code, message, details);
+        code = error.TryGetProperty("code", out var codeElement) && codeElement.ValueKind == JsonValueKind.String
+            ? codeElement.GetString()
+            : null;
+        message = error.TryGetProperty("message", out var messageElement) &&
+                  messageElement.ValueKind == JsonValueKind.String
+            ? messageElement.GetString()
+            : null;
+        // 参考实现错误携带 details（如 session/writer-held 的 sessionId、
+        // workspace-attach-failed 的归属信息）；保留原始结构供按错误码消费。
+        if (error.TryGetProperty("details", out var detailsElement) &&
+            detailsElement.ValueKind is not (JsonValueKind.Undefined or JsonValueKind.Null))
+            details = detailsElement.Clone();
 
         return new RpcResponse(rpcId, false, null, code, message, details);
     }

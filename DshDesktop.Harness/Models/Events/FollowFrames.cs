@@ -36,9 +36,9 @@ public static class FollowFrameJson
         if (recordsElement.ValueKind != JsonValueKind.Array) return records;
 
         foreach (var record in recordsElement.EnumerateArray())
-            if (record.ValueKind == JsonValueKind.Object
-             && record.TryGetProperty("event", out var entryEvent)
-             && WireEventJson.ParseEvent(entryEvent) is { } parsed)
+            if (record.ValueKind == JsonValueKind.Object           &&
+                record.TryGetProperty("event", out var entryEvent) &&
+                WireEventJson.ParseEvent(entryEvent) is { } parsed)
                 records.Add(parsed);
 
         return records;
@@ -46,30 +46,30 @@ public static class FollowFrameJson
 
     public static FollowFrame? Parse(JsonElement element)
     {
-        if (element.ValueKind != JsonValueKind.Object
-         || !element.TryGetProperty("type", out var typeElement)
-         || typeElement.ValueKind != JsonValueKind.String)
+        if (element.ValueKind != JsonValueKind.Object            ||
+            !element.TryGetProperty("type", out var typeElement) ||
+            typeElement.ValueKind != JsonValueKind.String)
             return null;
 
         switch (typeElement.GetString())
         {
             case "snapshot" :
             {
-                if (!element.TryGetProperty("cursor", out var cursorElement)
-                 || cursorElement.ValueKind != JsonValueKind.Number
-                 || !cursorElement.TryGetInt64(out var cursor))
+                if (!element.TryGetProperty("cursor", out var cursorElement) ||
+                    cursorElement.ValueKind != JsonValueKind.Number          ||
+                    !cursorElement.TryGetInt64(out var cursor))
                     return null;
 
-                var header = element.TryGetProperty("header", out var headerElement)
-                          && headerElement.ValueKind == JsonValueKind.Object
+                var header = element.TryGetProperty("header", out var headerElement) &&
+                             headerElement.ValueKind == JsonValueKind.Object
                     ? ParseHeader(headerElement)
                     : null;
                 var records = element.TryGetProperty("records", out var recordsElement)
                     ? ParseHistoryRecords(recordsElement)
                     : [];
 
-                var hasMore = element.TryGetProperty("hasMore", out var hasMoreElement)
-                           && hasMoreElement.ValueKind == JsonValueKind.True;
+                var hasMore = element.TryGetProperty("hasMore", out var hasMoreElement) &&
+                              hasMoreElement.ValueKind == JsonValueKind.True;
                 var           title  = ReadTitleProjection(element);
                 var           values = ReadProjectionValues(element, out var projectionAsOfSeq);
                 SessionUsage? usage  = null;
@@ -97,8 +97,8 @@ public static class FollowFrameJson
                     : null;
 
             case "assistant-stream" :
-                return element.TryGetProperty("frame", out var frameElement)
-                    && AssistantStreamFrameJson.ParseFrame(frameElement) is { } frame
+                return element.TryGetProperty("frame", out var frameElement) &&
+                       AssistantStreamFrameJson.ParseFrame(frameElement) is { } frame
                     ? new FollowFrame.AssistantStream(frame)
                     : null;
 
@@ -159,9 +159,9 @@ public static class FollowFrameJson
     private static ModelSelection? ReadModelSelectionProjection(JsonElement snapshot)
     {
         var values = ReadProjectionValues(snapshot, out _);
-        if (values.ValueKind != JsonValueKind.Object
-         || !values.TryGetProperty("modelSelection", out var modelSelection)
-         || modelSelection.ValueKind != JsonValueKind.Object)
+        if (values.ValueKind != JsonValueKind.Object                         ||
+            !values.TryGetProperty("modelSelection", out var modelSelection) ||
+            modelSelection.ValueKind != JsonValueKind.Object)
             return null;
 
         return ParseSelection(modelSelection, "next") ?? ParseSelection(modelSelection, "lastUsed");
@@ -171,15 +171,15 @@ public static class FollowFrameJson
     private static JsonElement ReadProjectionValues(JsonElement snapshot, out long asOfSeq)
     {
         asOfSeq = 0;
-        if (!snapshot.TryGetProperty("projections", out var projections)
-         || projections.ValueKind != JsonValueKind.Object
-         || !projections.TryGetProperty("values", out var values)
-         || values.ValueKind != JsonValueKind.Object)
+        if (!snapshot.TryGetProperty("projections", out var projections) ||
+            projections.ValueKind != JsonValueKind.Object                ||
+            !projections.TryGetProperty("values", out var values)        ||
+            values.ValueKind != JsonValueKind.Object)
             return default;
 
-        if (projections.TryGetProperty("asOfSeq", out var seqElement)
-         && seqElement.ValueKind == JsonValueKind.Number
-         && seqElement.TryGetInt64(out var seq))
+        if (projections.TryGetProperty("asOfSeq", out var seqElement) &&
+            seqElement.ValueKind == JsonValueKind.Number              &&
+            seqElement.TryGetInt64(out var seq))
             asOfSeq = seq;
 
         return values;

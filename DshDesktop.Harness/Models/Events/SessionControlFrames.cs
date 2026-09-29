@@ -37,28 +37,28 @@ public static class SessionControlFrameJson
 
     public static SessionControlFrame? Parse(JsonElement element)
     {
-        if (element.ValueKind != JsonValueKind.Object
-         || !element.TryGetProperty("type", out var typeElement)
-         || typeElement.ValueKind != JsonValueKind.String)
+        if (element.ValueKind != JsonValueKind.Object            ||
+            !element.TryGetProperty("type", out var typeElement) ||
+            typeElement.ValueKind != JsonValueKind.String)
             return null;
 
         switch (typeElement.GetString())
         {
             case "baseline" :
             {
-                if (!element.TryGetProperty("value", out var value)
-                 || value.ValueKind != JsonValueKind.Object
-                 || !value.TryGetProperty("projections", out var projections)
-                 || projections.ValueKind != JsonValueKind.Object)
+                if (!element.TryGetProperty("value", out var value)           ||
+                    value.ValueKind != JsonValueKind.Object                   ||
+                    !value.TryGetProperty("projections", out var projections) ||
+                    projections.ValueKind != JsonValueKind.Object)
                     return null;
 
                 var snapshot = new Dictionary<string, SessionProjectionSnapshotWire>();
                 foreach (var entry in projections.EnumerateObject())
-                    if (entry.Value.ValueKind == JsonValueKind.Object
-                     && entry.Value.TryGetProperty("asOfSeq", out var asOfSeq)
-                     && asOfSeq.TryGetInt64(out var seq)
-                     && entry.Value.TryGetProperty("values", out var values)
-                     && values.ValueKind == JsonValueKind.Object)
+                    if (entry.Value.ValueKind == JsonValueKind.Object          &&
+                        entry.Value.TryGetProperty("asOfSeq", out var asOfSeq) &&
+                        asOfSeq.TryGetInt64(out var seq)                       &&
+                        entry.Value.TryGetProperty("values", out var values)   &&
+                        values.ValueKind == JsonValueKind.Object)
                         snapshot[entry.Name] = new SessionProjectionSnapshotWire(seq, values.Clone());
 
                 return new SessionControlFrame.Baseline(snapshot);
@@ -66,19 +66,24 @@ public static class SessionControlFrameJson
 
             case "projection" :
             {
-                if (!TryGetString(element, "sessionId", out var sessionId)
-                 || !TryGetString(element, "key", out var key)
-                 || !element.TryGetProperty("seq", out var seqElement)
-                 || !seqElement.TryGetInt64(out var seq))
+                if (!TryGetString(element, "sessionId", out var sessionId) ||
+                    !TryGetString(element, "key", out var key)             ||
+                    !element.TryGetProperty("seq", out var seqElement)     ||
+                    !seqElement.TryGetInt64(out var seq))
                     return null;
 
                 SessionUsage? usage = null;
                 SessionStats? stats = null;
-                if (element.TryGetProperty("value", out var value))
+                if (!element.TryGetProperty("value", out var value))
+                    return new SessionControlFrame.ProjectionUpdate(sessionId, key, usage, stats, seq);
+                switch (key)
                 {
-                    if (key == UsageKey)
-                        usage                       = ProjectionValuesJson.ParseUsage(value);
-                    else if (key == StatsKey) stats = ProjectionValuesJson.ParseStats(value);
+                    case UsageKey :
+                        usage = ProjectionValuesJson.ParseUsage(value);
+                        break;
+                    case StatsKey :
+                        stats = ProjectionValuesJson.ParseStats(value);
+                        break;
                 }
 
                 return new SessionControlFrame.ProjectionUpdate(sessionId, key, usage, stats, seq);
@@ -89,8 +94,8 @@ public static class SessionControlFrameJson
         }
     }
 
-    private static bool TryGetString(JsonElement                     element, string name,
-                                     [NotNullWhen(true)] out string? value)
+    private static bool TryGetString(
+        JsonElement element, string name, [NotNullWhen(true)] out string? value)
     {
         if (element.TryGetProperty(name, out var property) && property.ValueKind == JsonValueKind.String)
         {
@@ -109,11 +114,11 @@ public static class ProjectionValuesJson
     /// <summary>tokenUsage 投影视图：四桶互斥累计（uncachedInput/output/cacheRead/cacheWrite）。</summary>
     public static SessionUsage? ParseUsage(JsonElement element)
     {
-        return element.ValueKind == JsonValueKind.Object
-            && TryGetLong(element, "uncachedInputTokens", out var uncachedInput)
-            && TryGetLong(element, "outputTokens", out var output)
-            && TryGetLong(element, "cacheReadTokens", out var cacheRead)
-            && TryGetLong(element, "cacheWriteTokens", out var cacheWrite)
+        return element.ValueKind == JsonValueKind.Object                         &&
+               TryGetLong(element, "uncachedInputTokens", out var uncachedInput) &&
+               TryGetLong(element, "outputTokens", out var output)               &&
+               TryGetLong(element, "cacheReadTokens", out var cacheRead)         &&
+               TryGetLong(element, "cacheWriteTokens", out var cacheWrite)
             ? new SessionUsage(uncachedInput, output, cacheRead, cacheWrite)
             : null;
     }
@@ -121,24 +126,24 @@ public static class ProjectionValuesJson
     /// <summary>sessionStats 投影视图：轮次/步数与累计耗时（llm/tool/ttft/decode）。</summary>
     public static SessionStats? ParseStats(JsonElement element)
     {
-        return element.ValueKind == JsonValueKind.Object
-            && TryGetLong(element, "turns", out var turns)
-            && TryGetLong(element, "steps", out var steps)
-            && TryGetDouble(element, "llmMs", out var llmMs)
-            && TryGetDouble(element, "toolMs", out var toolMs)
-            && TryGetDouble(element, "ttftMs", out var ttftMs)
-            && TryGetLong(element, "ttftSteps", out var ttftSteps)
-            && TryGetDouble(element, "decodeMs", out var decodeMs)
-            && TryGetLong(element, "decodeTokens", out var decodeTokens)
+        return element.ValueKind == JsonValueKind.Object           &&
+               TryGetLong(element, "turns", out var turns)         &&
+               TryGetLong(element, "steps", out var steps)         &&
+               TryGetDouble(element, "llmMs", out var llmMs)       &&
+               TryGetDouble(element, "toolMs", out var toolMs)     &&
+               TryGetDouble(element, "ttftMs", out var ttftMs)     &&
+               TryGetLong(element, "ttftSteps", out var ttftSteps) &&
+               TryGetDouble(element, "decodeMs", out var decodeMs) &&
+               TryGetLong(element, "decodeTokens", out var decodeTokens)
             ? new SessionStats(turns, steps, llmMs, toolMs, ttftMs, ttftSteps, decodeMs, decodeTokens)
             : null;
     }
 
     private static bool TryGetLong(JsonElement element, string name, out long value)
     {
-        if (element.TryGetProperty(name, out var property)
-         && property.ValueKind == JsonValueKind.Number
-         && property.TryGetInt64(out value))
+        if (element.TryGetProperty(name, out var property) &&
+            property.ValueKind == JsonValueKind.Number     &&
+            property.TryGetInt64(out value))
             return true;
 
         value = 0;
@@ -147,9 +152,9 @@ public static class ProjectionValuesJson
 
     private static bool TryGetDouble(JsonElement element, string name, out double value)
     {
-        if (element.TryGetProperty(name, out var property)
-         && property.ValueKind == JsonValueKind.Number
-         && property.TryGetDouble(out value))
+        if (element.TryGetProperty(name, out var property) &&
+            property.ValueKind == JsonValueKind.Number     &&
+            property.TryGetDouble(out value))
             return true;
 
         value = 0;

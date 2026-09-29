@@ -32,9 +32,9 @@ public static class WorkspaceFrameJson
 {
     public static WorkspaceFollowFrame? Parse(JsonElement element)
     {
-        if (element.ValueKind != JsonValueKind.Object
-         || !element.TryGetProperty("type", out var typeElement)
-         || typeElement.ValueKind != JsonValueKind.String)
+        if (element.ValueKind != JsonValueKind.Object            ||
+            !element.TryGetProperty("type", out var typeElement) ||
+            typeElement.ValueKind != JsonValueKind.String)
             return null;
 
         switch (typeElement.GetString())
@@ -42,30 +42,31 @@ public static class WorkspaceFrameJson
             case "baseline" :
             {
                 var items = new List<WorkspaceViewWire>();
-                if (element.TryGetProperty("value", out var valueElement)
-                 && valueElement.ValueKind == JsonValueKind.Object
-                 && valueElement.TryGetProperty("items", out var itemsElement)
-                 && itemsElement.ValueKind == JsonValueKind.Array)
-                    foreach (var item in itemsElement.EnumerateArray())
-                        if (ParseView(item) is { } view)
-                            items.Add(view);
+                if (!element.TryGetProperty("value", out var valueElement)      ||
+                    valueElement.ValueKind != JsonValueKind.Object              ||
+                    !valueElement.TryGetProperty("items", out var itemsElement) ||
+                    itemsElement.ValueKind != JsonValueKind.Array)
+                    return new WorkspaceFollowFrame.Baseline(items);
+                foreach (var item in itemsElement.EnumerateArray())
+                    if (ParseView(item) is { } view)
+                        items.Add(view);
 
                 return new WorkspaceFollowFrame.Baseline(items);
             }
 
             case "upsert" :
             {
-                return element.TryGetProperty("workspace", out var workspaceElement)
-                    && ParseView(workspaceElement) is { } workspace
+                return element.TryGetProperty("workspace", out var workspaceElement) &&
+                       ParseView(workspaceElement) is { } workspace
                     ? new WorkspaceFollowFrame.Upsert(workspace)
                     : null;
             }
 
             case "remove" :
             {
-                return element.TryGetProperty("workspaceId", out var idElement)
-                    && idElement.ValueKind == JsonValueKind.String
-                    && idElement.GetString() is { Length: > 0 } removedId
+                return element.TryGetProperty("workspaceId", out var idElement) &&
+                       idElement.ValueKind == JsonValueKind.String              &&
+                       idElement.GetString() is { Length: > 0 } removedId
                     ? new WorkspaceFollowFrame.Removed(removedId)
                     : null;
             }
@@ -73,11 +74,12 @@ public static class WorkspaceFrameJson
             case "order" :
             {
                 var ids = new List<string>();
-                if (element.TryGetProperty("workspaceIds", out var idsElement)
-                 && idsElement.ValueKind == JsonValueKind.Array)
-                    foreach (var id in idsElement.EnumerateArray())
-                        if (id.ValueKind == JsonValueKind.String && id.GetString() is { Length: > 0 } parsed)
-                            ids.Add(parsed);
+                if (!element.TryGetProperty("workspaceIds", out var idsElement) ||
+                    idsElement.ValueKind != JsonValueKind.Array)
+                    return new WorkspaceFollowFrame.Reordered(ids);
+                foreach (var id in idsElement.EnumerateArray())
+                    if (id.ValueKind == JsonValueKind.String && id.GetString() is { Length: > 0 } parsed)
+                        ids.Add(parsed);
 
                 return new WorkspaceFollowFrame.Reordered(ids);
             }
@@ -85,11 +87,12 @@ public static class WorkspaceFrameJson
             case "archived" :
             {
                 var ids = new List<string>();
-                if (element.TryGetProperty("archivedSessionIds", out var archivedElement)
-                 && archivedElement.ValueKind == JsonValueKind.Array)
-                    foreach (var id in archivedElement.EnumerateArray())
-                        if (id.ValueKind == JsonValueKind.String && id.GetString() is { Length: > 0 } parsed)
-                            ids.Add(parsed);
+                if (!element.TryGetProperty("archivedSessionIds", out var archivedElement) ||
+                    archivedElement.ValueKind != JsonValueKind.Array)
+                    return new WorkspaceFollowFrame.Archived(ids);
+                foreach (var id in archivedElement.EnumerateArray())
+                    if (id.ValueKind == JsonValueKind.String && id.GetString() is { Length: > 0 } parsed)
+                        ids.Add(parsed);
 
                 return new WorkspaceFollowFrame.Archived(ids);
             }
@@ -101,30 +104,29 @@ public static class WorkspaceFrameJson
 
     private static WorkspaceViewWire? ParseView(JsonElement element)
     {
-        if (element.ValueKind != JsonValueKind.Object
-         || !element.TryGetProperty("workspaceId", out var idElement)
-         || idElement.ValueKind != JsonValueKind.String
-         || idElement.GetString() is not { Length: > 0 } id)
+        if (element.ValueKind != JsonValueKind.Object                 ||
+            !element.TryGetProperty("workspaceId", out var idElement) ||
+            idElement.ValueKind != JsonValueKind.String               ||
+            idElement.GetString() is not { Length: > 0 } id)
             return null;
 
-        var path = element.TryGetProperty("path", out var pathElement)
-                && pathElement.ValueKind == JsonValueKind.String
+        var path = element.TryGetProperty("path", out var pathElement) && pathElement.ValueKind == JsonValueKind.String
             ? pathElement.GetString() ?? string.Empty
             : string.Empty;
-        var title = element.TryGetProperty("title", out var titleElement)
-                 && titleElement.ValueKind == JsonValueKind.String
+        var title = element.TryGetProperty("title", out var titleElement) &&
+                    titleElement.ValueKind == JsonValueKind.String
             ? titleElement.GetString() ?? string.Empty
             : string.Empty;
         var sessionIds = new List<string>();
-        if (element.TryGetProperty("sessionIds", out var sessionsElement)
-         && sessionsElement.ValueKind == JsonValueKind.Array)
+        if (element.TryGetProperty("sessionIds", out var sessionsElement) &&
+            sessionsElement.ValueKind == JsonValueKind.Array)
             foreach (var session in sessionsElement.EnumerateArray())
                 if (session.ValueKind == JsonValueKind.String && session.GetString() is { Length: > 0 } sessionId)
                     sessionIds.Add(sessionId);
 
-        var updatedAt = element.TryGetProperty("updatedAt", out var updatedElement)
-                     && updatedElement.ValueKind == JsonValueKind.String
-                     && DateTimeOffset.TryParse(updatedElement.GetString(), out var parsed)
+        var updatedAt = element.TryGetProperty("updatedAt", out var updatedElement) &&
+                        updatedElement.ValueKind == JsonValueKind.String            &&
+                        DateTimeOffset.TryParse(updatedElement.GetString(), out var parsed)
             ? parsed
             : DateTimeOffset.MinValue;
 

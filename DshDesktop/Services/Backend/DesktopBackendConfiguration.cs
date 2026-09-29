@@ -22,8 +22,8 @@ public sealed record DesktopBackendConfiguration
     {
         var mode       = Environment.GetEnvironmentVariable("DSH_DESKTOP_BACKEND_MODE");
         var runtimeDir = Environment.GetEnvironmentVariable("DSH_DESKTOP_RUNTIME_DIR");
-        var useReal = string.Equals(mode, "real", StringComparison.OrdinalIgnoreCase)
-                   || (string.IsNullOrEmpty(mode) && !string.IsNullOrWhiteSpace(runtimeDir));
+        var useReal = string.Equals(mode, "real", StringComparison.OrdinalIgnoreCase) ||
+                    (string.IsNullOrEmpty(mode) && !string.IsNullOrWhiteSpace(runtimeDir));
         if (!useReal)
         {
             return new DesktopBackendConfiguration { UseRealBackend = false };
