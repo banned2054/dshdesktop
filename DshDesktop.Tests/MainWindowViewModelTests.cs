@@ -1506,6 +1506,41 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task RegisterWorkspaceAddsDraftMenuOptionWithoutError()
+    {
+        var viewModel = CreateViewModel();
+        await viewModel.InitializeAsync();
+
+        await viewModel.RegisterWorkspaceAsync("C:/Code/NewProject");
+
+        // 登记成功无错误呈现；模拟服务经状态流回流投影，下拉选项随之包含新工作区。
+        Assert.False(viewModel.HasError);
+        var added = viewModel.WorkspaceOptions.Single(option => option.Path == "C:/Code/NewProject");
+        Assert.Equal("NewProject", added.TitleText);
+        Assert.Contains(added, viewModel.WorkspaceMenuOptions);
+
+        await viewModel.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task RegisterWorkspaceFailureSurfacesWindowError()
+    {
+        var workspaces = new StaticWorkspaceService();
+        var viewModel  = new MainWindowViewModel(new SimulatedSessionService(), new SimulatedBackendStatusService(),
+                                                 workspaces);
+        await viewModel.InitializeAsync();
+        workspaces.RegisterError = new HarnessRpcException("workspace/invalid-path", "非法路径", null);
+
+        await viewModel.RegisterWorkspaceAsync("C:/Not/A/Directory");
+
+        // 登记失败呈现到窗口级错误条，选项集合不出现失败路径。
+        Assert.Contains("添加工作区失败", viewModel.ErrorText);
+        Assert.DoesNotContain(viewModel.WorkspaceOptions, option => option.Path == "C:/Not/A/Directory");
+
+        await viewModel.DisposeAsync();
+    }
+
+    [Fact]
     public async Task TextEditedDuringSendThenSwitchAwayPreservesNewDraftSelections()
     {
         var workspaces = new StaticWorkspaceService([
@@ -2056,7 +2091,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         }
     }
 
-    /// <summary>可控工作区桩：静态集合 + 手动触发变更事件；AddSession 模拟创建记账回流。</summary>
+    /// <summary>可控工作区桩：静态集合 + 手动触发变更事件；AddSession 模拟创建记账回流，登记可编程结果。</summary>
     private sealed class StaticWorkspaceService(IReadOnlyList<WorkspaceSummary>? items = null) : IWorkspaceService
     {
         private IReadOnlyList<WorkspaceSummary> _items = items ?? [];
@@ -2065,10 +2100,26 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
 
         public event EventHandler? WorkspacesChanged;
 
+        /// <summary>登记编排注入点：非 null 时抛出（模拟业务失败），否则登记成功。</summary>
+        public Exception? RegisterError { get; set; }
+
         public Task<IReadOnlyList<WorkspaceSummary>> GetWorkspacesAsync(CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
             return Task.FromResult(_items);
+        }
+
+        /// <summary>模拟 workspace/create 回流：新行插头部并广播（对齐 follow upsert 语义）。</summary>
+        public Task<WorkspaceSummary> RegisterWorkspaceAsync(string path, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (RegisterError is not null) throw RegisterError;
+
+            var workspace = new WorkspaceSummary($"workspace-{Guid.NewGuid():N}", "新登记工作区", path, [],
+                                                 DateTimeOffset.Now);
+            _items = [workspace, .. _items];
+            RaiseChanged();
+            return Task.FromResult(workspace);
         }
 
         /// <summary>模拟创建后的工作区记账（对齐 SimulatedWorkspaceService.AddSession 语义）。</summary>

@@ -2,13 +2,15 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
+using DshDesktop.Utils;
 using DshDesktop.ViewModels;
 
 namespace DshDesktop.Presentation.Views.Sidebar;
 
 /// <summary>
-///     侧栏视图：搜索行的展开聚焦与 Esc 收起属于界面行为；过滤、弹层状态与命令
-///     由 <see cref="SidebarViewModel" /> 承担。
+///     侧栏视图：搜索行的展开聚焦与 Esc 收起、添加工作区的文件夹对话框选择属于界面
+///     行为；过滤、弹层状态、登记编排与命令由 <see cref="SidebarViewModel" /> 与
+///     <see cref="MainWindowViewModel" /> 承担。
 /// </summary>
 public partial class SidebarView : UserControl
 {
@@ -17,6 +19,7 @@ public partial class SidebarView : UserControl
         InitializeComponent();
         SearchButton.Click += OnSearchButtonClick;
         SessionSearchInput.AddHandler(KeyDownEvent, OnSearchInputKeyDown, RoutingStrategies.Tunnel);
+        AddWorkspaceButton.Click += OnAddWorkspaceButtonClick;
     }
 
     /// <summary>同步左栏内容表面的宽度上限；列宽上限由 MainWindow 的 clamp 逻辑统一计算。</summary>
@@ -32,5 +35,27 @@ public partial class SidebarView : UserControl
 
         e.Handled = true;
         viewModel.Sidebar.CloseSearchCommand.Execute(null);
+    }
+
+    /// <summary>文件夹对话框取得路径后交给根 ViewModel 登记；取消即结束，异常由登记编排呈现。</summary>
+    private void OnAddWorkspaceButtonClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel viewModel) return;
+
+        _ = AddWorkspaceFromPickerAsync(viewModel);
+    }
+
+    private async Task AddWorkspaceFromPickerAsync(MainWindowViewModel viewModel)
+    {
+        try
+        {
+            var folder = await FolderPicker.PickFolderAsync(this, "选择要登记为工作区的文件夹");
+            if (folder is null) return;
+
+            await viewModel.RegisterWorkspaceAsync(folder);
+        }
+        catch (OperationCanceledException)
+        {
+        }
     }
 }

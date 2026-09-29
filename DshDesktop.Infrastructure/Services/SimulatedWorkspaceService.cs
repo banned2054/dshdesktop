@@ -29,6 +29,29 @@ public sealed class SimulatedWorkspaceService : IWorkspaceService
         }
     }
 
+    /// <summary>模拟 workspace/create：按路径幂等去重，新行插头部（对齐后端 prepend）并广播变化。</summary>
+    public Task<WorkspaceSummary> RegisterWorkspaceAsync(string path, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var normalized = path.Trim();
+        WorkspaceSummary workspace;
+        lock (_syncRoot)
+        {
+            var existing = _workspaces.FirstOrDefault(candidate =>
+                string.Equals(candidate.Path, normalized, StringComparison.OrdinalIgnoreCase));
+            if (existing is not null) return Task.FromResult(existing);
+
+            var title = System.IO.Path.GetFileName(normalized.TrimEnd('/', '\\'));
+            workspace = new WorkspaceSummary($"workspace-{Guid.NewGuid():N}",
+                                             string.IsNullOrEmpty(title) ? normalized : title,
+                                             normalized, [], DateTimeOffset.Now);
+            _workspaces.Insert(0, workspace);
+        }
+
+        WorkspacesChanged?.Invoke(this, EventArgs.Empty);
+        return Task.FromResult(workspace);
+    }
+
     /// <summary>模拟 session/create 的后端副作用：把新会话记入工作区并广播投影变化。</summary>
     public void AddSession(string workspaceId, string sessionId)
     {

@@ -71,6 +71,9 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     // 工作区下拉展开态（Popup 双向绑定）；首次发送编排的在途标记（连点合并）。
     private bool _isWorkspaceMenuOpen;
 
+    // 添加工作区登记的在途标记：侧栏与草稿页下拉两处入口共用，选完文件夹后合并连点。
+    private int _registeringWorkspace;
+
     private int _navigationGeneration;
 
     private SessionItemViewModel? _selectedSession;
@@ -1287,6 +1290,33 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     private void OnWorkspacesChanged(object? sender, EventArgs e)
     {
         _postToUi(() => _ = RefreshWorkspaceOptionsAsync());
+    }
+
+    /// <summary>
+    ///     登记选中的文件夹为工作区（侧栏与草稿页下拉两个添加入口共用，路径由视图的
+    ///     文件夹对话框取得）。真实与模拟服务都会经工作区状态流回流投影，下拉选项与
+    ///     侧栏分组随之刷新；失败呈现到窗口级错误条，成功不额外动作。
+    /// </summary>
+    public async Task RegisterWorkspaceAsync(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return;
+        if (Interlocked.Exchange(ref _registeringWorkspace, 1) == 1) return;
+
+        try
+        {
+            await _workspaceService.RegisterWorkspaceAsync(path.Trim());
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception exception)
+        {
+            ErrorText = $"添加工作区失败：{exception.Message}";
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _registeringWorkspace, 0);
+        }
     }
 
     #endregion

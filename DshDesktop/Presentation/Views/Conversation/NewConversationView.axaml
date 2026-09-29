@@ -102,10 +102,11 @@
                             </ItemsControl>
                         </ScrollViewer>
                         <Border Classes="popup-divider" />
-                        <!-- 添加工作区：目录选择与登记链路未接入，占位禁用（同附件按钮约定）。 -->
-                        <Button Classes="popup-item" IsEnabled="False"
+                        <!-- 添加工作区：文件夹对话框与侧栏入口同一视图行为（见 code-behind），
+                             登记编排走 MainWindowViewModel.RegisterWorkspaceAsync。 -->
+                        <Button x:Name="AddWorkspaceButton" Classes="popup-item"
                                 AutomationProperties.Name="添加工作区"
-                                ToolTip.Tip="添加工作区功能尚未接入">
+                                ToolTip.Tip="添加工作区">
                             <Grid ColumnDefinitions="Auto,Auto" ColumnSpacing="8">
                                 <Path Width="16" Height="16" VerticalAlignment="Center"
                                       Data="M8,2 L8,14 M2,8 L14,8"

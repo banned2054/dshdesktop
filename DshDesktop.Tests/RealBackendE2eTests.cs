@@ -203,15 +203,16 @@ public sealed class RealBackendE2ETests(ITestOutputHelper output)
             await hostService.StartAsync().WaitAsync(TimeSpan.FromSeconds(150));
 
             // 登记工作区（幂等协议）：返回工作区行。
-            var registered = await connection
-                                  .InvokeAsync("workspace/create", new WorkspaceCreateRequest(workspaceDir),
-                                               HarnessJsonContext.Default.WorkspaceCreateRequest,
-                                               HarnessJsonContext.Default.WorkspaceCreateValue,
-                                               CancellationToken.None)
-                                  .WaitAsync(TimeSpan.FromSeconds(30));
-            Assert.True(registered.Created);
-            Assert.Equal(workspaceDir, registered.Workspace.Path);
-            var workspaceId = registered.Workspace.WorkspaceId;
+            // 登记工作区（走工作区服务的登记方法，对齐桌面端添加工作区链路）。
+            var registered = await workspaces.RegisterWorkspaceAsync(workspaceDir)
+                                             .WaitAsync(TimeSpan.FromSeconds(30));
+            Assert.Equal(workspaceDir, registered.Path);
+
+            // 幂等：重复登记同一目录返回既有行，不报错也不产生第二条。
+            var reregistered = await workspaces.RegisterWorkspaceAsync(workspaceDir)
+                                               .WaitAsync(TimeSpan.FromSeconds(30));
+            Assert.Equal(registered.Id, reregistered.Id);
+            var workspaceId = registered.Id;
 
             // 按工作区创建会话：真实归属由 workspace/follow 记账回流。
             var created = await sessions.CreateSessionAsync(workspaceId).WaitAsync(TimeSpan.FromSeconds(30));

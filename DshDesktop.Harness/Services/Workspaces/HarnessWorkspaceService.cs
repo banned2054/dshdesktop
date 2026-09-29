@@ -1,7 +1,9 @@
 using DshDesktop.Core.Models;
 using DshDesktop.Core.Services;
 using DshDesktop.Harness.Exceptions;
+using DshDesktop.Harness.Json;
 using DshDesktop.Harness.Models.Events;
+using DshDesktop.Harness.Models.Requests;
 using DshDesktop.Harness.Services.Connection;
 
 namespace DshDesktop.Harness.Services.Workspaces;
@@ -73,6 +75,19 @@ public sealed class HarnessWorkspaceService(HarnessConnection connection) : IWor
         {
             lock (_sync) return _archivedSessionIds;
         }
+    }
+
+    public async Task<WorkspaceSummary> RegisterWorkspaceAsync(string            path,
+                                                               CancellationToken cancellationToken = default)
+    {
+        var value = await connection.InvokeAsync("workspace/create",
+                                                 new WorkspaceCreateRequest(path),
+                                                 HarnessJsonContext.Default.WorkspaceCreateRequest,
+                                                 HarnessJsonContext.Default.WorkspaceCreateValue,
+                                                 cancellationToken)
+                                    .ConfigureAwait(false);
+        // 新登记行由 workspace/follow 的 upsert 帧回流进投影；返回值仅供调用方即时反馈。
+        return ToSummary(value.Workspace);
     }
 
     /// <summary>帧应用到投影；纯逻辑抽出便于直接测试。</summary>
@@ -147,7 +162,7 @@ public sealed class HarnessWorkspaceService(HarnessConnection connection) : IWor
                         // Baseline 无条件通知：它标记一代投影就绪（即使内容为空），
                         // 消费方以此区分「基线未到达」与「确无工作区」。
                         changed = frame is WorkspaceFollowFrame.Baseline ||
-                                (!ReferenceEquals(next, _items) && !SameItems(next, _items));
+                                  (!ReferenceEquals(next, _items) && !SameItems(next, _items));
                         _items = next;
                     }
                 }

@@ -40,7 +40,8 @@
                  DSH WorkspaceBrowser 头部行（IconSearchOutlineRegular /
                  IconSlidersTwoOutlineRegular / IconProjectAddOutlineRegular，16px、1px 描边）。
                  搜索展开时标签与按钮整体让位，搜索行覆盖整行（DSH sectionLabelHidden /
-                 headerActionsHidden 同语义）；添加工作区链路未接入，按钮占位禁用。 -->
+                 headerActionsHidden 同语义）；添加工作区的文件夹对话框是视图行为，
+                 见 code-behind，登记编排走 MainWindowViewModel.RegisterWorkspaceAsync。 -->
             <Grid Grid.Row="2" Margin="0,0,0,4" ColumnDefinitions="*,Auto">
                 <TextBlock Text="会话" Classes="caption" VerticalAlignment="Center"
                            IsVisible="{Binding !Sidebar.IsSearchOpen}" />
@@ -106,9 +107,9 @@
                             </Border>
                         </Popup>
                     </Panel>
-                    <Button Classes="sidebar-icon" IsEnabled="False"
+                    <Button x:Name="AddWorkspaceButton" Classes="sidebar-icon"
                             AutomationProperties.Name="添加工作区"
-                            ToolTip.Tip="添加工作区功能尚未接入">
+                            ToolTip.Tip="添加工作区">
                         <!-- DSH IconProjectAddOutlineRegular：文件夹描边形（fill）+ 右上加号（stroke）。 -->
                         <Panel>
                             <Path Width="16" Height="16"

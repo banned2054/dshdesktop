@@ -182,5 +182,8 @@ public sealed class SidebarViewModelTests
         {
             return Task.FromResult(Workspaces);
         }
+
+        public Task<WorkspaceSummary> RegisterWorkspaceAsync(string path, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
 }

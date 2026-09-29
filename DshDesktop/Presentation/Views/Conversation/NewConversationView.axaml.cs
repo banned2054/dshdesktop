@@ -1,13 +1,15 @@
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using DshDesktop.Utils;
 using DshDesktop.ViewModels;
 
 namespace DshDesktop.Presentation.Views.Conversation;
 
 /// <summary>
-///     新对话草稿页：Enter 发送（走草稿首发送编排）、输入框焦点反馈与 Esc 收起
-///     工作区下拉属于本视图的界面行为；状态与命令由 MainWindowViewModel 承担。
+///     新对话草稿页：Enter 发送（走草稿首发送编排）、输入框焦点反馈、Esc 收起
+///     工作区下拉与添加工作区的文件夹对话框选择属于本视图的界面行为；状态与
+///     命令由 MainWindowViewModel 承担。
 /// </summary>
 public partial class NewConversationView : UserControl
 {
@@ -18,6 +20,7 @@ public partial class NewConversationView : UserControl
         MessageInput.GotFocus  += OnMessageInputGotFocus;
         MessageInput.LostFocus += OnMessageInputLostFocus;
         WorkspacePickerPopup.AddHandler(KeyDownEvent, OnWorkspacePickerPopupKeyDown);
+        AddWorkspaceButton.Click += OnAddWorkspaceButtonClick;
     }
 
     private void OnMessageInputKeyDown(object? sender, KeyEventArgs e)
@@ -35,6 +38,28 @@ public partial class NewConversationView : UserControl
 
         e.Handled                     = true;
         viewModel.IsWorkspaceMenuOpen = false;
+    }
+
+    /// <summary>文件夹对话框取得路径后交给根 ViewModel 登记；取消即结束，异常由登记编排呈现。</summary>
+    private void OnAddWorkspaceButtonClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel viewModel) return;
+
+        _ = AddWorkspaceFromPickerAsync(viewModel);
+    }
+
+    private async Task AddWorkspaceFromPickerAsync(MainWindowViewModel viewModel)
+    {
+        try
+        {
+            var folder = await FolderPicker.PickFolderAsync(this, "选择要登记为工作区的文件夹");
+            if (folder is null) return;
+
+            await viewModel.RegisterWorkspaceAsync(folder);
+        }
+        catch (OperationCanceledException)
+        {
+        }
     }
 
     /// <summary>
