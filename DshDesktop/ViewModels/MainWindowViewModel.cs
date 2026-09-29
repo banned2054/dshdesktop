@@ -31,8 +31,22 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     private TimelineAssembly _assembly;
     private ModelSelection?  _draftModelSelection;
 
-    private (string SessionId, string? WorkspaceId, bool WithoutWorkspace)? _draftPendingSession;
-    private bool                                                            _draftWithoutWorkspace;
+    // 待复用会话记账：AttachCompleted 区分「会话已创建但工作区关联未完成」（重试须先恢复
+    // 关联）与「关联已完成、仅后续选型或发送失败」（重试直接复用，不再创建）。
+    private (string SessionId, string? WorkspaceId, bool WithoutWorkspace, bool AttachCompleted)?
+        _draftPendingSession;
+
+    private bool _draftWithoutWorkspace;
+
+    // 新对话草稿的版本（身份）：文本、工作区去向或预选模型任一被用户改动时递增；导航
+    // 离开/返回只是同一份草稿的缓存与装载，不递增。首发送快照捕获版本，成功后版本仍
+    // 一致才整份消费——以此区分「同一份草稿只是切走又回来」与「已形成的新草稿」，
+    // 不依赖文本字符串相等。
+    private int _draftVersion;
+
+    // SelectedSession 切换时程序化装载草稿文本的同步守卫：装载属于同一份草稿的恢复，
+    // 不让 DraftMessage 的 PropertyChanged 误增草稿版本。
+    private bool _isRestoringComposerDraft;
 
     // 新对话草稿（进程内，独立于已有会话；窗口关闭即丢弃，不写 Harness 存储与日志）：
     // 预选工作区（null=未选择）、是否显式选择不使用工作区、预选模型/档位。创建已成功但
@@ -124,6 +138,11 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         Composer.PropertyChanged += OnComposerPropertyChanged;
         _assembly                =  CreateAssembly();
         Composer.SetBackendConnected(IsBackendConnected);
+        // 初始即处于新对话草稿页（无选中会话）：构造期直接进入草稿模式，模型菜单的
+        // 可用性不依赖「先选中过会话再切回」。无历史会话（SelectedSession 一直
+        // null→null 不触发 setter）时目录加载完成后菜单即可用；重复进入草稿页的
+        // 初始化（SetDraftTarget 等）均可安全重入。
+        Composer.SetDraftTarget(true);
     }
 
     public ObservableCollection<ConversationItemViewModel> ConversationItems { get; } = [];
@@ -184,7 +203,12 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
             Sidebar.ApplySelectedSession(value);
             if (value is not null) Sidebar.SetDraftPageActive(false);
             Composer.SetDraftTarget(value is null);
-            Composer.SetSession(value?.Id, value?.Running ?? false, LoadDraft(value?.Id));
+            // 装载草稿/会话文本属于既有内容的恢复（切走又回来是同一份草稿），不是用户新
+            // 意图：guard 让版本不因导航往返递增，首发送的迟到结果仍能正确识别草稿身份。
+            _isRestoringComposerDraft = true;
+            try { Composer.SetSession(value?.Id, value?.Running ?? false, LoadDraft(value?.Id)); }
+            finally { _isRestoringComposerDraft = false; }
+
             if (value is null) Composer.ApplyCurrentModel(_draftModelSelection);
             _ = FollowSelectedSessionAsync(value);
             RebuildSessionPendingApprovals();
@@ -397,10 +421,15 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         await RefreshWorkspaceOptionsAsync();
     }
 
-    /// <summary>草稿页输入文本变化：刷新首发送命令可用性。</summary>
+    /// <summary>草稿页输入文本变化：用户输入形成新的草稿版本（装载恢复除外），并刷新首发送命令可用性。</summary>
     private void OnComposerPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(ComposerViewModel.DraftMessage)) SendDraftCommand.RaiseCanExecuteChanged();
+        if (e.PropertyName != nameof(ComposerViewModel.DraftMessage)) return;
+
+        if (SelectedSession is null && !_isRestoringComposerDraft)
+            Interlocked.Increment(ref _draftVersion);
+
+        SendDraftCommand.RaiseCanExecuteChanged();
     }
 
     /// <summary>审批列表变化可能在任一线程到达：回到界面线程重建选中会话的待决投影。</summary>
@@ -983,6 +1012,8 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         _draftWorkspaceId            = workspaceId;
         _draftWorkspaceTitleFallback = title;
         _draftWithoutWorkspace       = withoutWorkspace;
+        // 工作区去向是草稿内容的一部分：改选即形成新的草稿版本。
+        Interlocked.Increment(ref _draftVersion);
         OnPropertyChanged(nameof(WorkspacePickerLabel));
         OnPropertyChanged(nameof(CanSendDraft));
         SendDraftCommand.RaiseCanExecuteChanged();
@@ -1006,10 +1037,13 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     /// <summary>
     ///     首发送编排：按预选创建会话（显式「不使用工作区」时不归属），必要时应用预选
     ///     模型/档位，再发送首条消息。后端接受首条消息后才进入普通会话并展示侧栏行。
-    ///     发送发起时对文本与目标做快照，全程按快照推进；await 期间用户改选目标或改写
-    ///     文本时，旧发送只消费自己的快照——迟到的会话不记为待复用、不抢回界面、不清空
-    ///     新草稿。创建已成功而后续失败时记录待复用会话（连同目标），重试跳过创建；
-    ///     发送一次一条，不自动换新 requestId 重发（结果不明确的重试交给用户决定）。
+    ///     发送发起时对文本、目标与草稿版本做快照，全程按快照推进；await 期间用户改选
+    ///     目标、改写文本或改选模型都会递增草稿版本——旧发送只消费自己的快照：迟到的
+    ///     会话不记为待复用、不抢回界面、不清空新草稿。创建已成功而后续失败时记录待复用
+    ///     会话（连同目标），重试跳过创建；其中工作区关联未完成的（attach 失败）重试先用
+    ///     同一 sessionId + 目标 workspaceId 走 session/create 收养路径恢复关联，恢复成功
+    ///     才继续选型与发送。发送一次一条，不自动换新 requestId 重发（结果不明确的重试
+    ///     交给用户决定）。
     /// </summary>
     private async Task SendDraftAsync()
     {
@@ -1018,6 +1052,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         var textAtSend        = Composer.DraftMessage;
         var content           = textAtSend.Trim();
         var generationAtStart = Volatile.Read(ref _navigationGeneration);
+        var versionAtSend     = Volatile.Read(ref _draftVersion);
         var withoutWorkspace  = _draftWithoutWorkspace;
         var workspaceId       = withoutWorkspace ? null : _draftWorkspaceId;
         var preselectedModel  = _draftModelSelection;
@@ -1032,6 +1067,14 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
                 pending.WorkspaceId      == workspaceId)
             {
                 sessionId = pending.SessionId;
+                if (!pending.AttachCompleted)
+                {
+                    // 会话已创建但工作区关联未完成：用同一个 sessionId + 目标 workspaceId
+                    // 再走一次 session/create 收养（协议中唯一的关联写入接口），恢复成功
+                    // 后才继续选型与发送；再次失败由下方 catch 保留可恢复记账。
+                    await _sessionService.CreateSessionAsync(workspaceId, sessionId);
+                    _draftPendingSession = (sessionId, workspaceId, withoutWorkspace, true);
+                }
             }
             else
             {
@@ -1046,7 +1089,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
                 // 草稿目标在创建期间被改选时，这个迟到会话不记为待复用（其 cwd 已固定），
                 // 重试按新目标创建；确认空白会话按既有规则在目录中隐藏。
                 if (IsDraftTarget(workspaceId, withoutWorkspace))
-                    _draftPendingSession = (sessionId, workspaceId, withoutWorkspace);
+                    _draftPendingSession = (sessionId, workspaceId, withoutWorkspace, true);
             }
 
             if (preselectedModel != null)
@@ -1055,12 +1098,10 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
 
             await _sessionService.SendPromptAsync(sessionId, Guid.NewGuid().ToString(), content);
 
-            // 后端已接受首条消息：先核对发送上下文并收束快照（防成功后的重复发送）。
+            // 后端已接受首条消息：核对发送上下文（未导航、草稿版本未变）并收束快照。
             var sameContext = Volatile.Read(ref _navigationGeneration) == generationAtStart &&
-                              IsDraftTarget(workspaceId, withoutWorkspace)                  &&
-                              string.Equals(Composer.DraftMessage, textAtSend, StringComparison.Ordinal);
-            ConsumeNewConversationDraft(textAtSend, generationAtStart, workspaceId, withoutWorkspace,
-                                        preselectedModel);
+                              Volatile.Read(ref _draftVersion)         == versionAtSend;
+            ConsumeNewConversationDraft(versionAtSend);
             _sessionService.MarkSessionEngaged(sessionId);
             var row = Sidebar.AddSessionRow(new SessionSummary(sessionId, null, DateTimeOffset.Now, false,
                                                                SessionBlankState.Engaged));
@@ -1075,17 +1116,17 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
                 // 工作区投影只读刷新；权威记账仍以后端状态流为准。
             }
 
-            // 用户仍停留在这条发送的上下文（未导航、未改选目标、未改写文本）：进入普通
-            // 会话；否则只让行照常出现，不抢回界面。
+            // 用户仍停留在这条发送的上下文（未导航、未改写草稿）：进入普通会话；
+            // 否则只让行照常出现，不抢回界面。
             if (sameContext) SelectedSession = row;
         }
         catch (HarnessRpcException exception) when (exception.Code == "session/workspace-attach-failed" &&
                                                     exception.FindDetailString("sessionId") is { } attachedId)
         {
-            // 会话本体已创建、工作区关联失败：按快照目标记账待复用（改选目标后失配失效），
-            // 如实报告失败阶段，不重复创建。
-            _draftPendingSession = (attachedId, workspaceId, withoutWorkspace);
-            ErrorText            = "会话已创建，但工作区关联失败；重试将复用该会话，或改选工作区。";
+            // 会话本体已创建、工作区关联失败：按快照目标记账待复用（关联未完成，重试先
+            // 恢复关联；改选目标后失配失效），如实报告失败阶段，不重复创建。
+            _draftPendingSession = (attachedId, workspaceId, withoutWorkspace, false);
+            ErrorText            = "会话已创建，但工作区关联失败；重试将恢复关联并复用该会话，或改选工作区。";
         }
         catch (Exception exception)
         {
@@ -1104,57 +1145,35 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         return _draftWithoutWorkspace == sentWithoutWorkspace && _draftWorkspaceId == sentWorkspaceId;
     }
 
-    /// <summary>草稿页本地预选模型/档位（Composer 回调，无 RPC）：记入草稿，会话创建后应用。</summary>
+    /// <summary>草稿页本地预选模型/档位（Composer 回调，无 RPC）：记入草稿并形成新的草稿版本，会话创建后应用。</summary>
     private void OnDraftModelChanged(ModelSelection selection)
     {
         _draftModelSelection = selection;
+        Interlocked.Increment(ref _draftVersion);
     }
 
     /// <summary>
-    ///     首发送被接受后收束旧发送的快照。仅当仍在原草稿页（导航代际未变）、目标未改选
-    ///     且文本未被改写时整份收束并清空当前输入框；发送期间用户已切到其他会话时只处理
-    ///     原草稿缓存（缓存仍是发送快照才移除，不触碰当前会话的输入框——其文本可能恰好
-    ///     与快照相同，属于该会话自己的草稿）；被改选的目标与文本属于用户新意图，保留。
+    ///     首发送被接受后收束旧发送的快照。待复用记账无条件作废：会话已进入正常流程，
+    ///     不再适用失败重试语义。草稿自快照以来未变（版本一致）时整份消费：移除草稿
+    ///     缓存，当前仍显示草稿页则同步清空输入框（版本未变时显示的文本必然属于本草稿，
+    ///     无需字符串比较），并重置工作区与模型预选；版本已变（文本、工作区或模型任一
+    ///     被改动）说明用户已形成新草稿，文字与相关选择整份保留，也不触碰当前会话的
+    ///     输入框——其文本可能恰好与快照相同，但属于该会话自己的草稿。
     /// </summary>
-    private void ConsumeNewConversationDraft(string          textAtSend,      int  generationAtStart,
-                                             string?         sentWorkspaceId, bool sentWithoutWorkspace,
-                                             ModelSelection? sentModel)
+    private void ConsumeNewConversationDraft(int versionAtSend)
     {
-        var sameTarget = IsDraftTarget(sentWorkspaceId, sentWithoutWorkspace);
-        if (sameTarget)
-            // 待复用记账随发送成功作废；目标已改选时记账早已失配失效。
-            _draftPendingSession = null;
+        _draftPendingSession = null;
 
-        var generationUnchanged = Volatile.Read(ref _navigationGeneration) == generationAtStart;
-        switch (sameTarget)
+        if (Volatile.Read(ref _draftVersion) == versionAtSend)
         {
-            case true when generationUnchanged &&
-                           string.Equals(Composer.DraftMessage, textAtSend, StringComparison.Ordinal) :
-            {
-                _drafts.Remove(string.Empty);
-                Composer.DraftMessage = string.Empty;
-                if (Equals(_draftModelSelection, sentModel)) _draftModelSelection = null;
+            _drafts.Remove(string.Empty);
+            if (SelectedSession is null) Composer.DraftMessage = string.Empty;
 
-                _draftWorkspaceId            = null;
-                _draftWorkspaceTitleFallback = null;
-                _draftWithoutWorkspace       = false;
-                break;
-            }
-            case true when !generationUnchanged :
-            {
-                // 已切走：原草稿缓存仍是发送快照时移除（已发送，不再复活）；切走前改写过
-                // 文本则缓存已是新草稿，保留。
-                if (!_drafts.TryGetValue(string.Empty, out var stored) ||
-                    string.Equals(stored, textAtSend, StringComparison.Ordinal))
-                    _drafts.Remove(string.Empty);
+            _draftModelSelection = null;
 
-                if (Equals(_draftModelSelection, sentModel)) _draftModelSelection = null;
-
-                _draftWorkspaceId            = null;
-                _draftWorkspaceTitleFallback = null;
-                _draftWithoutWorkspace       = false;
-                break;
-            }
+            _draftWorkspaceId            = null;
+            _draftWorkspaceTitleFallback = null;
+            _draftWithoutWorkspace       = false;
         }
 
         RefreshConversationPhase();

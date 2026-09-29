@@ -1140,11 +1140,16 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         Assert.Equal("首条消息", viewModel.Composer.DraftMessage);
         Assert.Single(sessionService.CreateRequests);
 
-        // 重试复用同一 SessionId（不再重复创建），发送成功后进入普通会话。
+        // 重试先经 session/create 收养（同一 sessionId + workspaceId）恢复关联，再发送；
+        // 不产生第二个会话，发送成功后进入普通会话。
         viewModel.SendDraftCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.SelectedSession?.Id == "created-9");
         Assert.Equal(SessionBlankState.Engaged, viewModel.SelectedSession!.BlankState);
-        Assert.Single(sessionService.CreateRequests);
+        Assert.Equal(2, sessionService.CreateRequests.Count);
+        Assert.Equal(("ws-2", (string?)null), sessionService.CreateRequests[0]);
+        Assert.Equal(("ws-2", "created-9"), sessionService.CreateRequests[1]);
+        Assert.Equal(0, sessionService.CreatedSessionCount);
+        Assert.Equal(new[] { "created-9" }, sessionService.SendRequests);
         Assert.False(viewModel.HasError);
 
         await viewModel.DisposeAsync();
@@ -1387,6 +1392,368 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         await viewModel.DisposeAsync();
     }
 
+    [Fact]
+    public async Task EmptySessionListStartupKeepsDraftModelPickerEnabledWithoutCreate()
+    {
+        var sessionService = new AdoptionSessionService { SessionsOverride = () => [] };
+        var viewModel = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(),
+                                                new StaticWorkspaceService());
+        await viewModel.InitializeAsync();
+
+        // 无历史会话启动：初始即草稿页（SelectedSession null→null 不触发 setter），模型
+        // 目录加载完成后菜单即可用并支持本地预选（不发 RPC）；不发起任何创建/收养请求，
+        // 再点「新建」也保持可用。
+        Assert.Null(viewModel.SelectedSession);
+        Assert.True(viewModel.ShowNewConversationPage);
+        await WaitUntilAsync(() => viewModel.Composer.ModelOptions.Count > 0);
+        Assert.True(viewModel.Composer.IsModelPickerEnabled);
+        viewModel.Composer.SelectedModelOption =
+            viewModel.Composer.ModelOptions.Single(option => option.Model == "alt-chat");
+        Assert.Equal(new ModelSelection("sim-alt", "alt-chat"), viewModel.Composer.CurrentModel);
+        Assert.Empty(sessionService.ModelSelectionRequests);
+
+        viewModel.Sidebar.NewSessionCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
+        Assert.True(viewModel.Composer.IsModelPickerEnabled);
+        Assert.Empty(sessionService.CreateRequests);
+        Assert.Equal(0, sessionService.CreatedSessionCount);
+
+        await viewModel.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task RepeatedNewPageEntryFromNullStatePreservesDraftAndPreselection()
+    {
+        var workspaces = new StaticWorkspaceService([
+            new WorkspaceSummary("ws-1", "工作区一", "C:/Code/WS1", [], DateTimeOffset.Now)
+        ]);
+        var sessionService = new AdoptionSessionService();
+        var viewModel      = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
+        await viewModel.InitializeAsync();
+        await WaitUntilAsync(() => viewModel.SelectedSession is not null);
+        await WaitUntilAsync(() => viewModel.WorkspaceOptions.Any(option => option.Id == "ws-1"));
+
+        viewModel.Sidebar.NewSessionCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
+        viewModel.Composer.DraftMessage = "重复进入的草稿";
+        viewModel.SelectWorkspaceCommand.Execute(viewModel.WorkspaceOptions.Single(option => option.Id == "ws-1"));
+        viewModel.Composer.SelectedModelOption =
+            viewModel.Composer.ModelOptions.Single(option => option.Model == "alt-chat");
+        Assert.True(viewModel.Composer.IsModelPickerEnabled);
+
+        // 已处于 null（草稿页）状态再次点「新建」：草稿页初始化可重入，草稿文本、工作区
+        // 与模型预选全部保留，不触发任何 RPC。
+        viewModel.Sidebar.NewSessionCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
+        Assert.Null(viewModel.SelectedSession);
+        Assert.Equal("重复进入的草稿", viewModel.Composer.DraftMessage);
+        Assert.Equal("工作区一", viewModel.WorkspacePickerLabel);
+        Assert.Equal(new ModelSelection("sim-alt", "alt-chat"), viewModel.Composer.CurrentModel);
+        Assert.True(viewModel.Composer.IsModelPickerEnabled);
+        Assert.Empty(sessionService.CreateRequests);
+        Assert.Empty(sessionService.ModelSelectionRequests);
+
+        await viewModel.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task LateSendCompletionAfterReturningToDraftPageClearsSentText()
+    {
+        var workspaces = new StaticWorkspaceService([
+            new WorkspaceSummary("ws-2", "工作区二", "C:/Code/WS2", [], DateTimeOffset.Now)
+        ]);
+        var sessionService = new AdoptionSessionService();
+        var viewModel      = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
+        await viewModel.InitializeAsync();
+        await WaitUntilAsync(() => viewModel.SelectedSession is not null);
+        var selectedBefore = viewModel.SelectedSession!;
+        viewModel.Sidebar.NewSessionCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
+        viewModel.SelectWorkspaceCommand.Execute(viewModel.WorkspaceOptions.Single(option => option.Id == "ws-2"));
+        viewModel.Composer.DraftMessage = "切走又回来的草稿";
+        var knownIds = viewModel.Sidebar.Sessions.Select(session => session.Id).ToHashSet();
+
+        // 首发送挂起期间切到旧会话又返回草稿页（草稿未改）：发送完成后缓存与当前显示
+        // 一并收束——已发送文字不残留在输入框，也不在再次进入时复活。
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        sessionService.BlockNextCreate = gate;
+        viewModel.SendDraftCommand.Execute(null);
+        await WaitUntilAsync(() => sessionService.CreateRequests.Count == 1);
+        viewModel.Sidebar.SelectSessionCommand.Execute(selectedBefore);
+        await WaitUntilAsync(() => !viewModel.ShowNewConversationPage);
+        viewModel.Sidebar.NewSessionCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
+        Assert.Equal("切走又回来的草稿", viewModel.Composer.DraftMessage);
+        gate.TrySetResult();
+        await WaitOrDumpAsync(viewModel,
+                              () => viewModel.Sidebar.Sessions.Any(session => !knownIds.Contains(session.Id) &&
+                                                                              session.BlankState ==
+                                                                              SessionBlankState.Engaged), 5000);
+        // 迟到结果不抢回页面：仍停留草稿页，输入框与工作区预选均已清空。
+        Assert.Null(viewModel.SelectedSession);
+        Assert.True(viewModel.ShowNewConversationPage);
+        Assert.Equal(string.Empty, viewModel.Composer.DraftMessage);
+        Assert.Equal("选择工作区", viewModel.WorkspacePickerLabel);
+        Assert.False(viewModel.HasError);
+
+        await viewModel.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task TextEditedDuringSendThenSwitchAwayPreservesNewDraftSelections()
+    {
+        var workspaces = new StaticWorkspaceService([
+            new WorkspaceSummary("ws-1", "工作区一", "C:/Code/WS1", [], DateTimeOffset.Now)
+        ]);
+        var sessionService = new AdoptionSessionService();
+        var viewModel      = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
+        await viewModel.InitializeAsync();
+        await WaitUntilAsync(() => viewModel.Composer.ModelOptions.Count > 0);
+        await WaitUntilAsync(() => viewModel.SelectedSession is not null);
+        var selectedBefore = viewModel.SelectedSession!;
+        viewModel.Sidebar.NewSessionCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
+        viewModel.SelectWorkspaceCommand.Execute(viewModel.WorkspaceOptions.Single(option => option.Id == "ws-1"));
+        viewModel.Composer.SelectedModelOption =
+            viewModel.Composer.ModelOptions.Single(option => option.Model == "alt-chat");
+        viewModel.Composer.DraftMessage = "原始快照";
+        var knownIds = viewModel.Sidebar.Sessions.Select(session => session.Id).ToHashSet();
+
+        // 发送挂起期间改写文本形成新草稿再切走：旧发送按快照完成，返回草稿页时新草稿的
+        // 文本、工作区与模型预选完整保留（不能只保留文字却重置工作区）。
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        sessionService.BlockNextCreate = gate;
+        viewModel.SendDraftCommand.Execute(null);
+        await WaitUntilAsync(() => sessionService.CreateRequests.Count == 1);
+        viewModel.Composer.DraftMessage = "改写后的新草稿";
+        viewModel.Sidebar.SelectSessionCommand.Execute(selectedBefore);
+        await WaitUntilAsync(() => !viewModel.ShowNewConversationPage);
+        gate.TrySetResult();
+        await WaitOrDumpAsync(viewModel,
+                              () => viewModel.Sidebar.Sessions.Any(session => !knownIds.Contains(session.Id) &&
+                                                                              session.BlankState ==
+                                                                              SessionBlankState.Engaged), 5000);
+        Assert.Same(selectedBefore, viewModel.SelectedSession);
+
+        viewModel.Sidebar.NewSessionCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
+        Assert.Equal("改写后的新草稿", viewModel.Composer.DraftMessage);
+        Assert.Equal("工作区一", viewModel.WorkspacePickerLabel);
+        Assert.Equal(new ModelSelection("sim-alt", "alt-chat"), viewModel.Composer.CurrentModel);
+        Assert.False(viewModel.HasError);
+
+        await viewModel.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task ModelChangeDuringSendKeepsNewSelectionAndSkipsStaleNavigation()
+    {
+        var workspaces = new StaticWorkspaceService([
+            new WorkspaceSummary("ws-1", "工作区一", "C:/Code/WS1", [], DateTimeOffset.Now)
+        ]);
+        var sessionService = new AdoptionSessionService();
+        var viewModel      = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
+        await viewModel.InitializeAsync();
+        await WaitUntilAsync(() => viewModel.Composer.ModelOptions.Count > 0);
+        await WaitUntilAsync(() => viewModel.SelectedSession is not null);
+        viewModel.Sidebar.NewSessionCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
+        viewModel.SelectWorkspaceCommand.Execute(viewModel.WorkspaceOptions.Single(option => option.Id == "ws-1"));
+        viewModel.Composer.SelectedModelOption =
+            viewModel.Composer.ModelOptions.Single(option => option.Model == "alt-chat");
+        viewModel.Composer.DraftMessage = "模型改选期间";
+        var knownIds = viewModel.Sidebar.Sessions.Select(session => session.Id).ToHashSet();
+
+        // 创建挂起期间改选模型（新草稿意图）：旧发送按快照把预选模型应用到创建的会话并
+        // 完成，但不抢回页面、不覆盖草稿的新选型、文本与工作区。
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        sessionService.BlockNextCreate = gate;
+        viewModel.SendDraftCommand.Execute(null);
+        await WaitUntilAsync(() => sessionService.CreateRequests.Count == 1);
+        viewModel.Composer.SelectedModelOption =
+            viewModel.Composer.ModelOptions.Single(option => option.Model == "sim-reasoner");
+        gate.TrySetResult();
+        await WaitOrDumpAsync(viewModel,
+                              () => viewModel.Sidebar.Sessions.Any(session => !knownIds.Contains(session.Id) &&
+                                                                              session.BlankState ==
+                                                                              SessionBlankState.Engaged), 5000);
+        var createdRow = viewModel.Sidebar.Sessions.Single(session => !knownIds.Contains(session.Id));
+        Assert.Null(viewModel.SelectedSession);
+        Assert.True(viewModel.ShowNewConversationPage);
+        Assert.Equal("模型改选期间", viewModel.Composer.DraftMessage);
+        Assert.Equal("工作区一", viewModel.WorkspacePickerLabel);
+        Assert.Equal(new ModelSelection("sim", "sim-reasoner"), viewModel.Composer.CurrentModel);
+        // 快照的选型（alt-chat）恰好应用一次到创建的会话；草稿保持新选型。
+        Assert.Equal(new[] { $"select:{createdRow.Id}:sim-alt/alt-chat" },
+                     sessionService.OperationLog.Where(log => log.StartsWith("select:", StringComparison.Ordinal))
+                                   .ToArray());
+        Assert.False(viewModel.HasError);
+
+        await viewModel.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task AttachFailureRetryRecoversAssociationWithSameIdsBeforeSending()
+    {
+        var workspaces = new StaticWorkspaceService([
+            new WorkspaceSummary("ws-2", "工作区二", "C:/Code/WS2", [], DateTimeOffset.Now)
+        ]);
+        var sessionService = new AdoptionSessionService(workspaces.AddSession);
+        // 中间状态：会话本体已存在（created-9，确认空白），但尚未归属任何工作区。
+        sessionService.SeedBlankSession("created-9", null);
+        sessionService.EnqueueCreateError(new HarnessRpcException("session/workspace-attach-failed",
+                                                                  "工作区挂接失败（模拟）",
+                                                                  JsonDocument.Parse("""{"sessionId":"created-9"}""")
+                                                                              .RootElement.Clone()));
+        var viewModel = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
+        await viewModel.InitializeAsync();
+        await WaitUntilAsync(() => viewModel.SelectedSession is not null);
+        viewModel.Sidebar.NewSessionCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
+        viewModel.SelectWorkspaceCommand.Execute(viewModel.WorkspaceOptions.Single(option => option.Id == "ws-2"));
+        viewModel.Composer.DraftMessage = "关联恢复后发送";
+        viewModel.SendDraftCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.HasError);
+
+        // 重试：恢复关联的收养调用（同一 sessionId + workspaceId）被门挂住期间不得发送。
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        sessionService.BlockNextCreate = gate;
+        viewModel.SendDraftCommand.Execute(null);
+        await WaitUntilAsync(() => sessionService.CreateRequests.Count == 2);
+        Assert.Equal(("ws-2", "created-9"), sessionService.CreateRequests[1]);
+        Assert.Empty(sessionService.SendRequests);
+        gate.TrySetResult();
+        await WaitUntilAsync(() => viewModel.SelectedSession?.Id == "created-9");
+        Assert.Equal(SessionBlankState.Engaged, viewModel.SelectedSession!.BlankState);
+
+        // 顺序与记账：收养先于发送；关联确实写入工作区投影（非仅导航成功）。
+        var attachIndex = sessionService.OperationLog.IndexOf("create:ws-2|created-9");
+        var sendIndex   = sessionService.OperationLog.IndexOf("send:created-9");
+        Assert.True(attachIndex >= 0 && sendIndex >= 0 && attachIndex < sendIndex);
+        var accounted = (await workspaces.GetWorkspacesAsync()).Single(workspace => workspace.Id == "ws-2");
+        Assert.Contains("created-9", accounted.SessionIds);
+        Assert.Equal(0, sessionService.CreatedSessionCount);
+        Assert.False(viewModel.HasError);
+
+        await viewModel.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task AttachRecoveryFailureAgainKeepsRecoverableDraftWithoutSending()
+    {
+        var workspaces = new StaticWorkspaceService([
+            new WorkspaceSummary("ws-2", "工作区二", "C:/Code/WS2", [], DateTimeOffset.Now)
+        ]);
+        var sessionService = new AdoptionSessionService();
+        sessionService.SeedBlankSession("created-9", null);
+        sessionService.EnqueueCreateError(new HarnessRpcException("session/workspace-attach-failed",
+                                                                  "工作区挂接失败（模拟）",
+                                                                  JsonDocument.Parse("""{"sessionId":"created-9"}""")
+                                                                              .RootElement.Clone()));
+        var viewModel = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
+        await viewModel.InitializeAsync();
+        await WaitUntilAsync(() => viewModel.SelectedSession is not null);
+        viewModel.Sidebar.NewSessionCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
+        viewModel.SelectWorkspaceCommand.Execute(viewModel.WorkspaceOptions.Single(option => option.Id == "ws-2"));
+        viewModel.Composer.DraftMessage = "关联失败重试的草稿";
+        viewModel.SendDraftCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.HasError);
+
+        // 关联恢复再次失败（收养调用同样抛 attach-failed）：保留草稿与可恢复状态，
+        // 不发送、不重复创建，如实展示错误。
+        sessionService.EnqueueCreateError(new HarnessRpcException("session/workspace-attach-failed",
+                                                                  "再次挂接失败（模拟）",
+                                                                  JsonDocument.Parse("""{"sessionId":"created-9"}""")
+                                                                              .RootElement.Clone()),
+                                          onlyForNewSession: false);
+        viewModel.SendDraftCommand.Execute(null);
+        await WaitUntilAsync(() => sessionService.CreateRequests.Count == 2 && !viewModel.IsStartingConversation);
+        Assert.Empty(sessionService.SendRequests);
+        Assert.Equal(0, sessionService.CreatedSessionCount);
+        Assert.True(viewModel.ShowNewConversationPage);
+        Assert.Equal("关联失败重试的草稿", viewModel.Composer.DraftMessage);
+        Assert.Contains("工作区关联失败", viewModel.ErrorText, StringComparison.Ordinal);
+
+        // 可恢复状态未丢：再次重试从恢复关联开始并最终完成发送。
+        viewModel.SendDraftCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.SelectedSession?.Id == "created-9");
+        Assert.Equal(new[] { "created-9" }, sessionService.SendRequests);
+        Assert.Equal(0, sessionService.CreatedSessionCount);
+
+        await viewModel.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task SelectModelFailureAfterAttachReusesSessionOnRetry()
+    {
+        var workspaces = new StaticWorkspaceService([
+            new WorkspaceSummary("ws-1", "工作区一", "C:/Code/WS1", [], DateTimeOffset.Now)
+        ]);
+        var sessionService = new AdoptionSessionService(workspaces.AddSession);
+        var viewModel      = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
+        await viewModel.InitializeAsync();
+        await WaitUntilAsync(() => viewModel.Composer.ModelOptions.Count > 0);
+        await WaitUntilAsync(() => viewModel.SelectedSession is not null);
+        viewModel.Sidebar.NewSessionCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
+        viewModel.SelectWorkspaceCommand.Execute(viewModel.WorkspaceOptions.Single(option => option.Id == "ws-1"));
+        viewModel.Composer.SelectedModelOption =
+            viewModel.Composer.ModelOptions.Single(option => option.Model == "alt-chat");
+        viewModel.Composer.DraftMessage = "选型失败重试";
+        sessionService.EnqueueSelectModelError(new InvalidOperationException("选型失败（模拟）"));
+
+        // 创建与关联已成功、仅选型失败：重试不得再次创建/收养，直接复用会话完成选型与发送。
+        viewModel.SendDraftCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.HasError);
+        Assert.Contains("选型失败", viewModel.ErrorText, StringComparison.Ordinal);
+        Assert.Single(sessionService.CreateRequests);
+        viewModel.SendDraftCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.SelectedSession is { BlankState: SessionBlankState.Engaged });
+        var createdId = viewModel.SelectedSession!.Id;
+        Assert.Single(sessionService.CreateRequests);
+        Assert.Equal(1, sessionService.CreatedSessionCount);
+        Assert.Equal(new[] { createdId, createdId }, sessionService.ModelSelectionRequests);
+        Assert.Equal(new[] { createdId }, sessionService.SendRequests);
+        Assert.False(viewModel.HasError);
+
+        await viewModel.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task SendFailureAfterAttachReusesSessionOnRetry()
+    {
+        var workspaces = new StaticWorkspaceService([
+            new WorkspaceSummary("ws-1", "工作区一", "C:/Code/WS1", [], DateTimeOffset.Now)
+        ]);
+        var sessionService = new AdoptionSessionService(workspaces.AddSession);
+        var viewModel      = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
+        await viewModel.InitializeAsync();
+        await WaitUntilAsync(() => viewModel.SelectedSession is not null);
+        viewModel.Sidebar.NewSessionCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
+        viewModel.SelectWorkspaceCommand.Execute(viewModel.WorkspaceOptions.Single(option => option.Id == "ws-1"));
+        viewModel.Composer.DraftMessage = "发送失败重试";
+        sessionService.EnqueueSendError(new InvalidOperationException("发送失败（模拟）"));
+
+        // 关联已完成、仅发送失败：会话记为待复用，重试不再创建/收养，对同一会话再次发送。
+        viewModel.SendDraftCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.HasError);
+        Assert.Contains("发送失败", viewModel.ErrorText, StringComparison.Ordinal);
+        Assert.Single(sessionService.CreateRequests);
+        Assert.Single(sessionService.SendRequests);
+
+        viewModel.SendDraftCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.SelectedSession is { BlankState: SessionBlankState.Engaged });
+        Assert.Single(sessionService.CreateRequests);
+        Assert.Equal(2, sessionService.SendRequests.Count);
+        Assert.True(sessionService.SendRequests.All(id => id == viewModel.SelectedSession!.Id));
+        Assert.Equal(1, sessionService.CreatedSessionCount);
+        Assert.False(viewModel.HasError);
+
+        await viewModel.DisposeAsync();
+    }
+
     private static void EnsureAvaloniaPlatform()
     {
         if (_avaloniaIsInitialized) return;
@@ -1536,8 +1903,10 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
     private sealed class AdoptionSessionService(Action<string, string>? onSessionCreatedInWorkspace = null)
         : ISessionService
     {
-        private readonly Queue<(Exception Error, bool OnlyForNewSession)> _createErrors = [];
-        private readonly SimulatedSessionService                          _inner = new(onSessionCreatedInWorkspace);
+        private readonly Queue<(Exception Error, bool OnlyForNewSession)> _createErrors      = [];
+        private readonly Queue<Exception>                                _selectModelErrors = [];
+        private readonly Queue<Exception>                                _sendErrors        = [];
+        private readonly SimulatedSessionService                          _inner             = new(onSessionCreatedInWorkspace);
 
         /// <summary>下一次 create 阻塞到手动放行（并发合并与迟到结果测试用）。</summary>
         public TaskCompletionSource? BlockNextCreate { get; set; }
@@ -1545,6 +1914,15 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         public List<(string? WorkspaceId, string? SessionId)> CreateRequests { get; } = [];
 
         public List<string> ModelSelectionRequests { get; } = [];
+
+        /// <summary>发送调用目标记录（attach 恢复顺序断言用）。</summary>
+        public List<string> SendRequests { get; } = [];
+
+        /// <summary>
+        ///     调用顺序日志：create:&lt;ws&gt;|&lt;sessionId&gt;、select:&lt;sessionId&gt;:&lt;provider&gt;/&lt;model&gt;、
+        ///     send:&lt;sessionId&gt;。用于断言「关联恢复先于发送」等顺序约束。
+        /// </summary>
+        public List<string> OperationLog { get; } = [];
 
         /// <summary>接管会话列表输出（未知状态会话测试用）；null 时走模拟实现。</summary>
         public Func<IReadOnlyList<SessionSummary>>? SessionsOverride { get; set; }
@@ -1570,6 +1948,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
             string? workspaceId = null, string? sessionId = null, CancellationToken cancellationToken = default)
         {
             CreateRequests.Add((workspaceId, sessionId));
+            OperationLog.Add($"create:{workspaceId ?? "-"}|{sessionId ?? "-"}");
             if (BlockNextCreate is { } gate)
             {
                 BlockNextCreate = null;
@@ -1595,6 +1974,9 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
             string? reasoningEffort = null, CancellationToken cancellationToken = default)
         {
             ModelSelectionRequests.Add(sessionId);
+            OperationLog.Add($"select:{sessionId}:{provider}/{model}");
+            if (_selectModelErrors.Count > 0) throw _selectModelErrors.Dequeue();
+
             return await _inner.SelectModelAsync(sessionId, provider, model, reasoningEffort, cancellationToken);
         }
 
@@ -1615,10 +1997,14 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
             return _inner.LoadOlderAsync(sessionId, throughSeq, beforeSeq, cancellationToken);
         }
 
-        public Task SendPromptAsync(
+        public async Task SendPromptAsync(
             string sessionId, string requestId, string content, CancellationToken cancellationToken = default)
         {
-            return _inner.SendPromptAsync(sessionId, requestId, content, cancellationToken);
+            SendRequests.Add(sessionId);
+            OperationLog.Add($"send:{sessionId}");
+            if (_sendErrors.Count > 0) throw _sendErrors.Dequeue();
+
+            await _inner.SendPromptAsync(sessionId, requestId, content, cancellationToken);
         }
 
         public Task CancelAsync(string sessionId, CancellationToken cancellationToken = default)
@@ -1650,6 +2036,18 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         public void EnqueueCreateError(Exception exception, bool onlyForNewSession = true)
         {
             _createErrors.Enqueue((exception, onlyForNewSession));
+        }
+
+        /// <summary>注入一次选型错误（关联完成后的失败重试路径测试用）。</summary>
+        public void EnqueueSelectModelError(Exception exception)
+        {
+            _selectModelErrors.Enqueue(exception);
+        }
+
+        /// <summary>注入一次发送错误（关联完成后的失败重试路径测试用）。</summary>
+        public void EnqueueSendError(Exception exception)
+        {
+            _sendErrors.Enqueue(exception);
         }
     }
 
