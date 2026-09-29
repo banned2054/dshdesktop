@@ -161,6 +161,7 @@ Host 适配层候选方案：独立 Node launcher 通过 Node IPC 管理原 Host
 - `dotnet build`（Debug，`DshDesktop` 与测试项目）：0 错误；警告仍为既有 6 条 xUnit2013（`SessionBlankVerificationTests.cs`），本轮零新增。此前报告的 `Program.cs:19` `WithDeveloperTools` 缺失当前不复现：csproj 已引用 `AvaloniaUI.DiagnosticsSupport 2.2.3`，Debug 构建通过（未做任何改动）。
 - `dotnet test -c Release`（整套）：127 通过、0 失败、7 按设计跳过（真实后端/模型 E2E 环境缺失）。新增 9 用例：空会话列表启动模型菜单可用且零创建、null 状态重复进新建页草稿/预选保留零 RPC、切走又返回后已发送文字与预选收束、发送期间改写文本后新草稿三项完整保留、发送期间改选模型旧结果不覆盖新选择不抢页面（既有用例覆盖改选工作区与同文本会话场景）、attach 失败重试携带原 sessionId+workspaceId 且关联完成前不发送（含顺序断言与工作区记账回流断言）、关联恢复再失败保留可恢复草稿不发送不重复创建、关联后选型失败重试复用会话、关联后发送失败重试复用会话；另更新既有 attach 失败重试用例以断言收养调用。
 - 变红验证：临时还原 `MainWindowViewModel.cs` 至修复前（git stash），4 个判别性用例（空会话菜单、切走返回清理、改写文本保留、attach 恢复）全部失败，恢复修复后通过——测试对旧行为真实判别。
+- 追加修复（用户实测反馈）：草稿页工作区下拉条目点击无效果——`NewConversationView.axaml` 条目按钮漏 `CommandParameter="{Binding}"`，`RelayCommand<WorkspaceOptionViewModel>` 收到 null 参数即静默返回（旧 `WorkspaceHeroView` 与侧栏/审批同模式绑定均带参数；VM 层测试直接 `Execute(option)` 故未暴露，XAML 编译只校验绑定路径不校验参数）。已补齐；build 0 错误、Debug 全套 127 通过/7 跳过。弹层内真实点击受本环境 UIA 限制未自动化，待用户界面验证。
 - 未验证：真实 Harness 下 attach 失败→收养恢复链路（模拟桩已表达「会话存在但未关联」中间状态并核对记账回流；真实 Host E2E 仅验证过 attach 成功后的收养不产生第二会话）；窗口交互（沿用上批 UIA 环境限制）；Native AOT 未随本轮重跑（无新增反射依赖）；macOS/Linux。
 
 ### 阶段 3 空白会话与复用验证记录（Windows 11 x64，2026-09-28）
