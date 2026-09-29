@@ -42,12 +42,18 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
     // 手动点击行与选中会话被删除的回退不受此守卫影响。标记由 root 推送。
     private bool _isDraftPageActive;
 
+    private bool _isGroupMenuOpen;
+
     private bool _isRequestingNewSession;
+
+    private bool _isSearchOpen;
 
     private int _listRefreshPending;
 
     // 默认按工作区分组，对齐参考 Web 客户端的默认视图选项。
     private int _sessionListModeIndex = SessionListModeByWorkspace;
+
+    private string _sessionSearchText = string.Empty;
 
     private IReadOnlyList<WorkspaceSummary> _workspaces = [];
 
@@ -68,8 +74,14 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
         NewSessionCommand  = new RelayCommand(() => _ = RequestNewSessionAsync(null));
         CreateWorkspaceSessionCommand = new RelayCommand<SessionGroupHeaderViewModel>(
              CreateWorkspaceSession, group => !_isCreatingWorkspaceSession && group is { IsWorkspace: true });
-        SelectSessionCommand                =  new RelayCommand<SessionItemViewModel>(requestSelection);
-        ToggleGroupCommand                  =  new RelayCommand<SessionGroupHeaderViewModel>(ToggleGroup);
+        SelectSessionCommand       = new RelayCommand<SessionItemViewModel>(requestSelection);
+        ToggleGroupCommand         = new RelayCommand<SessionGroupHeaderViewModel>(ToggleGroup);
+        OpenSearchCommand          = new RelayCommand(() => IsSearchOpen    = true);
+        CloseSearchCommand         = new RelayCommand(() => IsSearchOpen    = false);
+        ToggleGroupMenuCommand     = new RelayCommand(() => IsGroupMenuOpen = !IsGroupMenuOpen);
+        SetGroupByWorkspaceCommand = new RelayCommand(() => SetSessionListMode(SessionListModeByWorkspace));
+        SetGroupFlatCommand        = new RelayCommand(() => SetSessionListMode(SessionListModeFlat));
+
         _sessionService.SessionsChanged     += OnSessionsChanged;
         _workspaceService.WorkspacesChanged += OnWorkspacesChanged;
     }
@@ -87,14 +99,67 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
 
     public RelayCommand<SessionGroupHeaderViewModel> ToggleGroupCommand { get; }
 
+    public RelayCommand OpenSearchCommand { get; }
+
+    public RelayCommand CloseSearchCommand { get; }
+
+    public RelayCommand ToggleGroupMenuCommand { get; }
+
+    public RelayCommand SetGroupByWorkspaceCommand { get; }
+
+    public RelayCommand SetGroupFlatCommand { get; }
+
     /// <summary>会话列表视图模式：0 单列表，1 按工作区。偏好持久化随阶段 4 桌面设置接入。</summary>
     public int SessionListModeIndex
     {
         get => _sessionListModeIndex;
         set
         {
-            if (SetProperty(ref _sessionListModeIndex, value)) RebuildSessionRows();
+            if (!SetProperty(ref _sessionListModeIndex, value)) return;
+            OnPropertyChanged(nameof(IsGroupByWorkspace));
+            OnPropertyChanged(nameof(IsGroupFlat));
+            RebuildSessionRows();
         }
+    }
+
+    /// <summary>侧栏搜索行是否展开：展开时覆盖「会话」头部行，收起时清空过滤词。</summary>
+    public bool IsSearchOpen
+    {
+        get => _isSearchOpen;
+        private set
+        {
+            if (SetProperty(ref _isSearchOpen, value) && !value) SessionSearchText = string.Empty;
+        }
+    }
+
+    /// <summary>会话搜索词：输入即过滤标题（忽略大小写），行投影随之重建。</summary>
+    public string SessionSearchText
+    {
+        get => _sessionSearchText;
+        set
+        {
+            if (SetProperty(ref _sessionSearchText, value ?? string.Empty)) RebuildSessionRows();
+        }
+    }
+
+    /// <summary>分组方式弹层是否打开（滑块按钮弹出，浅失焦关闭）。</summary>
+    public bool IsGroupMenuOpen
+    {
+        get => _isGroupMenuOpen;
+        set => SetProperty(ref _isGroupMenuOpen, value);
+    }
+
+    /// <summary>分组方式弹层勾选态：按工作区。随视图模式变化由 SessionListModeIndex 联动。</summary>
+    public bool IsGroupByWorkspace => _sessionListModeIndex == SessionListModeByWorkspace;
+
+    /// <summary>分组方式弹层勾选态：单列表。</summary>
+    public bool IsGroupFlat => _sessionListModeIndex == SessionListModeFlat;
+
+    /// <summary>分组方式弹层选项：切换视图模式并收起弹层（对齐参考客户端菜单选中即关闭）。</summary>
+    private void SetSessionListMode(int modeIndex)
+    {
+        SessionListModeIndex = modeIndex;
+        IsGroupMenuOpen      = false;
     }
 
     public void Dispose()
@@ -228,35 +293,43 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
         RebuildSessionRows();
     }
 
-    /// <summary>按当前视图模式把可见会话投影为呈现行；分组模式对齐参考客户端投影语义。</summary>
+    /// <summary>
+    ///     按当前视图模式把可见会话投影为呈现行；分组模式对齐参考客户端投影语义。
+    ///     搜索词非空时按标题过滤（忽略大小写）：只影响呈现投影，不改目录与选中语义；
+    ///     过滤时空组（含工作区组）整体隐藏，避免残留无成员的组头。
+    /// </summary>
     private void RebuildSessionRows()
     {
         SessionRows.Clear();
+        var query = _sessionSearchText.Trim();
+        var matches = Sessions.Where(session => query.Length == 0 ||
+                                                session.TitleText.Contains(query, StringComparison.OrdinalIgnoreCase));
         if (_sessionListModeIndex == SessionListModeFlat)
         {
-            foreach (var session in Sessions) SessionRows.Add(session);
+            foreach (var session in matches) SessionRows.Add(session);
 
             return;
         }
 
         // 按工作区分组：组序为后端顺序，成员按更新时间降序（参考客户端 orderBy=updated）；
         // 不被任何工作区记账的会话（含新建空白会话）落入「未分组」，仅在有成员时显示。
+        var filtering = query.Length > 0;
         var accounted = new HashSet<string>();
         foreach (var workspace in _workspaces)
             AppendGroup(workspace.Id, workspace.Title,
-                        Sessions.Where(session => workspace.SessionIds.Contains(session.Id)), accounted,
-                        true);
+                        matches.Where(session => workspace.SessionIds.Contains(session.Id)), accounted, true,
+                        filtering);
 
-        AppendGroup(UngroupedKey, "未分组", Sessions.Where(session => !accounted.Contains(session.Id)), accounted,
-                    false);
+        AppendGroup(UngroupedKey, "未分组", matches.Where(session => !accounted.Contains(session.Id)), accounted,
+                    false, true);
     }
 
     private void AppendGroup(
-        string key, string title, IEnumerable<SessionItemViewModel> members, HashSet<string> accounted,
-        bool   isWorkspace)
+        string key,         string title, IEnumerable<SessionItemViewModel> members, HashSet<string> accounted,
+        bool   isWorkspace, bool   skipWhenEmpty)
     {
         var memberList = members.ToList();
-        if (key == UngroupedKey && memberList.Count == 0) return;
+        if (memberList.Count == 0 && skipWhenEmpty) return;
 
         foreach (var member in memberList) accounted.Add(member.Id);
 

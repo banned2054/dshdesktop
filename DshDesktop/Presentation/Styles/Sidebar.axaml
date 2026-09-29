@@ -43,6 +43,60 @@
         <Setter Property="MinHeight" Value="34" />
         <Setter Property="Padding" Value="8,0" />
     </Style>
+    <!-- 头部图标按钮（搜索 / 分组方式 / 添加工作区 / 关闭搜索）：对齐 DSH
+         WorkspaceBrowser 的 iconButton——28×28 正圆、透明底，悬停 interactive-bg-hover
+         （SidebarIconHoverBrush）；关闭搜索行内以局部属性覆盖为 24×24。 -->
+    <Style Selector="Button.sidebar-icon">
+        <Setter Property="Width" Value="28" />
+        <Setter Property="Height" Value="28" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="CornerRadius" Value="14" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.sidebar-icon:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource SidebarIconHoverBrush}" />
+    </Style>
+    <!-- 侧栏搜索行容器（对齐 DSH searchExpanded）：高 30、圆角 10、0.5px 细描边、
+         透明底吃侧栏色；宽度向两侧各溢出 2px（margin-inline: -2px 的对应），由使用处负 Margin 承担。 -->
+    <Style Selector="Border.sidebar-search">
+        <Setter Property="Height" Value="30" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="{DynamicResource SidebarSearchBorderBrush}" />
+        <Setter Property="BorderThickness" Value="0.5" />
+        <Setter Property="CornerRadius" Value="10" />
+        <Setter Property="Padding" Value="0,0,4,0" />
+    </Style>
+    <!-- 搜索行内输入框：无边框透明融入容器（Fluent 状态底色画在模板
+         Border#PART_BorderElement 上，须逐状态覆盖，同 composer-input 的处理）；
+         字号 13、垂直居中与 DSH searchInput 一致。MinHeight 归零压掉 Fluent 的
+         32 默认值——比 30 高的行还高，会把文字顶离与放大镜共用的中线
+         （配合使用处 VerticalAlignment=Center，同 popup-search 的做法）。 -->
+    <Style Selector="TextBox.sidebar-search-input">
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="PlaceholderForeground" Value="{DynamicResource TextMutedBrush}" />
+    </Style>
+    <Style Selector="TextBox.sidebar-search-input /template/ Border#PART_BorderElement">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+    </Style>
+    <Style
+        Selector="TextBox.sidebar-search-input:pointerover /template/ Border#PART_BorderElement,
+                     TextBox.sidebar-search-input:focus /template/ Border#PART_BorderElement,
+                     TextBox.sidebar-search-input:focus-visible /template/ Border#PART_BorderElement,
+                     TextBox.sidebar-search-input:disabled /template/ Border#PART_BorderElement">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+    </Style>
     <Style Selector="Button.workspace-new-session">
         <Setter Property="Width" Value="28" />
         <Setter Property="Height" Value="28" />
@@ -76,12 +130,15 @@
     </Style>
     <!-- 顶部「新建会话」按钮：形态对齐 DSH 侧栏 newSession——高 38、圆角 12、
          内边距 16,8、圆形加号与文字间距 6、字号 14 中等字重。
+         HorizontalAlignment 显式 Stretch（Fluent 12 下按钮默认不横向撑满），
+         按钮占满侧栏内容区宽度，内容经 HorizontalContentAlignment 居中。
          Fluent 把状态底色画在模板 ContentPresenter 上，状态覆盖指向该部件。 -->
     <Style Selector="Button.new-session">
         <Setter Property="Height" Value="38" />
         <Setter Property="Padding" Value="16,8" />
         <Setter Property="CornerRadius" Value="12" />
         <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
         <Setter Property="Background" Value="{DynamicResource NewSessionButtonBrush}" />
         <Setter Property="Foreground" Value="{DynamicResource OnAccentBrush}" />
         <Setter Property="FontSize" Value="14" />

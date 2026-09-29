@@ -36,16 +36,126 @@
                 </StackPanel>
             </Button>
 
-            <!-- 视图模式：单列表 / 按工作区（对齐参考 Web 客户端的视图选项）。
-                 节头下间距 4 对齐 DSH session-list sectionHeader。 -->
+            <!-- 头部行：标签 + 三个图标按钮（搜索 / 分组方式 / 添加工作区），图标取自
+                 DSH WorkspaceBrowser 头部行（IconSearchOutlineRegular /
+                 IconSlidersTwoOutlineRegular / IconProjectAddOutlineRegular，16px、1px 描边）。
+                 搜索展开时标签与按钮整体让位，搜索行覆盖整行（DSH sectionLabelHidden /
+                 headerActionsHidden 同语义）；添加工作区链路未接入，按钮占位禁用。 -->
             <Grid Grid.Row="2" Margin="0,0,0,4" ColumnDefinitions="*,Auto">
-                <TextBlock Text="会话" Classes="caption" VerticalAlignment="Center" />
-                <ComboBox Grid.Column="1"
-                          MinWidth="100"
-                          SelectedIndex="{Binding Sidebar.SessionListModeIndex, Mode=TwoWay}">
-                    <ComboBoxItem Content="单列表" />
-                    <ComboBoxItem Content="按工作区" />
-                </ComboBox>
+                <TextBlock Text="会话" Classes="caption" VerticalAlignment="Center"
+                           IsVisible="{Binding !Sidebar.IsSearchOpen}" />
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2"
+                            IsVisible="{Binding !Sidebar.IsSearchOpen}">
+                    <Button x:Name="SearchButton" Classes="sidebar-icon"
+                            AutomationProperties.Name="搜索会话"
+                            ToolTip.Tip="搜索会话"
+                            Command="{Binding Sidebar.OpenSearchCommand}">
+                        <!-- DSH 折叠态搜索按钮内图标 14px；滑块与加号为 16px。 -->
+                        <Path Width="14" Height="14"
+                              Data="M6.58727,11.8586 C9.55061,11.8586 11.9529,9.45637 11.9529,6.49304 C11.9529,3.5297 9.55061,1.12744 6.58727,1.12744 C3.62394,1.12744 1.22168,3.5297 1.22168,6.49304 C1.22168,9.45637 3.62394,11.8586 6.58727,11.8586 Z M10.2991,10.3933 L14.7783,14.8725"
+                              Stroke="{DynamicResource TextMutedBrush}" StrokeThickness="1"
+                              StrokeLineCap="Round" />
+                    </Button>
+                    <Panel>
+                        <Button x:Name="GroupMenuButton" Classes="sidebar-icon"
+                                AutomationProperties.Name="分组方式"
+                                ToolTip.Tip="分组方式"
+                                Command="{Binding Sidebar.ToggleGroupMenuCommand}">
+                            <!-- DSH IconSlidersTwoOutlineRegular：双滑块，各带一枚圆钮。 -->
+                            <Path Width="16" Height="16"
+                                  Data="M2.3,5 L8.15,5 M12.05,5 L13.7,5 M8.5,5 A1.45,1.45 0 1 0 11.4,5 A1.45,1.45 0 1 0 8.5,5 Z M2.3,11 L3.95,11 M7.85,11 L13.7,11 M4.3,11 A1.45,1.45 0 1 0 7.2,11 A1.45,1.45 0 1 0 4.3,11 Z"
+                                  Stroke="{DynamicResource TextMutedBrush}" StrokeThickness="1"
+                                  StrokeLineCap="Round" />
+                        </Button>
+                        <!-- 分组方式弹层：复用通用弹层菜单视觉（popup-surface/popup-item），
+                             选中即应用并收起（对齐 DSH ViewOptionsMenu 行为）。 -->
+                        <Popup PlacementTarget="{Binding #GroupMenuButton}"
+                               Placement="BottomEdgeAlignedRight"
+                               VerticalOffset="4"
+                               IsOpen="{Binding Sidebar.IsGroupMenuOpen, Mode=TwoWay}"
+                               IsLightDismissEnabled="True">
+                            <!-- DSH viewOptionsMenu 的 min-width 200；标签短，定宽保持稳定观感。 -->
+                            <Border Classes="popup-surface" Width="200">
+                                <StackPanel>
+                                    <TextBlock Classes="popup-section" Text="分组方式" />
+                                    <Button Classes="popup-item"
+                                            Classes.selected="{Binding Sidebar.IsGroupByWorkspace}"
+                                            Command="{Binding Sidebar.SetGroupByWorkspaceCommand}"
+                                            AutomationProperties.Name="按工作区分组">
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <TextBlock Text="按工作区" />
+                                            <Path Grid.Column="1" Classes="popup-check"
+                                                  Data="M2.25,8.5 L5.49732,11.7473 C5.90519,12.1552 6.57263,12.1344 6.95426,11.7018 L13.75,4"
+                                                  Stroke="{DynamicResource PopupForegroundBrush}" StrokeThickness="1"
+                                                  IsVisible="{Binding Sidebar.IsGroupByWorkspace}" />
+                                        </Grid>
+                                    </Button>
+                                    <Button Classes="popup-item"
+                                            Classes.selected="{Binding Sidebar.IsGroupFlat}"
+                                            Command="{Binding Sidebar.SetGroupFlatCommand}"
+                                            AutomationProperties.Name="单列表显示">
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <TextBlock Text="单列表" />
+                                            <Path Grid.Column="1" Classes="popup-check"
+                                                  Data="M2.25,8.5 L5.49732,11.7473 C5.90519,12.1552 6.57263,12.1344 6.95426,11.7018 L13.75,4"
+                                                  Stroke="{DynamicResource PopupForegroundBrush}" StrokeThickness="1"
+                                                  IsVisible="{Binding Sidebar.IsGroupFlat}" />
+                                        </Grid>
+                                    </Button>
+                                </StackPanel>
+                            </Border>
+                        </Popup>
+                    </Panel>
+                    <Button Classes="sidebar-icon" IsEnabled="False"
+                            AutomationProperties.Name="添加工作区"
+                            ToolTip.Tip="添加工作区功能尚未接入">
+                        <!-- DSH IconProjectAddOutlineRegular：文件夹描边形（fill）+ 右上加号（stroke）。 -->
+                        <Panel>
+                            <Path Width="16" Height="16"
+                                  Data="M5.54492,2.06738 C5.91034,2.06754 6.26318,2.20149 6.53711,2.44336 L7.94043,3.68164 L7.94043,4.7998 C7.71462,4.74105 7.50367,4.63139 7.32617,4.47461 L5.87598,3.19238 C5.78477,3.11185 5.66658,3.06754 5.54492,3.06738 L2.94922,3.06738 C2.67322,3.06738 2.44946,3.29145 2.44922,3.56738 L2.44922,12.4326 C2.44927,12.7087 2.67311,12.9326 2.94922,12.9326 L12.9326,12.9326 C13.2086,12.9325 13.4326,12.7086 13.4326,12.4326 L13.4326,8.53613 L14.4326,8.53613 L14.4326,12.4326 C14.4326,13.2609 13.7609,13.9325 12.9326,13.9326 L2.94922,13.9326 C2.12083,13.9326 1.44927,13.261 1.44922,12.4326 L1.44922,3.56738 C1.44946,2.73916 2.12094,2.06738 2.94922,2.06738 L5.54492,2.06738 Z"
+                                  Fill="{DynamicResource TextMutedBrush}" />
+                            <Path Width="16" Height="16"
+                                  Data="M9.75977,4.50208 L14.5509,4.50208 M12.1492,6.89758 L12.1492,2.10642"
+                                  Stroke="{DynamicResource TextMutedBrush}" StrokeThickness="1"
+                                  StrokeLineCap="Round" />
+                        </Panel>
+                    </Button>
+                </StackPanel>
+                <!-- 搜索行：覆盖整行并左右各溢出 2px（DSH searchExpanded 的
+                     margin-inline: -2px）；透明底细描边容器内：11px 放大镜 +
+                     输入框 + 24×24 圆形关闭按钮（DSH clearButton，IconCloseFillRegular）。
+                     展开聚焦与 Esc 收起是视图行为，见 code-behind。 -->
+                <Border Grid.ColumnSpan="2" Classes="sidebar-search" Margin="-2,0"
+                        IsVisible="{Binding Sidebar.IsSearchOpen}">
+                    <Grid ColumnDefinitions="28,*,Auto">
+                        <Panel VerticalAlignment="Center">
+                            <Path Width="11" Height="11" HorizontalAlignment="Center"
+                                  Data="M6.58727,11.8586 C9.55061,11.8586 11.9529,9.45637 11.9529,6.49304 C11.9529,3.5297 9.55061,1.12744 6.58727,1.12744 C3.62394,1.12744 1.22168,3.5297 1.22168,6.49304 C1.22168,9.45637 3.62394,11.8586 6.58727,11.8586 Z M10.2991,10.3933 L14.7783,14.8725"
+                                  Stroke="{DynamicResource TextMutedBrush}" StrokeThickness="1" />
+                        </Panel>
+                        <!-- Margin 上 2：布局已居中后，CJK 字形在行框内仍光学偏上约 1px
+                             （居中对齐下上边距只下移半程），实测微调，动布局前先看这行。 -->
+                        <TextBox Grid.Column="1"
+                                 x:Name="SessionSearchInput"
+                                 Classes="sidebar-search-input"
+                                 VerticalAlignment="Center"
+                                 Margin="0,2,0,0"
+                                 Text="{Binding Sidebar.SessionSearchText, Mode=TwoWay}"
+                                 PlaceholderText="搜索会话名称"
+                                 AutomationProperties.Name="搜索会话" />
+                        <Button Grid.Column="2" Classes="sidebar-icon"
+                                Width="24" Height="24" CornerRadius="12"
+                                VerticalAlignment="Center"
+                                AutomationProperties.Name="关闭搜索"
+                                ToolTip.Tip="关闭搜索"
+                                Command="{Binding Sidebar.CloseSearchCommand}">
+                            <Path Width="14" Height="14" Stretch="Uniform"
+                                  Data="M3.5,3.5 L12.5,12.5 M12.5,3.5 L3.5,12.5"
+                                  Stroke="{DynamicResource TextMutedBrush}" StrokeThickness="1"
+                                  StrokeLineCap="Round" />
+                        </Button>
+                    </Grid>
+                </Border>
             </Grid>
 
             <!-- 横向滚动禁用 + 全链路显式 Stretch（ScrollViewer→ItemsControl→ItemsPanel→行按钮）：

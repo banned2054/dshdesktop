@@ -60,6 +60,11 @@
             <SolidColorBrush x:Key="NewSessionButtonBrush" Color="#43454A" />
             <SolidColorBrush x:Key="NewSessionButtonHoverBrush" Color="#4C4E53" />
             <SolidColorBrush x:Key="NewSessionButtonActiveBrush" Color="#353638" />
+            <!-- 侧栏头部图标按钮与搜索行（对齐 DSH WorkspaceBrowser 头部）：
+                 图标按钮悬停 interactive-bg-hover rgba(255,255,255,0.08)、
+                 搜索框描边 border-l4 rgba(255,255,255,0.2)，搜索框底透明吃侧栏色。 -->
+            <SolidColorBrush x:Key="SidebarIconHoverBrush" Color="#14FFFFFF" />
+            <SolidColorBrush x:Key="SidebarSearchBorderBrush" Color="#33FFFFFF" />
             <!-- 通用弹层菜单（模型选择、分组/排序方式、推理等级等）：形态对齐 DSH
                  当前弹层——深色 #353638 圆角面板、选中 #454648、悬停取两者之间的中性灰。
                  部分取值与 Composer/Session 资源数值相近是为了整体观感统一，
@@ -130,6 +135,11 @@
             <SolidColorBrush x:Key="NewSessionButtonBrush" Color="#E7EAEE" />
             <SolidColorBrush x:Key="NewSessionButtonHoverBrush" Color="#DDE0E4" />
             <SolidColorBrush x:Key="NewSessionButtonActiveBrush" Color="#D2D5DA" />
+            <!-- 侧栏头部图标按钮与搜索行的浅色对应：interactive-bg-hover
+                 rgba(38,49,72,0.06)、border-l4 rgba(0,0,0,0.16)。
+                 （当前应用固定 Dark 主题，浅色值仅保持语义资源完整性。） -->
+            <SolidColorBrush x:Key="SidebarIconHoverBrush" Color="#0F263148" />
+            <SolidColorBrush x:Key="SidebarSearchBorderBrush" Color="#29000000" />
             <!-- 通用弹层菜单的浅色对应：白底面板、选中 #F2F3F4、悬停更浅一档。
                  （当前应用固定 Dark 主题，浅色值仅保持语义资源完整性。） -->
             <SolidColorBrush x:Key="PopupSurfaceBrush" Color="#FFFFFF" />
