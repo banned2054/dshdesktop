@@ -14,9 +14,13 @@
             MinWidth="240" MaxWidth="480"
             Background="{DynamicResource SidebarBackgroundBrush}" Padding="12,16,12,12">
         <Grid RowDefinitions="Auto,Auto,Auto,*,Auto">
-            <StackPanel Spacing="4">
-                <TextBlock Text="DeepSeek Harness" Classes="heading" />
-                <TextBlock Text="原生桌面工作台" Classes="caption" />
+            <!-- 头部：应用图标 + 名称同行，文字相对图标垂直居中，整组相对侧栏内容区
+                 水平居中（图标与 exe/窗口图标同源，见 Assets/app-icon.*）。 -->
+            <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center">
+                <Image Width="64" Height="64"
+                       Source="avares://DshDesktop/Assets/app-icon.png" />
+                <TextBlock Text="DSH Desktop" Classes="heading"
+                           VerticalAlignment="Center" />
             </StackPanel>
 
             <!-- 顶部「新建会话」：DSH newSession 形态——左侧 16px 圆形加号图标，

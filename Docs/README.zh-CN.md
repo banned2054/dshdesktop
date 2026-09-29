@@ -1,8 +1,27 @@
+<!-- markdownlint-disable -->
+
+<div align="center">
+
+<img alt="DSH Desktop" src="deepseek_big_fish_512x512.png" width="160" height="160" />
+
 # DSH Desktop
+
+<br>
+
+<div>
+    <a href="#-项目状态"><img alt="开发状态" src="https://img.shields.io/badge/状态-早期开发-orange"></a>
+    <a href="https://dotnet.microsoft.com/"><img alt=".NET 10" src="https://img.shields.io/badge/.NET-10.0-512BD4"></a>
+    <a href="https://avaloniaui.net/"><img alt="Avalonia" src="https://img.shields.io/badge/Avalonia-12.1-7B2CBF"></a>
+    <a href="../LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache_2.0-green"></a>
+</div>
+
+<br>
+
+<!-- markdownlint-restore -->
 
 [English](../README.md) | 简体中文
 
-[![开发状态](https://img.shields.io/badge/状态-早期开发-orange)](#-项目状态) [![.NET 10](https://img.shields.io/badge/.NET-10.0-512BD4)](https://dotnet.microsoft.com/) [![Avalonia](https://img.shields.io/badge/Avalonia-12.1-7B2CBF)](https://avaloniaui.net/) [![License](https://img.shields.io/badge/license-Apache_2.0-green)](../LICENSE)
+</div>
 
 **DSH Desktop** 是一个面向 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的独立原生桌面客户端，使用 .NET 10、Avalonia 和 MVVM 构建。
 

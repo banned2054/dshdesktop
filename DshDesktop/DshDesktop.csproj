@@ -6,6 +6,7 @@
 		<Nullable>enable</Nullable>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<ApplicationManifest>app.manifest</ApplicationManifest>
+		<ApplicationIcon>Assets\app-icon.ico</ApplicationIcon>
 		<AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
 		<PublishAot>true</PublishAot>
 		<TrimMode>partial</TrimMode>
@@ -15,6 +16,11 @@
          编译范围会让完整构建失败（AVLN2000，见阶段记录）。 -->
 		<DefaultItemExcludes>$(DefaultItemExcludes);Presentation\Views\Conversation\WorkspaceHeroView.axaml;Presentation\Views\Conversation\WorkspaceHeroView.axaml.cs</DefaultItemExcludes>
 	</PropertyGroup>
+
+	<ItemGroup>
+		<!-- 应用图标：ico 供 exe/窗口图标，png 供侧栏头部等界面内显示。 -->
+		<AvaloniaResource Include="Assets\**" />
+	</ItemGroup>
 
 	<ItemGroup>
 		<ProjectReference Include="..\DshDesktop.Core\DshDesktop.Core.csproj" />

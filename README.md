@@ -1,8 +1,27 @@
+<!-- markdownlint-disable -->
+
+<div align="center">
+
+<img alt="DSH Desktop" src="Docs/deepseek_big_fish_512x512.png" width="160" height="160" />
+
 # DSH Desktop
+
+<br>
+
+<div>
+    <a href="#-project-status"><img alt="Development status" src="https://img.shields.io/badge/status-early_development-orange"></a>
+    <a href="https://dotnet.microsoft.com/"><img alt=".NET 10" src="https://img.shields.io/badge/.NET-10.0-512BD4"></a>
+    <a href="https://avaloniaui.net/"><img alt="Avalonia" src="https://img.shields.io/badge/Avalonia-12.1-7B2CBF"></a>
+    <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache_2.0-green"></a>
+</div>
+
+<br>
+
+<!-- markdownlint-restore -->
 
 English | [简体中文](Docs/README.zh-CN.md)
 
-[![Development status](https://img.shields.io/badge/status-early_development-orange)](#-project-status) [![.NET 10](https://img.shields.io/badge/.NET-10.0-512BD4)](https://dotnet.microsoft.com/) [![Avalonia](https://img.shields.io/badge/Avalonia-12.1-7B2CBF)](https://avaloniaui.net/) [![License](https://img.shields.io/badge/license-Apache_2.0-green)](./LICENSE)
+</div>
 
 **DSH Desktop** is an independent native desktop client for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness), built with .NET 10, Avalonia, and MVVM.
 
