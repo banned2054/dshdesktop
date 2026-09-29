@@ -38,6 +38,16 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         }
     }
 
+    /// <summary>启动即停留新对话草稿页（无自动选中）：需要会话上下文的测试显式选中第一条可见会话。</summary>
+    private static async Task<SessionItemViewModel> SelectFirstSessionAsync(MainWindowViewModel viewModel)
+    {
+        await WaitUntilAsync(() => viewModel.Sidebar.Sessions.Count > 0);
+        var session = viewModel.Sidebar.Sessions[0];
+        viewModel.SelectedSession = session;
+        await WaitUntilAsync(() => ReferenceEquals(viewModel.SelectedSession, session));
+        return session;
+    }
+
     [Fact]
     public async Task MainWindowReceivesTheComposedViewModelAsDataContext()
     {
@@ -80,8 +90,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
     {
         var viewModel = CreateViewModel();
         await viewModel.InitializeAsync();
-        await WaitUntilAsync(() => viewModel.SelectedSession is not null);
-        var firstSessionId = viewModel.SelectedSession!.Id;
+        var firstSessionId = (await SelectFirstSessionAsync(viewModel)).Id;
         await WaitUntilAsync(() => viewModel.ConversationItems.Count > 0);
 
         // 切换会话同样以 Reset 重建时间线，但不得处于 IsLoadingOlder 窗口内：
@@ -113,9 +122,8 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         var viewModel = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(),
                                                 new StaticWorkspaceService(), approvalService);
         await viewModel.InitializeAsync();
-        await WaitUntilAsync(() => viewModel.SelectedSession is not null);
 
-        var selectedSessionId = viewModel.SelectedSession!.Id;
+        var selectedSessionId = (await SelectFirstSessionAsync(viewModel)).Id;
         approvalService.PushRequest(selectedSessionId, "fs.write", "需要修改项目文件", "call-selected");
         approvalService.PushRequest("session-not-selected", "fs.read", "不应出现在当前会话", "call-other");
 
@@ -141,7 +149,6 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
     {
         var viewModel = CreateViewModel();
         await viewModel.InitializeAsync();
-        await WaitUntilAsync(() => viewModel.ConversationItems.Count > 0);
 
         viewModel.SelectedSession = viewModel.Sidebar.Sessions.First(session => session.Id == "session-native");
         await WaitUntilAsync(() => viewModel.ConversationItems.OfType<MessageItemViewModel>().Count() == 2);
@@ -158,7 +165,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         var backendService = new SimulatedBackendStatusService();
         var viewModel      = new MainWindowViewModel(sessionService, backendService, new StaticWorkspaceService());
         await viewModel.InitializeAsync();
-        await WaitUntilAsync(() => viewModel.SelectedSession is not null);
+        await SelectFirstSessionAsync(viewModel);
 
         viewModel.Composer.DraftMessage = "第一条消息";
         viewModel.Composer.SendMessageCommand.Execute(null);
@@ -180,8 +187,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         var backendService = new SimulatedBackendStatusService();
         var viewModel      = new MainWindowViewModel(sessionService, backendService, new StaticWorkspaceService());
         await viewModel.InitializeAsync();
-        await WaitUntilAsync(() => viewModel.SelectedSession is not null);
-        var sessionId = viewModel.SelectedSession!.Id;
+        var sessionId = (await SelectFirstSessionAsync(viewModel)).Id;
         var before    = viewModel.ConversationItems.Count;
 
         sessionService.PushAssistantReply(sessionId, "流式回复内容");
@@ -209,9 +215,9 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         var backendService = new SimulatedBackendStatusService();
         var viewModel      = new MainWindowViewModel(sessionService, backendService, new StaticWorkspaceService());
         await viewModel.InitializeAsync();
-        await WaitUntilAsync(() => viewModel.SelectedSession is not null);
+        var selectedSession = await SelectFirstSessionAsync(viewModel);
 
-        sessionService.PushAbandonedStream(viewModel.SelectedSession!.Id, "部分生成内容");
+        sessionService.PushAbandonedStream(selectedSession.Id, "部分生成内容");
 
         await WaitUntilAsync(() => viewModel.ConversationItems.OfType<MessageItemViewModel>()
                                             .Any(message => message.IsInterrupted));
@@ -238,7 +244,8 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         await WaitUntilAsync(() => viewModel.Composer.ModelOptions.Count == 3);
         Assert.True(viewModel.Composer.IsModelPickerEnabled);
 
-        // 默认选中最新会话（session-history，预置 sim/sim-chat）：快照投影生效。
+        // 选中最新会话（session-history，预置 sim/sim-chat）：快照投影生效。
+        await SelectFirstSessionAsync(viewModel);
         await WaitUntilAsync(() => viewModel.Composer.SelectedModelOption is { Provider: "sim", Model: "sim-chat" });
         Assert.Equal(new ModelSelection("sim", "sim-chat"), viewModel.Composer.CurrentModel);
 
@@ -252,7 +259,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         var backendService = new SimulatedBackendStatusService();
         var viewModel      = new MainWindowViewModel(sessionService, backendService, new StaticWorkspaceService());
         await viewModel.InitializeAsync();
-        await WaitUntilAsync(() => viewModel.SelectedSession is not null);
+        await SelectFirstSessionAsync(viewModel);
 
         var reasoner = viewModel.Composer.ModelOptions.Single(option => option.Model == "alt-chat");
         viewModel.Composer.SelectedModelOption = reasoner;
@@ -278,6 +285,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         var backendService = new SimulatedBackendStatusService();
         var viewModel      = new MainWindowViewModel(sessionService, backendService, new StaticWorkspaceService());
         await viewModel.InitializeAsync();
+        await SelectFirstSessionAsync(viewModel);
         await WaitUntilAsync(() => viewModel.Composer.SelectedModelOption is { Model: "sim-chat" });
 
         viewModel.Composer.SelectedModelOption =
@@ -299,7 +307,8 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         var viewModel      = new MainWindowViewModel(sessionService, backendService, new StaticWorkspaceService());
         await viewModel.InitializeAsync();
 
-        // 默认选中长会话（4 轮 8 条助手消息）：快照统计基线到达，文案带真实数值。
+        // 选中长会话（4 轮 8 条助手消息）：快照统计基线到达，文案带真实数值。
+        await SelectFirstSessionAsync(viewModel);
         await WaitUntilAsync(() => viewModel.Composer is { Usage : { OutputTokens: > 0 }, Stats.Steps: > 0 });
         Assert.DoesNotContain("—", viewModel.Composer.UsageValueText, StringComparison.Ordinal);
         Assert.DoesNotContain("—", viewModel.Composer.SpeedValueText, StringComparison.Ordinal);
@@ -331,7 +340,8 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         var viewModel      = new MainWindowViewModel(sessionService, backendService, new StaticWorkspaceService());
         await viewModel.InitializeAsync();
 
-        // 默认选中的长会话有计费步：统计条可见。
+        // 选中的长会话有计费步：统计条可见。
+        await SelectFirstSessionAsync(viewModel);
         await WaitUntilAsync(() => viewModel.Composer.HasStatsData);
 
         // 首发送经新对话草稿页进入新会话：无工作区环境显式选择「不使用工作区」后发送。
@@ -381,8 +391,8 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         var backendService = new SimulatedBackendStatusService();
         var viewModel      = new MainWindowViewModel(sessionService, backendService, new StaticWorkspaceService());
         await viewModel.InitializeAsync();
-        await WaitUntilAsync(() => viewModel.SelectedSession is not null);
-        var selected           = viewModel.SelectedSession;
+        var selected = await SelectFirstSessionAsync(viewModel);
+        await WaitUntilAsync(() => viewModel.ConversationItems.Count > 0);
         var messageCountBefore = viewModel.ConversationItems.Count;
 
         // 生成中触发一次会话列表刷新（SessionsChanged → 400ms 合并 → 刷新）。
@@ -476,7 +486,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         var backendService = new SimulatedBackendStatusService();
         var viewModel      = new MainWindowViewModel(sessionService, backendService, new StaticWorkspaceService());
         await viewModel.InitializeAsync();
-        await WaitUntilAsync(() => viewModel.SelectedSession is not null);
+        await SelectFirstSessionAsync(viewModel);
 
         // 中途 attach 到生成中的会话：快照尾部带 Host 合成的 interrupted 边界（seq 即 cursor，
         // 持久日志中不存在）。该边界不得结算当前轮——条目保持逐项显示，无过程组。
@@ -742,7 +752,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
     {
         var viewModel = CreateViewModel();
         await viewModel.InitializeAsync();
-        await WaitUntilAsync(() => viewModel.Sidebar.Sessions.Count > 0);
+        await SelectFirstSessionAsync(viewModel);
 
         // 默认对齐参考客户端：按工作区分组（模拟服务登记了两个工作区）。
         Assert.Equal(1, viewModel.Sidebar.SessionListModeIndex);
@@ -771,7 +781,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         var viewModel = new MainWindowViewModel(new SimulatedSessionService(), new SimulatedBackendStatusService(),
                                                 workspaces);
         await viewModel.InitializeAsync();
-        await WaitUntilAsync(() => viewModel.Sidebar.Sessions.Count > 0);
+        await SelectFirstSessionAsync(viewModel);
 
         viewModel.Sidebar.SessionListModeIndex = 1;
 
@@ -914,9 +924,8 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         var viewModel = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(),
                                                 new StaticWorkspaceService());
         await viewModel.InitializeAsync();
-        await WaitUntilAsync(() => viewModel.Sidebar.Sessions.Count > 0);
+        var selectedBefore = await SelectFirstSessionAsync(viewModel);
         viewModel.Sidebar.SessionListModeIndex = 0;
-        var selectedBefore = viewModel.SelectedSession;
 
         // 后台新增并发送消息的会话（SessionsChanged → 延迟合并刷新）：选中实例不变，
         // 但行投影必须重建出新会话（回归：提前 return 曾跳过重建）。
@@ -937,14 +946,13 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         var viewModel = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(),
                                                 new StaticWorkspaceService());
         await viewModel.InitializeAsync();
-        await WaitUntilAsync(() => viewModel.SelectedSession is not null);
+        var previousSelection = await SelectFirstSessionAsync(viewModel);
 
         var historicalBlank = await sessionService.CreateSessionAsync();
         await WaitUntilAsync(() => viewModel.Sidebar.Sessions.All(session => session.Id != historicalBlank.Id));
 
         // 顶部新建进入新对话草稿页：不创建会话、不产生侧栏行；「不使用工作区」为显式兼容项。
-        var createsBefore     = sessionService.CreatedSessionCount;
-        var previousSelection = viewModel.SelectedSession;
+        var createsBefore = sessionService.CreatedSessionCount;
         viewModel.Sidebar.NewSessionCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
         Assert.Equal(createsBefore, sessionService.CreatedSessionCount);
@@ -1009,7 +1017,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         var sessionService = new AdoptionSessionService();
         var viewModel      = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
         await viewModel.InitializeAsync();
-        await WaitUntilAsync(() => viewModel.SelectedSession is not null);
+        await SelectFirstSessionAsync(viewModel);
 
         // 工作区组头「+」：进入同一张新对话草稿页并把预选工作区改为对应工作区；
         // 不调用 session/create、不产生侧栏会话行。
@@ -1083,7 +1091,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         sessionService.EnqueueCreateError(new HarnessRpcException("session/conflict", "创建失败（模拟）"));
         var viewModel = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
         await viewModel.InitializeAsync();
-        await WaitUntilAsync(() => viewModel.SelectedSession is not null);
+        await SelectFirstSessionAsync(viewModel);
         viewModel.Sidebar.NewSessionCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
         viewModel.SelectWorkspaceCommand.Execute(viewModel.WorkspaceOptions.Single(option => option.Id == "ws-1"));
@@ -1125,7 +1133,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
                                                                               .RootElement.Clone()));
         var viewModel = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
         await viewModel.InitializeAsync();
-        await WaitUntilAsync(() => viewModel.SelectedSession is not null);
+        await SelectFirstSessionAsync(viewModel);
         viewModel.Sidebar.NewSessionCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
         viewModel.SelectWorkspaceCommand.Execute(viewModel.WorkspaceOptions.Single(option => option.Id == "ws-2"));
@@ -1164,8 +1172,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         var sessionService = new AdoptionSessionService();
         var viewModel      = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
         await viewModel.InitializeAsync();
-        await WaitUntilAsync(() => viewModel.SelectedSession is not null);
-        var selectedBefore = viewModel.SelectedSession!;
+        var selectedBefore = await SelectFirstSessionAsync(viewModel);
         viewModel.Sidebar.NewSessionCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
         viewModel.SelectWorkspaceCommand.Execute(viewModel.WorkspaceOptions.Single(option => option.Id == "ws-2"));
@@ -1205,7 +1212,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         var viewModel      = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
         await viewModel.InitializeAsync();
         await WaitUntilAsync(() => viewModel.Composer.ModelOptions.Count > 0);
-        var selectedBefore = viewModel.SelectedSession;
+        var selectedBefore = await SelectFirstSessionAsync(viewModel);
         viewModel.Sidebar.NewSessionCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
 
@@ -1247,7 +1254,8 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         ];
         var viewModel = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
         await viewModel.InitializeAsync();
-        await WaitUntilAsync(() => viewModel.SelectedSession is not null);
+        await WaitUntilAsync(() => viewModel.Sidebar.Sessions.Any(session => session.Id == unknownId));
+        viewModel.SelectedSession = viewModel.Sidebar.Sessions.First(session => session.Id == unknownId);
 
         // 未知状态的历史会话（元数据缺失）：可见但绝不显示新对话草稿页。
         Assert.Equal(unknownId, viewModel.SelectedSession!.Id);
@@ -1278,13 +1286,13 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         var viewModel = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(),
                                                 new StaticWorkspaceService());
         await viewModel.InitializeAsync();
-        // 初始化默认选中仍由首次刷新完成（不受草稿页守卫影响）。
-        await WaitUntilAsync(() => viewModel.SelectedSession is not null);
+        // 启动即停留在新对话草稿页（守卫已生效），后台列表刷新不得把页面抢回旧会话。
+        await WaitUntilAsync(() => viewModel.Sidebar.Sessions.Count > 0);
+        Assert.Null(viewModel.SelectedSession);
+        Assert.True(viewModel.ShowNewConversationPage);
 
-        // 主动进入草稿页后，创建会话等触发的列表刷新（SessionsChanged → 400ms 合并）
-        // 不得把草稿页抢回旧会话；草稿文本保持。
-        viewModel.Sidebar.NewSessionCommand.Execute(null);
-        await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
+        // 创建会话触发的列表刷新（SessionsChanged → 400ms 合并）同样不得抢回旧会话；
+        // 草稿文本保持。
         viewModel.Composer.DraftMessage = "草稿文本";
         var created = await sessionService.CreateSessionAsync();
         await Task.Delay(900);
@@ -1312,7 +1320,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         var sessionService = new AdoptionSessionService();
         var viewModel      = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
         await viewModel.InitializeAsync();
-        await WaitUntilAsync(() => viewModel.SelectedSession is not null);
+        await SelectFirstSessionAsync(viewModel);
         viewModel.Sidebar.NewSessionCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
         viewModel.SelectWorkspaceCommand.Execute(viewModel.WorkspaceOptions.Single(option => option.Id == "ws-1"));
@@ -1358,8 +1366,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         var sessionService = new AdoptionSessionService();
         var viewModel      = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
         await viewModel.InitializeAsync();
-        await WaitUntilAsync(() => viewModel.SelectedSession is not null);
-        var otherSession = viewModel.SelectedSession!;
+        var otherSession = await SelectFirstSessionAsync(viewModel);
         viewModel.Composer.DraftMessage = "相同文本";
 
         viewModel.Sidebar.NewSessionCommand.Execute(null);
@@ -1430,7 +1437,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         var sessionService = new AdoptionSessionService();
         var viewModel      = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
         await viewModel.InitializeAsync();
-        await WaitUntilAsync(() => viewModel.SelectedSession is not null);
+        await SelectFirstSessionAsync(viewModel);
         await WaitUntilAsync(() => viewModel.WorkspaceOptions.Any(option => option.Id == "ws-1"));
 
         viewModel.Sidebar.NewSessionCommand.Execute(null);
@@ -1465,8 +1472,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         var sessionService = new AdoptionSessionService();
         var viewModel      = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
         await viewModel.InitializeAsync();
-        await WaitUntilAsync(() => viewModel.SelectedSession is not null);
-        var selectedBefore = viewModel.SelectedSession!;
+        var selectedBefore = await SelectFirstSessionAsync(viewModel);
         viewModel.Sidebar.NewSessionCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
         viewModel.SelectWorkspaceCommand.Execute(viewModel.WorkspaceOptions.Single(option => option.Id == "ws-2"));
@@ -1509,8 +1515,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         var viewModel      = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
         await viewModel.InitializeAsync();
         await WaitUntilAsync(() => viewModel.Composer.ModelOptions.Count > 0);
-        await WaitUntilAsync(() => viewModel.SelectedSession is not null);
-        var selectedBefore = viewModel.SelectedSession!;
+        var selectedBefore = await SelectFirstSessionAsync(viewModel);
         viewModel.Sidebar.NewSessionCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
         viewModel.SelectWorkspaceCommand.Execute(viewModel.WorkspaceOptions.Single(option => option.Id == "ws-1"));
@@ -1555,7 +1560,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         var viewModel      = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
         await viewModel.InitializeAsync();
         await WaitUntilAsync(() => viewModel.Composer.ModelOptions.Count > 0);
-        await WaitUntilAsync(() => viewModel.SelectedSession is not null);
+        await SelectFirstSessionAsync(viewModel);
         viewModel.Sidebar.NewSessionCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
         viewModel.SelectWorkspaceCommand.Execute(viewModel.WorkspaceOptions.Single(option => option.Id == "ws-1"));
@@ -1607,7 +1612,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
                                                                               .RootElement.Clone()));
         var viewModel = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
         await viewModel.InitializeAsync();
-        await WaitUntilAsync(() => viewModel.SelectedSession is not null);
+        await SelectFirstSessionAsync(viewModel);
         viewModel.Sidebar.NewSessionCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
         viewModel.SelectWorkspaceCommand.Execute(viewModel.WorkspaceOptions.Single(option => option.Id == "ws-2"));
@@ -1652,7 +1657,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
                                                                               .RootElement.Clone()));
         var viewModel = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
         await viewModel.InitializeAsync();
-        await WaitUntilAsync(() => viewModel.SelectedSession is not null);
+        await SelectFirstSessionAsync(viewModel);
         viewModel.Sidebar.NewSessionCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
         viewModel.SelectWorkspaceCommand.Execute(viewModel.WorkspaceOptions.Single(option => option.Id == "ws-2"));
@@ -1694,7 +1699,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         var viewModel      = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
         await viewModel.InitializeAsync();
         await WaitUntilAsync(() => viewModel.Composer.ModelOptions.Count > 0);
-        await WaitUntilAsync(() => viewModel.SelectedSession is not null);
+        await SelectFirstSessionAsync(viewModel);
         viewModel.Sidebar.NewSessionCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
         viewModel.SelectWorkspaceCommand.Execute(viewModel.WorkspaceOptions.Single(option => option.Id == "ws-1"));
@@ -1729,7 +1734,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         var sessionService = new AdoptionSessionService(workspaces.AddSession);
         var viewModel      = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(), workspaces);
         await viewModel.InitializeAsync();
-        await WaitUntilAsync(() => viewModel.SelectedSession is not null);
+        await SelectFirstSessionAsync(viewModel);
         viewModel.Sidebar.NewSessionCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
         viewModel.SelectWorkspaceCommand.Execute(viewModel.WorkspaceOptions.Single(option => option.Id == "ws-1"));
@@ -1903,10 +1908,10 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
     private sealed class AdoptionSessionService(Action<string, string>? onSessionCreatedInWorkspace = null)
         : ISessionService
     {
-        private readonly Queue<(Exception Error, bool OnlyForNewSession)> _createErrors      = [];
-        private readonly Queue<Exception>                                _selectModelErrors = [];
-        private readonly Queue<Exception>                                _sendErrors        = [];
-        private readonly SimulatedSessionService                          _inner             = new(onSessionCreatedInWorkspace);
+        private readonly Queue<(Exception Error, bool OnlyForNewSession)> _createErrors = [];
+        private readonly Queue<Exception>                                 _selectModelErrors = [];
+        private readonly Queue<Exception>                                 _sendErrors = [];
+        private readonly SimulatedSessionService                          _inner = new(onSessionCreatedInWorkspace);
 
         /// <summary>下一次 create 阻塞到手动放行（并发合并与迟到结果测试用）。</summary>
         public TaskCompletionSource? BlockNextCreate { get; set; }

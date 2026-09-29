@@ -428,6 +428,10 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         _isInitialized = true;
         try
         {
+            // 启动即停留在新对话草稿页（构造期已进入草稿模式）：先立回退选中守卫再启动
+            // 后端与刷新列表，初始化与后台事件触发的刷新都不会把草稿页抢成某个旧会话；
+            // 用户选中会话时守卫随之解除（SelectedSession setter）。
+            Sidebar.SetDraftPageActive(true);
             await _backendHostService.StartAsync(cancellationToken);
             // 工作区订阅先于会话列表启动：基线未到达时先按空投影分组，
             // WorkspacesChanged 事件到达后再重组（对齐参考客户端的 pending 表现）。
