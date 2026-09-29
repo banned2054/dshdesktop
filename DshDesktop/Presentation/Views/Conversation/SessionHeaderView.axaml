@@ -7,27 +7,17 @@
              x:DataType="vm:MainWindowViewModel"
              mc:Ignorable="d"
              d:DesignHeight="90" d:DesignWidth="720">
-    <!-- 会话区头部：当前会话的上下文信息（标题、id、运行状态、运行环境），
-         属于 Conversation 而非窗口 chrome——侧栏开关在 MainWindow 级的
-         WindowTitleBarView，与本视图无关。 -->
+    <!-- 会话区头部：当前会话标题与运行状态，属于 Conversation 而非窗口 chrome——
+         侧栏开关在 MainWindow 级的 WindowTitleBarView，与本视图无关。 -->
     <Border Padding="28,10" BorderBrush="{DynamicResource SubtleBorderBrush}"
             BorderThickness="0,0,0,1">
-        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="14">
-            <StackPanel Spacing="3">
-                <!-- 无选中会话即新对话草稿页：只显示标题占位，不显示任何会话 ID。 -->
-                <TextBlock Text="{Binding SelectedSession.TitleText, FallbackValue=新对话}"
-                           Classes="heading" FontSize="18" TextTrimming="CharacterEllipsis" />
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <TextBlock Text="{Binding SelectedSession.Id}" Classes="caption" />
-                    <TextBlock Text="生成中…" Classes="caption" Foreground="{DynamicResource StatusRunningBrush}"
-                               IsVisible="{Binding IsSessionRunning}" />
-                </StackPanel>
-            </StackPanel>
-            <Border Grid.Column="1" Background="{DynamicResource PanelBackgroundBrush}" CornerRadius="14"
-                    Padding="12,7"
-                    VerticalAlignment="Center">
-                <TextBlock Text="本地桌面" Classes="caption" />
-            </Border>
-        </Grid>
+        <StackPanel Spacing="3">
+            <!-- 无选中会话即新对话草稿页：只显示标题占位。 -->
+            <TextBlock Text="{Binding SelectedSession.TitleText, FallbackValue=新对话}"
+                       Classes="heading" FontSize="18" TextTrimming="CharacterEllipsis" />
+            <!-- 运行状态行随生成态显隐，空闲时不占位。 -->
+            <TextBlock Text="生成中…" Classes="caption" Foreground="{DynamicResource StatusRunningBrush}"
+                       IsVisible="{Binding IsSessionRunning}" />
+        </StackPanel>
     </Border>
 </UserControl>

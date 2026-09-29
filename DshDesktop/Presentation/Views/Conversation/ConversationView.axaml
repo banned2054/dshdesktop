@@ -83,8 +83,9 @@
             </Border>
         </ScrollViewer>
 
-        <!-- 新对话草稿页：无选中会话时占满会话区（居中输入框 + 工作区下拉），
-             此时时间线与底部输入区隐藏；首发送被接受后切换到普通会话布局。 -->
+        <!-- 新对话草稿页：无选中会话时占满会话区，输入区沉底并与底部输入区同宽，
+             工作区下拉贴其上缘；此时时间线与底部输入区隐藏，首发送被接受后切换到
+             普通会话布局。 -->
         <conversation:NewConversationView Grid.Row="1" />
 
         <conversation:ComposerView Grid.Row="2" Margin="28,14,28,16"

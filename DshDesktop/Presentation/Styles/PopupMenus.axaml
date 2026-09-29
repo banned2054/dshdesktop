@@ -52,11 +52,13 @@
     </Style>
     <!-- 状态样式声明顺序即优先级：悬停与键盘焦点在前、选中（.selected）最后，
          保证行被悬停或聚焦时选中态不被覆盖（与 Sidebar 行同一约定）。 -->
-    <Style Selector="Button.popup-item:pointerover /template/ Border#PART_Surface,
+    <Style
+        Selector="Button.popup-item:pointerover /template/ Border#PART_Surface,
                      Button.popup-navigation:pointerover /template/ Border#PART_Surface">
         <Setter Property="Background" Value="{DynamicResource PopupItemHoverBrush}" />
     </Style>
-    <Style Selector="Button.popup-item:focus-visible /template/ Border#PART_Surface,
+    <Style
+        Selector="Button.popup-item:focus-visible /template/ Border#PART_Surface,
                      Button.popup-navigation:focus-visible /template/ Border#PART_Surface">
         <Setter Property="Background" Value="{DynamicResource PopupItemHoverBrush}" />
     </Style>
@@ -68,6 +70,38 @@
         <Setter Property="Height" Value="1" />
         <Setter Property="Background" Value="{DynamicResource PopupDividerBrush}" />
         <Setter Property="Margin" Value="10,6" />
+    </Style>
+    <!-- 下拉内搜索框：行几何由使用处的 Grid 承担（与工作区行同构），本样式只负责
+         融入弹层面板的无边框效果——Fluent 把状态底色与描边画在模板部件
+         Border#PART_BorderElement 上，须逐状态覆盖为透明（同 Composer.axaml 的
+         composer-input 注释）；文本选中高亮按约定关闭（选区全透明）。 -->
+    <Style Selector="TextBox.popup-search">
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Padding" Value="0" />
+        <!-- TextBox 内部 TextPresenter 默认不居中，文字在控件盒内偏上；
+             显式居中才能与左侧图标同中线。 -->
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Foreground" Value="{DynamicResource PopupForegroundBrush}" />
+        <Setter Property="CaretBrush" Value="{DynamicResource PopupForegroundBrush}" />
+        <Setter Property="PlaceholderForeground" Value="{DynamicResource PopupMutedForegroundBrush}" />
+        <Setter Property="SelectionBrush" Value="Transparent" />
+        <Setter Property="SelectionForegroundBrush" Value="{DynamicResource PopupForegroundBrush}" />
+    </Style>
+    <Style Selector="TextBox.popup-search /template/ Border#PART_BorderElement">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+    </Style>
+    <Style
+        Selector="TextBox.popup-search:pointerover /template/ Border#PART_BorderElement,
+                     TextBox.popup-search:focus /template/ Border#PART_BorderElement,
+                     TextBox.popup-search:focus-visible /template/ Border#PART_BorderElement,
+                     TextBox.popup-search:disabled /template/ Border#PART_BorderElement">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
     </Style>
     <!-- 导航行右侧的当前值文字：弱化色；MaxWidth 约束 Auto 列宽度并配合截断，
          避免超长模型名把「名称 + 当前值 + chevron」行撑破弹层。 -->
@@ -89,5 +123,14 @@
         <Setter Property="FontSize" Value="13" />
         <Setter Property="Margin" Value="8,0,2,0" />
         <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <!-- 行尾勾选图标：DSH Menu 的 IconCheckOutlineRegular（16px、1px 描边），
+         替代文本「✓」；几何见使用处的 Path 数据。 -->
+    <Style Selector="Path.popup-check">
+        <Setter Property="Width" Value="16" />
+        <Setter Property="Height" Value="16" />
+        <Setter Property="Margin" Value="8,0,2,0" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="Stretch" Value="None" />
     </Style>
 </Styles>

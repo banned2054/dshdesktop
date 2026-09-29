@@ -174,6 +174,35 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     /// <summary>新对话草稿页的工作区选项（含显式「不使用工作区」项）；随工作区投影刷新。</summary>
     public ObservableCollection<WorkspaceOptionViewModel> WorkspaceOptions { get; } = [];
 
+    /// <summary>
+    ///     下拉滚动区条目：真实工作区（与 <see cref="WorkspaceOptions" /> 同源同序，不含兼容项）。
+    ///     兼容项固定渲染在面板底行，不进滚动列表。
+    /// </summary>
+    public ObservableCollection<WorkspaceOptionViewModel> WorkspaceMenuOptions { get; } = [];
+
+    private List<WorkspaceOptionViewModel> _allWorkspaceMenuOptions = [];
+
+    private string _workspaceSearchText = string.Empty;
+
+    /// <summary>工作区下拉搜索词：输入即过滤滚动区（纯文本包含、忽略大小写），关闭面板时清空。</summary>
+    public string WorkspaceSearchText
+    {
+        get => _workspaceSearchText;
+        set
+        {
+            if (SetProperty(ref _workspaceSearchText, value)) RefillWorkspaceMenuOptions();
+        }
+    }
+
+    private WorkspaceOptionViewModel? _withoutWorkspaceOption;
+
+    /// <summary>下拉固定底行的「不使用工作区」兼容项；随工作区投影与集合一起重建。</summary>
+    public WorkspaceOptionViewModel? WithoutWorkspaceOption
+    {
+        get => _withoutWorkspaceOption;
+        private set => SetProperty(ref _withoutWorkspaceOption, value);
+    }
+
     /// <summary>选中会话是否有待决审批（控制悬浮面板审批横幅区域）。</summary>
     public bool HasSessionPendingApprovals => SessionPendingApprovals.Count > 0;
 
@@ -206,8 +235,14 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
             // 装载草稿/会话文本属于既有内容的恢复（切走又回来是同一份草稿），不是用户新
             // 意图：guard 让版本不因导航往返递增，首发送的迟到结果仍能正确识别草稿身份。
             _isRestoringComposerDraft = true;
-            try { Composer.SetSession(value?.Id, value?.Running ?? false, LoadDraft(value?.Id)); }
-            finally { _isRestoringComposerDraft = false; }
+            try
+            {
+                Composer.SetSession(value?.Id, value?.Running ?? false, LoadDraft(value?.Id));
+            }
+            finally
+            {
+                _isRestoringComposerDraft = false;
+            }
 
             if (value is null) Composer.ApplyCurrentModel(_draftModelSelection);
             _ = FollowSelectedSessionAsync(value);
@@ -294,7 +329,13 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     public bool IsWorkspaceMenuOpen
     {
         get => _isWorkspaceMenuOpen;
-        set => SetProperty(ref _isWorkspaceMenuOpen, value);
+        set
+        {
+            if (!SetProperty(ref _isWorkspaceMenuOpen, value)) return;
+
+            // 关闭面板即清空搜索并恢复完整列表：重开时不残留上次的过滤词。
+            if (!value) WorkspaceSearchText = string.Empty;
+        }
     }
 
     /// <summary>工作区下拉按钮文案：未选择时是明确的选择状态提示。</summary>
@@ -1213,12 +1254,30 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
                 workspaces.FirstOrDefault(workspace => workspace.Id == selected)?.Title;
 
         WorkspaceOptions.Clear();
-        foreach (var workspace in workspaces)
-            WorkspaceOptions.Add(WorkspaceOptionViewModel.CreateWorkspace(workspace, SelectWorkspaceCommand));
+        _allWorkspaceMenuOptions = workspaces
+                                  .Select(workspace =>
+                                              WorkspaceOptionViewModel.CreateWorkspace(workspace,
+                                                  SelectWorkspaceCommand))
+                                  .ToList();
+        foreach (var option in _allWorkspaceMenuOptions) WorkspaceOptions.Add(option);
 
-        WorkspaceOptions.Add(WorkspaceOptionViewModel.CreateWithoutWorkspace(SelectWorkspaceCommand));
+        var withoutWorkspace = WorkspaceOptionViewModel.CreateWithoutWorkspace(SelectWorkspaceCommand);
+        WorkspaceOptions.Add(withoutWorkspace);
+        WithoutWorkspaceOption = withoutWorkspace;
+        RefillWorkspaceMenuOptions();
         RefreshWorkspaceSelectionMarks();
         RefreshConversationPhase();
+    }
+
+    /// <summary>按当前搜索词重建下拉滚动区条目：纯文本包含、忽略大小写；空词即全量。</summary>
+    private void RefillWorkspaceMenuOptions()
+    {
+        var keyword = _workspaceSearchText.Trim();
+        WorkspaceMenuOptions.Clear();
+        foreach (var option in _allWorkspaceMenuOptions)
+            if (keyword.Length == 0 ||
+                option.TitleText.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+                WorkspaceMenuOptions.Add(option);
     }
 
     private void OnWorkspacesChanged(object? sender, EventArgs e)
