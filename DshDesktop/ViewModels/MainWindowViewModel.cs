@@ -29,18 +29,20 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
 
     // 时间线组装状态：快照、增量与翻页共用同一套分组规则。
     private TimelineAssembly _assembly;
+    private string?          _draftAgentPreset = AgentPresetModes.Default;
     private ModelSelection?  _draftModelSelection;
 
     // 待复用会话记账：AttachCompleted 区分「会话已创建但工作区关联未完成」（重试须先恢复
-    // 关联）与「关联已完成、仅后续选型或发送失败」（重试直接复用，不再创建）。
-    private (string SessionId, string? WorkspaceId, bool WithoutWorkspace, bool AttachCompleted)?
-        _draftPendingSession;
+    // 关联）与「关联已完成、仅后续选型或发送失败」（重试直接复用，不再创建）。AgentPreset
+    // 记录创建时的绑定模式：改选后失配失效（preset 已在创建时固定），重试按新选择创建。
+    private (string SessionId, string? WorkspaceId, bool WithoutWorkspace, string? AgentPreset,
+              bool AttachCompleted)? _draftPendingSession;
 
     private bool _draftWithoutWorkspace;
 
-    // 新对话草稿的版本（身份）：文本、工作区去向或预选模型任一被用户改动时递增；导航
-    // 离开/返回只是同一份草稿的缓存与装载，不递增。首发送快照捕获版本，成功后版本仍
-    // 一致才整份消费——以此区分「同一份草稿只是切走又回来」与「已形成的新草稿」，
+    // 新对话草稿的版本（身份）：文本、工作区去向、预选模式或预选模型任一被用户改动时
+    // 递增；导航离开/返回只是同一份草稿的缓存与装载，不递增。首发送快照捕获版本，成功后
+    // 版本仍一致才整份消费——以此区分「同一份草稿只是切走又回来」与「已形成的新草稿」，
     // 不依赖文本字符串相等。
     private int _draftVersion;
 
@@ -49,10 +51,11 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     private bool _isRestoringComposerDraft;
 
     // 新对话草稿（进程内，独立于已有会话；窗口关闭即丢弃，不写 Harness 存储与日志）：
-    // 预选工作区（null=未选择）、是否显式选择不使用工作区、预选模型/档位。创建已成功但
-    // 发送未完成时的待复用会话连同其创建目标一起记账（防重复创建）：目标被改选后自动
-    // 失配失效（其 cwd 已固定），重试按新目标创建；_draftWorkspaceTitleFallback 缓存
-    // 预选工作区标题，工作区投影尚未回流时下拉仍有可读文案。
+    // 预选工作区（null=未选择）、是否显式选择不使用工作区、预选模型/档位、预选模式
+    // （内置 wire id，初始为 dsh 默认）。创建已成功但发送未完成时的待复用会话连同其
+    // 创建目标一起记账（防重复创建）：目标或模式被改选后自动失配失效（cwd 与 preset
+    // 已在创建时固定），重试按新选择创建；_draftWorkspaceTitleFallback 缓存预选工作区
+    // 标题，工作区投影尚未回流时下拉仍有可读文案。
     private string? _draftWorkspaceId;
     private string? _draftWorkspaceTitleFallback;
     private string  _errorText = string.Empty;
@@ -68,8 +71,9 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     private bool _isInitialized;
     private bool _isLoadingOlder;
 
-    // 工作区下拉展开态（Popup 双向绑定）；首次发送编排的在途标记（连点合并）。
+    // 工作区/模式下拉展开态（Popup 双向绑定）；首次发送编排的在途标记（连点合并）。
     private bool _isWorkspaceMenuOpen;
+    private bool _isPresetMenuOpen;
 
     // 添加工作区登记的在途标记：侧栏与草稿页下拉两处入口共用，选完文件夹后合并连点。
     private int _registeringWorkspace;
@@ -128,8 +132,13 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         LoadOlderCommand = new AsyncRelayCommand(LoadOlderAsync, CanLoadOlder);
         SelectWorkspaceCommand =
             new RelayCommand<WorkspaceOptionViewModel>(SelectDraftWorkspace);
+        SelectPresetCommand =
+            new RelayCommand<AgentPresetOptionViewModel>(SelectDraftPreset);
+        AgentPresetOptions = AgentPresetOptionViewModel.CreateBuiltIns(SelectPresetCommand);
+        RefreshPresetSelectionMarks();
         SendDraftCommand           = new AsyncRelayCommand(SendDraftAsync, () => CanSendDraft);
         ToggleWorkspaceMenuCommand = new RelayCommand(ToggleWorkspaceMenu);
+        TogglePresetMenuCommand    = new RelayCommand(TogglePresetMenu);
         ApproveApprovalCommand =
             new RelayCommand<PendingApprovalViewModel>(approval => _ = RespondApprovalAsync(approval, true));
         RejectApprovalCommand =
@@ -164,11 +173,17 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     /// <summary>新对话草稿页选择工作区：仅改本地草稿预选，不调用 session/create。</summary>
     public RelayCommand<WorkspaceOptionViewModel> SelectWorkspaceCommand { get; }
 
-    /// <summary>新对话草稿页的发送命令：按预选创建会话（含预选模型），后端接受首条消息才进入普通会话。</summary>
+    /// <summary>新对话草稿页选择模式：仅改本地草稿预选，不调用 session/create。</summary>
+    public RelayCommand<AgentPresetOptionViewModel> SelectPresetCommand { get; }
+
+    /// <summary>新对话草稿页的发送命令：按预选创建会话（含预选模型与模式），后端接受首条消息才进入普通会话。</summary>
     public AsyncRelayCommand SendDraftCommand { get; }
 
     /// <summary>工作区下拉按钮的展开/收起切换。</summary>
     public RelayCommand ToggleWorkspaceMenuCommand { get; }
+
+    /// <summary>模式下拉按钮的展开/收起切换。</summary>
+    public RelayCommand TogglePresetMenuCommand { get; }
 
     public RelayCommand<PendingApprovalViewModel> ApproveApprovalCommand { get; }
 
@@ -176,6 +191,21 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
 
     /// <summary>新对话草稿页的工作区选项（含显式「不使用工作区」项）；随工作区投影刷新。</summary>
     public ObservableCollection<WorkspaceOptionViewModel> WorkspaceOptions { get; } = [];
+
+    /// <summary>新对话草稿页的模式选项：dsh 内置四模式，固定集合；勾选态随草稿预选对齐。</summary>
+    public IReadOnlyList<AgentPresetOptionViewModel> AgentPresetOptions { get; }
+
+    /// <summary>模式下拉展开态（Popup 双向绑定）。</summary>
+    public bool IsPresetMenuOpen
+    {
+        get => _isPresetMenuOpen;
+        set => SetProperty(ref _isPresetMenuOpen, value);
+    }
+
+    /// <summary>模式下拉按钮文案：当前草稿预选模式的显示名。</summary>
+    public string PresetPickerLabel =>
+        AgentPresetOptions.FirstOrDefault(option => option.Id == _draftAgentPreset)?.Name
+        ?? _draftAgentPreset ?? "选择模式";
 
     /// <summary>
     ///     下拉滚动区条目：真实工作区（与 <see cref="WorkspaceOptions" /> 同源同序，不含兼容项）。
@@ -400,6 +430,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         OnPropertyChanged(nameof(IsStartingConversation));
         OnPropertyChanged(nameof(ShowNewConversationPage));
         OnPropertyChanged(nameof(WorkspacePickerLabel));
+        OnPropertyChanged(nameof(PresetPickerLabel));
         OnPropertyChanged(nameof(CanSendDraft));
         SendDraftCommand.RaiseCanExecuteChanged();
     }
@@ -1029,6 +1060,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         Sidebar.SetDraftPageActive(true);
         SelectedSession     = null;
         IsWorkspaceMenuOpen = false;
+        IsPresetMenuOpen    = false;
         RefreshConversationPhase();
         RefreshWorkspaceSelectionMarks();
     }
@@ -1046,6 +1078,38 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     private void ToggleWorkspaceMenu()
     {
         IsWorkspaceMenuOpen = !IsWorkspaceMenuOpen;
+    }
+
+    /// <summary>草稿页下拉点选模式：只改本地草稿预选；会话开始后模式由后端锁定。</summary>
+    private void SelectDraftPreset(AgentPresetOptionViewModel? option)
+    {
+        if (option is null) return;
+
+        SetDraftPreset(option.Id);
+        IsPresetMenuOpen = false;
+        RefreshPresetSelectionMarks();
+    }
+
+    private void TogglePresetMenu()
+    {
+        IsPresetMenuOpen = !IsPresetMenuOpen;
+    }
+
+    /// <summary>更新草稿的预选模式（内置 wire id）。模式是草稿内容的一部分：改选即形成新的草稿版本。</summary>
+    private void SetDraftPreset(string presetId)
+    {
+        if (presetId == _draftAgentPreset) return;
+
+        _draftAgentPreset = presetId;
+        Interlocked.Increment(ref _draftVersion);
+        OnPropertyChanged(nameof(PresetPickerLabel));
+    }
+
+    /// <summary>按下拉勾选态对齐草稿预选模式。</summary>
+    private void RefreshPresetSelectionMarks()
+    {
+        foreach (var option in AgentPresetOptions)
+            option.IsSelected = option.Id == _draftAgentPreset;
     }
 
     /// <summary>
@@ -1103,6 +1167,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         var versionAtSend     = Volatile.Read(ref _draftVersion);
         var withoutWorkspace  = _draftWithoutWorkspace;
         var workspaceId       = withoutWorkspace ? null : _draftWorkspaceId;
+        var presetAtSend      = _draftAgentPreset;
         var preselectedModel  = _draftModelSelection;
         _isDraftSendInFlight = true;
         BeginConnecting();
@@ -1110,18 +1175,20 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         {
             ErrorText = string.Empty;
             string sessionId;
-            if (_draftPendingSession is { } pending          &&
-                pending.WithoutWorkspace == withoutWorkspace &&
-                pending.WorkspaceId      == workspaceId)
+            if (_draftPendingSession is { } pending                                          &&
+                pending.WithoutWorkspace == withoutWorkspace                                 &&
+                pending.WorkspaceId      == workspaceId                                      &&
+                pending.AgentPreset      == presetAtSend)
             {
                 sessionId = pending.SessionId;
                 if (!pending.AttachCompleted)
                 {
                     // 会话已创建但工作区关联未完成：用同一个 sessionId + 目标 workspaceId
-                    // 再走一次 session/create 收养（协议中唯一的关联写入接口），恢复成功
-                    // 后才继续选型与发送；再次失败由下方 catch 保留可恢复记账。
-                    await _sessionService.CreateSessionAsync(workspaceId, sessionId);
-                    _draftPendingSession = (sessionId, workspaceId, withoutWorkspace, true);
+                    // 再走一次 session/create 收养（协议中唯一的关联写入接口），携带与创建
+                    // 时一致的模式（收养按 cwd/preset 校验冲突），恢复成功后才继续选型与
+                    // 发送；再次失败由下方 catch 保留可恢复记账。
+                    await _sessionService.CreateSessionAsync(workspaceId, sessionId, presetAtSend);
+                    _draftPendingSession = (sessionId, workspaceId, withoutWorkspace, presetAtSend, true);
                 }
             }
             else
@@ -1133,11 +1200,11 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
                         throw new InvalidOperationException($"工作区不可用或已移除：{workspaceId}");
                 }
 
-                sessionId = (await _sessionService.CreateSessionAsync(workspaceId)).Id;
+                sessionId = (await _sessionService.CreateSessionAsync(workspaceId, null, presetAtSend)).Id;
                 // 草稿目标在创建期间被改选时，这个迟到会话不记为待复用（其 cwd 已固定），
                 // 重试按新目标创建；确认空白会话按既有规则在目录中隐藏。
                 if (IsDraftTarget(workspaceId, withoutWorkspace))
-                    _draftPendingSession = (sessionId, workspaceId, withoutWorkspace, true);
+                    _draftPendingSession = (sessionId, workspaceId, withoutWorkspace, presetAtSend, true);
             }
 
             if (preselectedModel != null)
@@ -1172,8 +1239,8 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
                                                     exception.FindDetailString("sessionId") is { } attachedId)
         {
             // 会话本体已创建、工作区关联失败：按快照目标记账待复用（关联未完成，重试先
-            // 恢复关联；改选目标后失配失效），如实报告失败阶段，不重复创建。
-            _draftPendingSession = (attachedId, workspaceId, withoutWorkspace, false);
+            // 恢复关联；改选目标或模式后失配失效），如实报告失败阶段，不重复创建。
+            _draftPendingSession = (attachedId, workspaceId, withoutWorkspace, presetAtSend, false);
             ErrorText            = "会话已创建，但工作区关联失败；重试将恢复关联并复用该会话，或改选工作区。";
         }
         catch (Exception exception)
@@ -1219,6 +1286,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
 
             _draftModelSelection = null;
 
+            _draftAgentPreset            = AgentPresetModes.Default;
             _draftWorkspaceId            = null;
             _draftWorkspaceTitleFallback = null;
             _draftWithoutWorkspace       = false;
@@ -1226,6 +1294,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
 
         RefreshConversationPhase();
         RefreshWorkspaceSelectionMarks();
+        RefreshPresetSelectionMarks();
     }
 
     /// <summary>首发送编排期间合并连点（按钮禁用之外的第二道防线）。</summary>

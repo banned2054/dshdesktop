@@ -129,7 +129,8 @@ public sealed class SidebarViewModelTests
         }
 
         public Task<SessionSummary> CreateSessionAsync(
-            string? workspaceId = null, string? sessionId = null, CancellationToken cancellationToken = default)
+            string? workspaceId = null, string? sessionId = null, string? agentPreset = null,
+            CancellationToken cancellationToken = default)
         {
             throw new NotSupportedException();
         }

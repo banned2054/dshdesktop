@@ -117,7 +117,8 @@ public sealed class SimulatedSessionService : ISessionService
     }
 
     public Task<SessionSummary> CreateSessionAsync(
-        string? workspaceId = null, string? sessionId = null, CancellationToken cancellationToken = default)
+        string? workspaceId = null, string? sessionId = null, string? agentPreset = null,
+        CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         SessionSummary summary;

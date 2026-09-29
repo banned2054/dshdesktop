@@ -432,6 +432,17 @@ UI 层目录重构验证记录（Windows 10 x64，2026-09-22）：
 - `dotnet build DshDesktop.slnx`：0 警告 0 错误。`dotnet test`：66 通过、3 按设计跳过，连续 3 次无抖动。无反射/新依赖/XAML 变化，不影响 Native AOT 路径，未重跑 AOT 发布。
 - 未验证：窗口内「点击加载更早后视口保持不动」的人工复验（逻辑与 2026-09-20 截图验证版一致并补回置真路径）；macOS/Linux。
 
+新对话草稿页模式选择（dsh 内置 Agent 预设绑定）（Windows 11 x64，2026-09-29）：
+
+- 协议核对（dsh checkout 源码）：内置四模式 wire id 为 `standard`/`ptc`/`minimal`/`cordis`（"创造模式"即 cordis），经 `session/create` 的 `agentPreset` 字段在创建时绑定；后端按会话 Agent 实际挂载回显（非请求回声）；会话开始（非 blank）后预设由后端锁定（`agent-preset/locked`），与"只在新建会话时可选"一致。Web 端下拉文案取自 `ui-agent-preset` zh locales（Preset*Name/Description）。自定义预设（用户经创造模式安装 bundle 声明）经 `agentPresets/list` 下发，本次未接入。
+- 实现：Core 新增 `AgentPresetModes`（内置 id 常量，默认 standard）与 `ISessionService.CreateSessionAsync` 的 `agentPreset` 参数；Harness 在 create 请求携带该字段（收养路径同带，收养按 cwd/preset 校验冲突）；Infrastructure 模拟实现签名同步。VM：`AgentPresetOptionViewModel`（内置四模式固定选项，文案对齐 Web 端）+ 草稿预选状态（改选递增草稿版本、勾选态对齐）+ 发送编排（快照随首发送传入 create；待复用会话记账含模式，改选后失配失效重试按新选择创建，与工作区去向语义一致）。UI：草稿页工作区下拉旁新增模式下拉按钮（DSH IconAgentPresetOutlineRegular 图标 + 文案 + 箭头，复用 workspace-picker 样式）与四条目弹出菜单（名称 + 一句话说明两行、选中打勾，TopEdgeAlignedLeft 向上弹出）。
+- 范围取舍：正式会话页头部暂不显示模式（需 SessionSummary/follow 快照透传链路，follow header 的 agentPreset 已解析未消费，留待后续阶段）；`agentPresets/list` 与自定义模式接入、创造模式引导开新会话（Web 端 creatorDraft）均为后续阶段。
+- `dotnet build DshDesktop.slnx`：0 错误（警告仍为既有 xUnit2013）。
+- `dotnet test`：135 通过、0 失败、7 按设计跳过。新增用例：草稿页模式预选仅本地（点选不发 create、勾选迁移、默认 standard）、预选模式随首发送传入 create 且发送后回默认、发送失败后改选模式使待复用失配失效按新选择全新创建。既有收养断言同步三元组（workspaceId, sessionId, agentPreset）。
+- 真实 Host E2E（`DSH_E2E_RUNTIME_DIR=<0.1.7-rc.2 runtime>`）：新增 `SessionCreateBindsRequestedAgentPresetOnRealHost` 通过——带 `agentPreset: "minimal"` 创建回显 `minimal`、不带创建回显默认 `standard`，证明字段名与一步直传绑定在真实后端生效。
+- UI 交互冒烟（PowerShell UIAutomation 驱动模拟模式窗口）：模式下拉按钮点开、四条目（标准/PTC/极简/创造）可见、点选「PTC 模式」后按钮文案切换为「PTC 模式」，全部通过。
+- 未验证：Native AOT 发布未重跑（无新增依赖，XAML 编译绑定 `x:DataType` 齐备）；真实凭据下创造模式开新会话的端到端表现；macOS/Linux；弹出菜单在深浅两主题下的逐项目检。
+
 后续每个阶段记录：实现范围、目标平台、必要验证命令、实际结果、未验证事项。只有验收通过的任务才标记完成。
 
 

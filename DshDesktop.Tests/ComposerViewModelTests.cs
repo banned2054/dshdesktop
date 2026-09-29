@@ -473,9 +473,10 @@ public sealed class ComposerViewModelTests
         }
 
         public Task<SessionSummary> CreateSessionAsync(
-            string? workspaceId = null, string? sessionId = null, CancellationToken cancellationToken = default)
+            string? workspaceId = null, string? sessionId = null, string? agentPreset = null,
+            CancellationToken cancellationToken = default)
         {
-            return _inner.CreateSessionAsync(workspaceId, sessionId, cancellationToken);
+            return _inner.CreateSessionAsync(workspaceId, sessionId, cancellationToken : cancellationToken);
         }
 
         public void MarkSessionEngaged(string sessionId)

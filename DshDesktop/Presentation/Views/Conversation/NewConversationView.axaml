@@ -9,36 +9,67 @@
              mc:Ignorable="d"
              d:DesignHeight="480" d:DesignWidth="760">
     <!-- 新对话草稿页：输入区固定在会话区底部，与普通会话输入区同宽、同边距；
-         工作区下拉紧贴输入框上缘左对齐（Codex 风格），标示当前项目并供切换，
-         是本页与普通会话布局的唯一差别。下拉与模型/推理等级选择只改本地草稿预选，
+         工作区与模式下拉紧贴输入框上缘左对齐（Codex 风格），标示当前项目与将绑定的
+         dsh Agent 预设（模式），供首发送前切换。模式只在新建会话时可选，会话开始后
+         由后端锁定，故普通会话页没有此按钮。下拉与模型/推理等级选择只改本地草稿预选，
          不调用 session/create、不收养空白会话；首发送（SendDraftCommand）按预选
          创建会话，后端接受首条消息后才进入普通会话。本页不显示会话 ID，
          也不在侧栏产生会话行。 -->
     <Panel IsVisible="{Binding ShowNewConversationPage}">
         <Grid RowDefinitions="*,Auto,Auto">
-            <!-- 工作区下拉：当前项目展示于输入框上方；未选择时文案即明确的选择状态。 -->
-            <Button x:Name="WorkspacePickerButton"
-                    Grid.Row="1"
-                    Classes="workspace-picker"
-                    HorizontalAlignment="Left"
-                    Margin="28,0,28,10"
-                    Command="{Binding ToggleWorkspaceMenuCommand}"
-                    AutomationProperties.Name="{Binding WorkspacePickerLabel}"
-                    ToolTip.Tip="新对话归属的工作区">
-                <!-- Auto,Auto：星号列在有限约束下按可用宽度测量会让按钮无法随内容收缩，
-                     文字贴左、箭头被推到最右；两列都按内容计算才能收紧成紧凑下拉。 -->
-                <Grid ColumnDefinitions="Auto,Auto" ColumnSpacing="6">
-                    <TextBlock Text="{Binding WorkspacePickerLabel}"
-                               TextTrimming="CharacterEllipsis" />
-                    <Path Grid.Column="1"
-                          Data="M0,0 L4,4 L8,0"
-                          Width="8" Height="4"
-                          Stretch="None"
-                          Stroke="{Binding $parent[Button].Foreground}"
-                          StrokeThickness="1.6"
-                          VerticalAlignment="Center" />
-                </Grid>
-            </Button>
+            <!-- 下拉按钮行：当前项目与当前模式并排展示于输入框上方；未选择时文案即
+                 明确的选择状态（模式始终有内置默认「标准模式」）。 -->
+            <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="10" Margin="28,0,28,10">
+                <Button x:Name="WorkspacePickerButton"
+                        Classes="workspace-picker"
+                        Command="{Binding ToggleWorkspaceMenuCommand}"
+                        AutomationProperties.Name="{Binding WorkspacePickerLabel}"
+                        ToolTip.Tip="新对话归属的工作区">
+                    <!-- Auto,Auto：星号列在有限约束下按可用宽度测量会让按钮无法随内容收缩，
+                         文字贴左、箭头被推到最右；两列都按内容计算才能收紧成紧凑下拉。 -->
+                    <Grid ColumnDefinitions="Auto,Auto" ColumnSpacing="6">
+                        <TextBlock Text="{Binding WorkspacePickerLabel}"
+                                   TextTrimming="CharacterEllipsis" />
+                        <Path Grid.Column="1"
+                              Data="M0,0 L4,4 L8,0"
+                              Width="8" Height="4"
+                              Stretch="None"
+                              Stroke="{Binding $parent[Button].Foreground}"
+                              StrokeThickness="1.6"
+                              VerticalAlignment="Center" />
+                    </Grid>
+                </Button>
+                <Button x:Name="PresetPickerButton"
+                        Classes="workspace-picker"
+                        Command="{Binding TogglePresetMenuCommand}"
+                        AutomationProperties.Name="{Binding PresetPickerLabel}"
+                        ToolTip.Tip="新对话使用的模式，会话开始后固定">
+                    <Grid ColumnDefinitions="Auto,Auto,Auto" ColumnSpacing="6">
+                        <!-- DSH IconAgentPresetOutlineRegular（16px）：三个节点圆与
+                             连接弧，对应模式的 Agent 预设语义；填充弧用 Fill，
+                             节点圆用 1px 描边。 -->
+                        <Canvas Width="16" Height="16" VerticalAlignment="Center">
+                            <Path Data="M6.51867,12.3282 C7.29816,12.6011 8.16475,12.6514 9.02269,12.4216 C9.57879,12.2726 10.0784,12.0185 10.5087,11.6888 C10.7819,12.0555 11.1606,12.3304 11.5913,12.4805 C10.9688,13.029 10.2149,13.4478 9.35911,13.6771 C8.13946,14.0038 6.90632,13.8971 5.82126,13.4533 C6.15821,13.1562 6.4021,12.7652 6.51867,12.3282 Z M9.17629,2.89409 C11.1101,3.34433 12.739,4.81872 13.2889,6.87043 C13.4219,7.3665 13.4811,7.8649 13.4774,8.35466 C13.0924,8.13213 12.6422,8.01837 12.1741,8.05276 L12.1711,8.05257 C12.1539,7.77199 12.109,7.48889 12.0334,7.20684 C11.6363,5.72533 10.5048,4.6372 9.13549,4.22844 C9.25559,3.87667 9.29214,3.49087 9.22309,3.09892 C9.2108,3.02922 9.19451,2.96108 9.17629,2.89409 Z M4.7311,3.89107 L4.78302,4.11879 C4.87648,4.4488 5.04146,4.74263 5.25579,4.98896 C3.98078,6.01355 3.35848,7.72904 3.8089,9.41059 C3.81828,9.44559 3.82866,9.48025 3.83885,9.51479 C3.38217,9.61268 2.98548,9.84137 2.68107,10.1556 C2.63414,10.022 2.5897,9.88632 2.55244,9.74726 C1.93301,7.43489 2.86717,5.07173 4.71504,3.76697 L4.7311,3.89107 Z"
+                                  Fill="{Binding $parent[Button].Foreground}" />
+                            <Ellipse Width="8" Height="8" Canvas.Left="3.99136" Canvas.Top="-0.31895"
+                                     Stroke="{Binding $parent[Button].Foreground}" StrokeThickness="1" />
+                            <Ellipse Width="8" Height="8" Canvas.Left="-0.05991" Canvas.Top="7.7417"
+                                     Stroke="{Binding $parent[Button].Foreground}" StrokeThickness="1" />
+                            <Ellipse Width="8" Height="8" Canvas.Left="8.0851" Canvas.Top="7.7417"
+                                     Stroke="{Binding $parent[Button].Foreground}" StrokeThickness="1" />
+                        </Canvas>
+                        <TextBlock Grid.Column="1" Text="{Binding PresetPickerLabel}"
+                                   TextTrimming="CharacterEllipsis" />
+                        <Path Grid.Column="2"
+                              Data="M0,0 L4,4 L8,0"
+                              Width="8" Height="4"
+                              Stretch="None"
+                              Stroke="{Binding $parent[Button].Foreground}"
+                              StrokeThickness="1.6"
+                              VerticalAlignment="Center" />
+                    </Grid>
+                </Button>
+            </StackPanel>
             <!-- TopEdgeAlignedLeft：钉在按钮上方且左缘对齐（同 ModelPickerView 的 Top 惯例）。
                  不能用 Bottom 系列：按钮贴窗口底部，下方是输入区，定位器会在放不下时
                  自动翻到上方；一旦搜索过滤让面板变短、下方放得下，就会跳回下方。 -->
@@ -131,6 +162,46 @@
                             </Grid>
                         </Button>
                     </StackPanel>
+                </Border>
+            </Popup>
+            <!-- 模式弹出：dsh 内置四模式（名称 + 一句话说明两行条目，选中行打勾）。
+                 定位与工作区下拉同惯例（TopEdgeAlignedLeft）：按钮贴窗口底部，弹出只
+                 能向上。固定宽度让长描述按行宽换行，面板不随文案撑破。 -->
+            <Popup x:Name="PresetPickerPopup"
+                   PlacementTarget="{Binding #PresetPickerButton}"
+                   Placement="TopEdgeAlignedLeft"
+                   VerticalOffset="-4"
+                   IsOpen="{Binding IsPresetMenuOpen, Mode=TwoWay}"
+                   IsLightDismissEnabled="True">
+                <Border Classes="popup-surface" Width="316">
+                    <ItemsControl ItemsSource="{Binding AgentPresetOptions}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:AgentPresetOptionViewModel">
+                                <Button Classes="popup-item"
+                                        Classes.selected="{Binding IsSelected}"
+                                        Command="{Binding SelectCommand}"
+                                        CommandParameter="{Binding}">
+                                    <!-- 左列两行（名称 + 弱化说明），勾选标记对齐名称行
+                                         （顶部），同 DSH 预设下拉条目形态。 -->
+                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8" Margin="0,7">
+                                        <StackPanel Spacing="3">
+                                            <TextBlock Text="{Binding Name}" FontSize="13" />
+                                            <TextBlock Text="{Binding Description}"
+                                                       FontSize="12"
+                                                       Foreground="{DynamicResource PopupMutedForegroundBrush}"
+                                                       TextWrapping="Wrap" />
+                                        </StackPanel>
+                                        <Path Grid.Column="1" Classes="popup-check"
+                                              VerticalAlignment="Top" Margin="8,2,2,0"
+                                              Data="M2.25,8.5 L5.49732,11.7473 C5.90519,12.1552 6.57263,12.1344 6.95426,11.7018 L13.75,4"
+                                              Stroke="{DynamicResource PopupForegroundBrush}"
+                                              StrokeThickness="1"
+                                              IsVisible="{Binding IsSelected}" />
+                                    </Grid>
+                                </Button>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
                 </Border>
             </Popup>
             <!-- 输入卡片：与底部输入区同款面板、同宽同位置；错误提示、模型预选与发送同基线。

@@ -12,11 +12,15 @@ public interface ISessionService
     /// <summary>
     ///     创建新会话，可指定所属工作区。携带 <paramref name="sessionId" /> 时走
     ///     session/create 的收养语义（按身份复用已有会话，后端按 cwd/preset 校验冲突），
-    ///     不应用默认模型策略；不携带时创建全新会话。非幂等操作，结果不确定的失败
-    ///     不得携带新的意图自动重试。
+    ///     不应用默认模型策略；不携带时创建全新会话。<paramref name="agentPreset" />
+    ///     是创建时绑定的模式 id（内置取值见 <see cref="AgentPresetModes" />，null 交由
+    ///     后端默认），随会话开始由后端锁定；收养路径必须携带与会话一致的取值。
+    ///     非幂等操作，结果不确定的失败不得携带新的意图自动重试。
     /// </summary>
-    Task<SessionSummary> CreateSessionAsync(
-        string? workspaceId = null, string? sessionId = null, CancellationToken cancellationToken = default);
+    Task<SessionSummary> CreateSessionAsync(string? workspaceId      = null,
+                                            string?  sessionId       = null,
+                                            string?  agentPreset     = null,
+                                            CancellationToken cancellationToken = default);
 
     /// <summary>
     ///     记录"本端已参与对话"的过渡信号（发送被接受、观察到运行或已加载内容）。

@@ -172,6 +172,68 @@ public sealed class RealBackendE2ETests(ITestOutputHelper output)
     }
 
     /// <summary>
+    ///     真实 Host 上的模式（Agent 预设）绑定：session/create 携带 agentPreset 创建后，
+    ///     响应回显会话实际挂载的预设（后端从 Agent 取，非请求回声）；不携带时回显内置
+    ///     默认 standard。隔离 DSH_HOME，无模型凭据。
+    /// </summary>
+    [SkippableFact]
+    public async Task SessionCreateBindsRequestedAgentPresetOnRealHost()
+    {
+        var runtimeDir     = Environment.GetEnvironmentVariable(RealBackendTestSupport.RuntimeDirVariable);
+        var node           = RealBackendTestSupport.FindNodeExecutable();
+        var launcherScript = RealBackendTestSupport.FindLauncherScript();
+        Skip.If(string.IsNullOrWhiteSpace(runtimeDir),
+                $"未设置 {RealBackendTestSupport.RuntimeDirVariable}，跳过真实后端 E2E 验证。");
+        Skip.If(node is null, "PATH 中找不到 Node 可执行文件，跳过。");
+        Skip.If(launcherScript is null, "找不到 launcher 脚本，跳过。");
+
+        var root = Path.Combine(Path.GetTempPath(), $"dsh-e2e-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        var options = RealBackendTestSupport.BuildOptions(node!, launcherScript!, runtimeDir!,
+                                                          Path.Combine(root, "dsh-home"), root);
+
+        var hostService = new NodeBackendHostService(options);
+        var connection  = new HarnessConnection(hostService.StartAsync);
+        try
+        {
+            await hostService.StartAsync().WaitAsync(TimeSpan.FromSeconds(150));
+
+            var bound = await connection
+                             .InvokeAsync("session/create",
+                                          new SessionCreateRequest(AgentPreset : "minimal"),
+                                          HarnessJsonContext.Default.SessionCreateRequest,
+                                          HarnessJsonContext.Default.SessionCreateValue,
+                                          CancellationToken.None)
+                             .WaitAsync(TimeSpan.FromSeconds(30));
+            Assert.StartsWith("session-", bound.SessionId);
+            Assert.Equal("minimal", bound.AgentPreset);
+
+            var fallback = await connection
+                               .InvokeAsync("session/create",
+                                            new SessionCreateRequest(),
+                                            HarnessJsonContext.Default.SessionCreateRequest,
+                                            HarnessJsonContext.Default.SessionCreateValue,
+                                            CancellationToken.None)
+                               .WaitAsync(TimeSpan.FromSeconds(30));
+            Assert.StartsWith("session-", fallback.SessionId);
+            Assert.Equal("standard", fallback.AgentPreset);
+        }
+        finally
+        {
+            await connection.DisposeAsync();
+            await hostService.DisposeAsync();
+            try
+            {
+                Directory.Delete(root, true);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                // Host 建立的链接目录可能短暂占用；留给系统临时目录清理。
+            }
+        }
+    }
+
+    /// <summary>
     ///     真实 Host 上的空白复用链路：登记工作区、按工作区创建空白会话、列表三态空白
     ///     （wire blank=true + sessionListMetadata → 确认空白，cwd 随行携带）、按
     ///     sessionId 收养复用（同一会话，不产生第二个 SessionId）、归档帧回流

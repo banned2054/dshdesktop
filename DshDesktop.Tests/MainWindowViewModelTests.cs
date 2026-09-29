@@ -1036,6 +1036,78 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task DraftPagePresetSelectionIsLocalOnlyAndSentWithCreate()
+    {
+        var sessionService = new AdoptionSessionService();
+        var viewModel      = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(),
+                                                     new StaticWorkspaceService([]));
+        await viewModel.InitializeAsync();
+        await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
+
+        // 模式始终有内置默认「标准模式」：初始勾选态与按钮文案对齐；下拉点选只改本地
+        // 草稿预选，不调用 session/create；勾选随预选迁移。
+        var presets = viewModel.AgentPresetOptions;
+        Assert.Equal(4, presets.Count);
+        Assert.Equal("标准模式", viewModel.PresetPickerLabel);
+        Assert.True(presets.Single(option => option.Id == "standard").IsSelected);
+        viewModel.SelectPresetCommand.Execute(presets.Single(option => option.Id == "ptc"));
+        Assert.Equal("PTC 模式", viewModel.PresetPickerLabel);
+        Assert.True(presets.Single(option => option.Id == "ptc").IsSelected);
+        Assert.False(presets.Single(option => option.Id == "standard").IsSelected);
+        Assert.Empty(sessionService.CreateRequests);
+
+        // 发送前须显式选定工作区去向（含「不使用工作区」）；首发送把预选模式传入
+        // session/create，成功后被整份消费——预选回到内置默认。
+        viewModel.SelectWorkspaceCommand.Execute(viewModel.WorkspaceOptions
+                                                          .Single(option => option.IsWithoutWorkspace));
+        viewModel.Composer.DraftMessage = "首条消息";
+        await WaitUntilAsync(() => viewModel.CanSendDraft);
+        viewModel.SendDraftCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.SelectedSession is { BlankState: SessionBlankState.Engaged });
+        var (workspaceId, sessionId, agentPreset) = Assert.Single(sessionService.CreateRequests);
+        Assert.Null(workspaceId);
+        Assert.Null(sessionId);
+        Assert.Equal("ptc", agentPreset);
+        Assert.Equal("标准模式", viewModel.PresetPickerLabel);
+        Assert.True(presets.Single(option => option.Id == "standard").IsSelected);
+
+        await viewModel.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task DraftPresetChangeAfterFailedSendInvalidatesPendingSession()
+    {
+        var sessionService = new AdoptionSessionService();
+        var viewModel      = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(),
+                                                     new StaticWorkspaceService([]));
+        await viewModel.InitializeAsync();
+        await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
+        viewModel.SelectWorkspaceCommand.Execute(viewModel.WorkspaceOptions
+                                                          .Single(option => option.IsWithoutWorkspace));
+        viewModel.Composer.DraftMessage = "首条消息";
+        await WaitUntilAsync(() => viewModel.CanSendDraft);
+
+        // 创建成功、发送失败：会话连同其创建目标与模式一起记账待复用。
+        sessionService.EnqueueSendError(new InvalidOperationException("发送失败"));
+        viewModel.SendDraftCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.HasError);
+        Assert.Equal(1, sessionService.CreatedSessionCount);
+        Assert.Equal((null, null, "standard"), sessionService.CreateRequests[0]);
+
+        // 改选模式后待复用失配失效（其 preset 已在创建时固定）：重试按新选择全新创建，
+        // 不把首条消息送进旧模式会话。
+        viewModel.SelectPresetCommand.Execute(viewModel.AgentPresetOptions
+                                                       .Single(option => option.Id == "minimal"));
+        viewModel.SendDraftCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.SelectedSession is { BlankState: SessionBlankState.Engaged });
+        Assert.Equal(2, sessionService.CreatedSessionCount);
+        Assert.Equal(2, sessionService.CreateRequests.Count);
+        Assert.Equal((null, null, "minimal"), sessionService.CreateRequests[1]);
+
+        await viewModel.DisposeAsync();
+    }
+
+    [Fact]
     public async Task FirstSendCreatesSessionAppliesPreselectedModelAndShowsRow()
     {
         var workspaces = new StaticWorkspaceService([
@@ -1062,7 +1134,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
 
         // 创建携带工作区归属、无收养 id；预选模型在创建后对该 SessionId 应用；
         // 后端接受首条消息后才出现侧栏行（已开始），输入文本清空。
-        var (workspaceId, adoptId) = Assert.Single(sessionService.CreateRequests);
+        var (workspaceId, adoptId, _) = Assert.Single(sessionService.CreateRequests);
         Assert.Equal("ws-1", workspaceId);
         Assert.Null(adoptId);
         Assert.Equal(new[] { created.Id }, sessionService.ModelSelectionRequests);
@@ -1154,8 +1226,8 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         await WaitUntilAsync(() => viewModel.SelectedSession?.Id == "created-9");
         Assert.Equal(SessionBlankState.Engaged, viewModel.SelectedSession!.BlankState);
         Assert.Equal(2, sessionService.CreateRequests.Count);
-        Assert.Equal(("ws-2", (string?)null), sessionService.CreateRequests[0]);
-        Assert.Equal(("ws-2", "created-9"), sessionService.CreateRequests[1]);
+        Assert.Equal(("ws-2", (string?)null, "standard"), sessionService.CreateRequests[0]);
+        Assert.Equal(("ws-2", "created-9", "standard"), sessionService.CreateRequests[1]);
         Assert.Equal(0, sessionService.CreatedSessionCount);
         Assert.Equal(new[] { "created-9" }, sessionService.SendRequests);
         Assert.False(viewModel.HasError);
@@ -1660,7 +1732,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         sessionService.BlockNextCreate = gate;
         viewModel.SendDraftCommand.Execute(null);
         await WaitUntilAsync(() => sessionService.CreateRequests.Count == 2);
-        Assert.Equal(("ws-2", "created-9"), sessionService.CreateRequests[1]);
+        Assert.Equal(("ws-2", "created-9", "standard"), sessionService.CreateRequests[1]);
         Assert.Empty(sessionService.SendRequests);
         gate.TrySetResult();
         await WaitUntilAsync(() => viewModel.SelectedSession?.Id == "created-9");
@@ -1856,9 +1928,10 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         }
 
         public Task<SessionSummary> CreateSessionAsync(
-            string? workspaceId = null, string? sessionId = null, CancellationToken cancellationToken = default)
+            string? workspaceId = null, string? sessionId = null, string? agentPreset = null,
+            CancellationToken cancellationToken = default)
         {
-            return _inner.CreateSessionAsync(workspaceId, sessionId, cancellationToken);
+            return _inner.CreateSessionAsync(workspaceId, sessionId, cancellationToken : cancellationToken);
         }
 
         public void MarkSessionEngaged(string sessionId)
@@ -1937,8 +2010,8 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    ///     创建/收养可控桩：记录每次 session/create 请求（workspaceId, sessionId），可注入
-    ///     业务错误与阻塞门；会话列表可整体接管（SessionsOverride）。其余行为委托模拟实现。
+    ///     创建/收养可控桩：记录每次 session/create 请求（workspaceId, sessionId, agentPreset），
+    ///     可注入业务错误与阻塞门；会话列表可整体接管（SessionsOverride）。其余行为委托模拟实现。
     /// </summary>
     private sealed class AdoptionSessionService(Action<string, string>? onSessionCreatedInWorkspace = null)
         : ISessionService
@@ -1951,7 +2024,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         /// <summary>下一次 create 阻塞到手动放行（并发合并与迟到结果测试用）。</summary>
         public TaskCompletionSource? BlockNextCreate { get; set; }
 
-        public List<(string? WorkspaceId, string? SessionId)> CreateRequests { get; } = [];
+        public List<(string? WorkspaceId, string? SessionId, string? AgentPreset)> CreateRequests { get; } = [];
 
         public List<string> ModelSelectionRequests { get; } = [];
 
@@ -1985,9 +2058,10 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         }
 
         public async Task<SessionSummary> CreateSessionAsync(
-            string? workspaceId = null, string? sessionId = null, CancellationToken cancellationToken = default)
+            string? workspaceId = null, string? sessionId = null, string? agentPreset = null,
+            CancellationToken cancellationToken = default)
         {
-            CreateRequests.Add((workspaceId, sessionId));
+            CreateRequests.Add((workspaceId, sessionId, agentPreset));
             OperationLog.Add($"create:{workspaceId ?? "-"}|{sessionId ?? "-"}");
             if (BlockNextCreate is { } gate)
             {
@@ -2001,7 +2075,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
                 throw entry.Error;
             }
 
-            return await _inner.CreateSessionAsync(workspaceId, sessionId, cancellationToken);
+            return await _inner.CreateSessionAsync(workspaceId, sessionId, cancellationToken : cancellationToken);
         }
 
         public void MarkSessionEngaged(string sessionId)
@@ -2164,9 +2238,10 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         }
 
         public Task<SessionSummary> CreateSessionAsync(
-            string? workspaceId = null, string? sessionId = null, CancellationToken cancellationToken = default)
+            string? workspaceId = null, string? sessionId = null, string? agentPreset = null,
+            CancellationToken cancellationToken = default)
         {
-            return _inner.CreateSessionAsync(workspaceId, sessionId, cancellationToken);
+            return _inner.CreateSessionAsync(workspaceId, sessionId, cancellationToken : cancellationToken);
         }
 
         public void MarkSessionEngaged(string sessionId)
@@ -2236,9 +2311,10 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         }
 
         public Task<SessionSummary> CreateSessionAsync(
-            string? workspaceId = null, string? sessionId = null, CancellationToken cancellationToken = default)
+            string? workspaceId = null, string? sessionId = null, string? agentPreset = null,
+            CancellationToken cancellationToken = default)
         {
-            return _inner.CreateSessionAsync(workspaceId, sessionId, cancellationToken);
+            return _inner.CreateSessionAsync(workspaceId, sessionId, cancellationToken : cancellationToken);
         }
 
         public void MarkSessionEngaged(string sessionId)
