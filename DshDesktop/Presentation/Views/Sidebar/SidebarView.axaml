@@ -32,7 +32,7 @@
                     Command="{Binding Sidebar.NewSessionCommand}">
                 <StackPanel Orientation="Horizontal" Spacing="6">
                     <Path Width="16" Height="16"
-                          Data="M8,1.5 A6.5,6.5 0 1 0 8,14.5 A6.5,6.5 0 1 0 8,1.5 Z M5,8 L11,8 M8,5 L8,11"
+                          Data="{StaticResource Icon.PlusCircleOutline}"
                           Stroke="{Binding $parent[Button].Foreground}" StrokeThickness="1.5"
                           StrokeLineCap="Round"
                           HorizontalAlignment="Center" VerticalAlignment="Center" />
@@ -57,7 +57,7 @@
                             Command="{Binding Sidebar.OpenSearchCommand}">
                         <!-- DSH 折叠态搜索按钮内图标 14px；滑块与加号为 16px。 -->
                         <Path Width="14" Height="14"
-                              Data="M6.58727,11.8586 C9.55061,11.8586 11.9529,9.45637 11.9529,6.49304 C11.9529,3.5297 9.55061,1.12744 6.58727,1.12744 C3.62394,1.12744 1.22168,3.5297 1.22168,6.49304 C1.22168,9.45637 3.62394,11.8586 6.58727,11.8586 Z M10.2991,10.3933 L14.7783,14.8725"
+                              Data="{StaticResource Icon.SearchOutlineRegular}"
                               Stroke="{DynamicResource TextMutedBrush}" StrokeThickness="1"
                               StrokeLineCap="Round" />
                     </Button>
@@ -68,7 +68,7 @@
                                 Command="{Binding Sidebar.ToggleGroupMenuCommand}">
                             <!-- DSH IconSlidersTwoOutlineRegular：双滑块，各带一枚圆钮。 -->
                             <Path Width="16" Height="16"
-                                  Data="M2.3,5 L8.15,5 M12.05,5 L13.7,5 M8.5,5 A1.45,1.45 0 1 0 11.4,5 A1.45,1.45 0 1 0 8.5,5 Z M2.3,11 L3.95,11 M7.85,11 L13.7,11 M4.3,11 A1.45,1.45 0 1 0 7.2,11 A1.45,1.45 0 1 0 4.3,11 Z"
+                                  Data="{StaticResource Icon.SlidersTwoOutlineRegular}"
                                   Stroke="{DynamicResource TextMutedBrush}" StrokeThickness="1"
                                   StrokeLineCap="Round" />
                         </Button>
@@ -90,7 +90,7 @@
                                         <Grid ColumnDefinitions="*,Auto">
                                             <TextBlock Text="按工作区" />
                                             <Path Grid.Column="1" Classes="popup-check"
-                                                  Data="M2.25,8.5 L5.49732,11.7473 C5.90519,12.1552 6.57263,12.1344 6.95426,11.7018 L13.75,4"
+                                                  Data="{StaticResource Icon.Check}"
                                                   Stroke="{DynamicResource PopupForegroundBrush}" StrokeThickness="1"
                                                   IsVisible="{Binding Sidebar.IsGroupByWorkspace}" />
                                         </Grid>
@@ -102,7 +102,7 @@
                                         <Grid ColumnDefinitions="*,Auto">
                                             <TextBlock Text="单列表" />
                                             <Path Grid.Column="1" Classes="popup-check"
-                                                  Data="M2.25,8.5 L5.49732,11.7473 C5.90519,12.1552 6.57263,12.1344 6.95426,11.7018 L13.75,4"
+                                                  Data="{StaticResource Icon.Check}"
                                                   Stroke="{DynamicResource PopupForegroundBrush}" StrokeThickness="1"
                                                   IsVisible="{Binding Sidebar.IsGroupFlat}" />
                                         </Grid>
@@ -117,10 +117,10 @@
                         <!-- DSH IconProjectAddOutlineRegular：文件夹描边形（fill）+ 右上加号（stroke）。 -->
                         <Panel>
                             <Path Width="16" Height="16"
-                                  Data="M5.54492,2.06738 C5.91034,2.06754 6.26318,2.20149 6.53711,2.44336 L7.94043,3.68164 L7.94043,4.7998 C7.71462,4.74105 7.50367,4.63139 7.32617,4.47461 L5.87598,3.19238 C5.78477,3.11185 5.66658,3.06754 5.54492,3.06738 L2.94922,3.06738 C2.67322,3.06738 2.44946,3.29145 2.44922,3.56738 L2.44922,12.4326 C2.44927,12.7087 2.67311,12.9326 2.94922,12.9326 L12.9326,12.9326 C13.2086,12.9325 13.4326,12.7086 13.4326,12.4326 L13.4326,8.53613 L14.4326,8.53613 L14.4326,12.4326 C14.4326,13.2609 13.7609,13.9325 12.9326,13.9326 L2.94922,13.9326 C2.12083,13.9326 1.44927,13.261 1.44922,12.4326 L1.44922,3.56738 C1.44946,2.73916 2.12094,2.06738 2.94922,2.06738 L5.54492,2.06738 Z"
+                                  Data="{StaticResource Icon.ProjectAddFolderFill}"
                                   Fill="{DynamicResource TextMutedBrush}" />
                             <Path Width="16" Height="16"
-                                  Data="M9.75977,4.50208 L14.5509,4.50208 M12.1492,6.89758 L12.1492,2.10642"
+                                  Data="{StaticResource Icon.ProjectAddPlusStroke}"
                                   Stroke="{DynamicResource TextMutedBrush}" StrokeThickness="1"
                                   StrokeLineCap="Round" />
                         </Panel>
@@ -135,7 +135,7 @@
                     <Grid ColumnDefinitions="28,*,Auto">
                         <Panel VerticalAlignment="Center">
                             <Path Width="11" Height="11" HorizontalAlignment="Center"
-                                  Data="M6.58727,11.8586 C9.55061,11.8586 11.9529,9.45637 11.9529,6.49304 C11.9529,3.5297 9.55061,1.12744 6.58727,1.12744 C3.62394,1.12744 1.22168,3.5297 1.22168,6.49304 C1.22168,9.45637 3.62394,11.8586 6.58727,11.8586 Z M10.2991,10.3933 L14.7783,14.8725"
+                                  Data="{StaticResource Icon.SearchOutlineRegular}"
                                   Stroke="{DynamicResource TextMutedBrush}" StrokeThickness="1" />
                         </Panel>
                         <!-- Margin 上 2：布局已居中后，CJK 字形在行框内仍光学偏上约 1px
@@ -155,7 +155,7 @@
                                 ToolTip.Tip="关闭搜索"
                                 Command="{Binding Sidebar.CloseSearchCommand}">
                             <Path Width="14" Height="14" Stretch="Uniform"
-                                  Data="M3.5,3.5 L12.5,12.5 M12.5,3.5 L3.5,12.5"
+                                  Data="{StaticResource Icon.CloseOutline}"
                                   Stroke="{DynamicResource TextMutedBrush}" StrokeThickness="1"
                                   StrokeLineCap="Round" />
                         </Button>
@@ -198,24 +198,40 @@
                                             <!-- 展开/折叠状态：收起向右、展开向下（DSH arrowOpen 旋转语义）。 -->
                                             <Panel Grid.Column="0" Width="8" Height="16" VerticalAlignment="Center">
                                                 <Panel VerticalAlignment="Center" Width="8" Height="8">
-                                                    <Path Data="M0,0 L4,4 L0,8"
+                                                    <Path Data="{StaticResource Icon.ChevronRight}"
                                                           Stroke="{DynamicResource TextMutedBrush}"
                                                           StrokeThickness="1.5"
                                                           StrokeLineCap="Round"
                                                           IsVisible="{Binding !IsExpanded}" />
-                                                    <Path Data="M0,4 L4,8 L8,4"
+                                                    <Path Data="{StaticResource Icon.ChevronDown}"
                                                           Stroke="{DynamicResource TextMutedBrush}"
                                                           StrokeThickness="1.5"
                                                           StrokeLineCap="Round"
                                                           IsVisible="{Binding IsExpanded}" />
                                                 </Panel>
                                             </Panel>
-                                            <!-- DSH WorkspaceBrowser 的 16px 工作区文件夹图标
-                                             （slot 16×20，label-tertiary 描边风格）。 -->
-                                            <Path Grid.Column="1" Width="16" Height="16" VerticalAlignment="Center"
-                                                  Data="M2,11.5 L2,4.5 A1.5,1.5 0 0 1 3.5,3 L6.4,3 A1.5,1.5 0 0 1 7.6,3.6 L8.6,5 L13.5,5 A1.5,1.5 0 0 1 15,6.5 L15,11.5 A1.5,1.5 0 0 1 13.5,13 L3.5,13 A1.5,1.5 0 0 1 2,11.5 Z"
-                                                  Stroke="{DynamicResource TextMutedBrush}" StrokeThickness="1.5"
-                                                  StrokeLineCap="Round" />
+                                            <!-- DSH ProjectRowItem 的工作区图标（Rows.tsx，随展开态切换）：
+                                                 折叠 IconFolderCloseRegular（1px 描边 + 中分隔线），
+                                                 展开 IconFolderOpenRegular（fill 三段：0.16 背板 +
+                                                 前盖 + 后盖）。三段资源保持独立 Path，合并会因
+                                                 EvenOdd 在重叠区挖空（见 Icons.axaml）。 -->
+                                            <Panel Grid.Column="1" Width="16" Height="16" VerticalAlignment="Center">
+                                                <Path Width="16" Height="16"
+                                                      IsVisible="{Binding !IsExpanded}"
+                                                      Data="{StaticResource Icon.FolderCloseRegular}"
+                                                      Stroke="{DynamicResource TextMutedBrush}" StrokeThickness="1" />
+                                                <Panel IsVisible="{Binding IsExpanded}">
+                                                    <Path Width="16" Height="16"
+                                                          Data="{StaticResource Icon.FolderOpenPlate}"
+                                                          Fill="{DynamicResource TextMutedBrush}" Opacity="0.16" />
+                                                    <Path Width="16" Height="16"
+                                                          Data="{StaticResource Icon.FolderOpenFront}"
+                                                          Fill="{DynamicResource TextMutedBrush}" />
+                                                    <Path Width="16" Height="16"
+                                                          Data="{StaticResource Icon.FolderOpenBack}"
+                                                          Fill="{DynamicResource TextMutedBrush}" />
+                                                </Panel>
+                                            </Panel>
                                             <TextBlock Grid.Column="2" Text="{Binding TitleText}"
                                                        FontSize="14" FontWeight="SemiBold"
                                                        VerticalAlignment="Center"
@@ -235,7 +251,7 @@
                                                     Click="OnWorkspaceMenuClick"
                                                     AutomationProperties.Name="工作区菜单">
                                                 <Path Width="16" Height="16"
-                                                      Data="M3.5,8 m-1.25,0 a1.25,1.25 0 1,0 2.5,0 a1.25,1.25 0 1,0 -2.5,0 M8,8 m-1.25,0 a1.25,1.25 0 1,0 2.5,0 a1.25,1.25 0 1,0 -2.5,0 M12.5,8 m-1.25,0 a1.25,1.25 0 1,0 2.5,0 a1.25,1.25 0 1,0 -2.5,0"
+                                                      Data="{StaticResource Icon.DotsHorizontalFill}"
                                                       Fill="{DynamicResource TextMutedBrush}" />
                                             </Button>
                                             <Popup Placement="BottomEdgeAlignedLeft"
@@ -253,10 +269,10 @@
                                                                 <Panel Width="14" Height="14"
                                                                        VerticalAlignment="Center">
                                                                     <Path Width="14" Height="14"
-                                                                          Data="M8.85596,2.69971 H4.19971 C3.37141,2.69971 2.69992,3.37146 2.69971,4.19971 V11.8003 C2.69992,12.6285 3.37141,13.3003 4.19971,13.3003 H11.8003 C12.6283,13.2999 13.3001,12.6283 13.3003,11.8003 V7.89893 H14.3003 V11.8003 C14.3001,13.1806 13.1806,14.2999 11.8003,14.3003 H4.19971 C2.81913,14.3003 1.69992,13.1808 1.69971,11.8003 V4.19971 C1.69992,2.81918 2.81913,1.69971 4.19971,1.69971 H8.85596 V2.69971 Z"
+                                                                          Data="{StaticResource Icon.EditBodyFill}"
                                                                           Fill="{Binding $parent[Button].Foreground}" />
                                                                     <Path Width="14" Height="14"
-                                                                          Data="M7.7849,8.23878 L13.888,2.13574"
+                                                                          Data="{StaticResource Icon.EditPenStroke}"
                                                                           Stroke="{Binding $parent[Button].Foreground}"
                                                                           StrokeThickness="1" />
                                                                 </Panel>
@@ -272,7 +288,7 @@
                                                                 <!-- DSH IconTrashOutlineRegular：横梁 + 提手 + 桶身 + 两竖纹。 -->
                                                                 <Path Grid.Column="0" Width="14" Height="14"
                                                                       VerticalAlignment="Center"
-                                                                      Data="M1.28149,3.88831 H14.7187 M5.41602,3.88833 V2.47962 C5.41602,2.29282 5.52492,2.11366 5.71876,1.98157 C5.9126,1.84948 6.17551,1.77527 6.44964,1.77527 H9.55053 C9.82466,1.77527 10.0876,1.84948 10.2814,1.98157 C10.4753,2.11366 10.5842,2.29282 10.5842,2.47962 V3.88833 M2.57349,3.88831 L3.19366,13.2943 C3.21937,13.5502 3.33952,13.7872 3.53065,13.9593 C3.72178,14.1313 3.97016,14.2259 4.22729,14.2246 H11.7728 C12.0299,14.2259 12.2783,14.1313 12.4694,13.9593 C12.6605,13.7872 12.7807,13.5502 12.8064,13.2943 L13.4266,3.88831 M6.44946,6.98926 V11.1238 M9.55054,6.98926 V11.1238"
+                                                                      Data="{StaticResource Icon.TrashOutlineRegular}"
                                                                       Stroke="{Binding $parent[Button].Foreground}"
                                                                       StrokeThickness="1" />
                                                                 <TextBlock Grid.Column="1" Text="删除工作区" />
@@ -290,7 +306,7 @@
                                             <!-- DSH IconNewChatOutlineMedium：气泡包加号
                                                  （16 viewBox、1.3 描边，默认 butt 线帽）。 -->
                                             <Path Width="16" Height="16"
-                                                  Data="M2.37091,11.2501 C1.58745,9.89288 1.32067,8.29835 1.61969,6.76006 C1.91872,5.22177 2.76342,3.8433 3.99826,2.87846 C5.2331,1.91362 6.77494,1.42737 8.33988,1.50925 C9.90482,1.59113 11.3875,2.23562 12.5149,3.32406 C13.6425,4.41269 14.3387,5.87206 14.4754,7.4334 C14.612,8.99474 14.18,10.5529 13.2587,11.8209 C12.3375,13.0888 10.9891,13.9813 9.46194,14.3337 C8.18691,14.628 6.85895,14.5294 5.64989,14.0605 C5.1712,13.8748 4.76962,13.4932 4.26534,13.3967 C3.67413,13.2835 2.95257,13.5598 2.03794,14.3337 M8,5 L8,11 M5,8 L11,8"
+                                                  Data="{StaticResource Icon.NewChatOutlineMedium}"
                                                   Stroke="{DynamicResource TextMutedBrush}" StrokeThickness="1.3" />
                                         </Button>
                                     </StackPanel>

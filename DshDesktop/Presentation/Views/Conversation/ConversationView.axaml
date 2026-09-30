@@ -48,11 +48,11 @@
                                                        IsVisible="{Binding HasFailed}" />
                                             <!-- 折叠指示箭头：收起时向右，展开时向下。 -->
                                             <Panel Width="8" Height="8" VerticalAlignment="Center">
-                                                <Path Data="M0,0 L4,4 L0,8"
+                                                <Path Data="{StaticResource Icon.ChevronRight}"
                                                       Stroke="{DynamicResource TextMutedBrush}"
                                                       StrokeThickness="1.5"
                                                       IsVisible="{Binding !IsExpanded}" />
-                                                <Path Data="M0,4 L4,8 L8,4"
+                                                <Path Data="{StaticResource Icon.ChevronDown}"
                                                       Stroke="{DynamicResource TextMutedBrush}"
                                                       StrokeThickness="1.5"
                                                       IsVisible="{Binding IsExpanded}" />

@@ -39,17 +39,9 @@
                                                   IsChecked="{TemplateBinding IsCodeWrapped, Mode=TwoWay}">
                                         <Viewbox Width="14" Height="14">
                                             <Path Width="24" Height="24"
+                                                  Data="{DynamicResource Icon.CodeTextWrap}"
                                                   Stroke="{DynamicResource CodeBlockMutedBrush}"
-                                                  StrokeThickness="2">
-                                                <Path.Data>
-                                                    <GeometryGroup>
-                                                        <StreamGeometry>F1 M24,24z M0,0z M16,16L14,18 16,20</StreamGeometry>
-                                                        <StreamGeometry>F1 M24,24z M0,0z M3,12L18,12A3,3,0,1,1,18,18L14,18</StreamGeometry>
-                                                        <StreamGeometry>F1 M24,24z M0,0z M3,18L10,18</StreamGeometry>
-                                                        <StreamGeometry>F1 M24,24z M0,0z M3,6L21,6</StreamGeometry>
-                                                    </GeometryGroup>
-                                                </Path.Data>
-                                            </Path>
+                                                  StrokeThickness="2" />
                                         </Viewbox>
                                     </ToggleButton>
                                     <Button x:Name="PART_CopyButton"
@@ -59,15 +51,9 @@
                                             Focusable="False">
                                         <Viewbox Width="14" Height="14">
                                             <Path Width="24" Height="24"
+                                                  Data="{DynamicResource Icon.CodeCopy}"
                                                   Stroke="{DynamicResource CodeBlockMutedBrush}"
-                                                  StrokeThickness="2">
-                                                <Path.Data>
-                                                    <GeometryGroup>
-                                                        <RectangleGeometry RadiusX="2" RadiusY="2" Rect="8,8,14,14" />
-                                                        <StreamGeometry>F1 M24,24z M0,0z M4,16C2.9,16,2,15.1,2,14L2,4C2,2.9,2.9,2,4,2L14,2C15.1,2,16,2.9,16,4</StreamGeometry>
-                                                    </GeometryGroup>
-                                                </Path.Data>
-                                            </Path>
+                                                  StrokeThickness="2" />
                                         </Viewbox>
                                     </Button>
                                 </StackPanel>

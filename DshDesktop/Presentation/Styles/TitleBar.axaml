@@ -77,7 +77,7 @@
                                     <Viewbox Width="11" Margin="2">
                                         <Path Stretch="UniformToFill"
                                               Fill="{DynamicResource TextMutedBrush}"
-                                              Data="M2048 1229v-205h-2048v205h2048z" />
+                                              Data="{DynamicResource Icon.CaptionMinimize}" />
                                     </Viewbox>
                                 </Button>
                                 <Button x:Name="PART_MaximizeButton"
@@ -89,7 +89,7 @@
                                         </Viewbox.RenderTransform>
                                         <Path x:Name="RestoreButtonPath" Stretch="UniformToFill"
                                               Fill="{DynamicResource TextMutedBrush}"
-                                              Data="M2048 2048v-2048h-2048v2048h2048zM1843 1843h-1638v-1638h1638v1638z" />
+                                              Data="{DynamicResource Icon.CaptionMaximize}" />
                                     </Viewbox>
                                 </Button>
                                 <Button x:Name="PART_CloseButton" Classes="close"
@@ -98,7 +98,7 @@
                                     <Viewbox Width="11" Margin="2">
                                         <Path Stretch="UniformToFill"
                                               Fill="{DynamicResource TextMutedBrush}"
-                                              Data="M1169 1024l879 -879l-145 -145l-879 879l-879 -879l-145 145l879 879l-879 879l145 145l879 -879l879 879l145 -145z" />
+                                              Data="{DynamicResource Icon.CaptionClose}" />
                                     </Viewbox>
                                 </Button>
                             </StackPanel>
@@ -109,7 +109,7 @@
             <!-- 最大化后图标切换为还原图形。 -->
             <Style Selector="^:maximized /template/ Path#RestoreButtonPath">
                 <Setter Property="Data"
-                        Value="M2048 410h-410v-410h-1638v1638h410v410h1638v-1638zM1434 1434h-1229v-1229h1229v1229zM1843 1843h-1229v-205h1024v-1024h205v1229z" />
+                        Value="{DynamicResource Icon.CaptionRestore}" />
             </Style>
             <!-- 平台不支持的动作隐藏对应按钮；全屏时不显示 caption。 -->
             <Style Selector="^:not(:has-minimize) /template/ Button#PART_MinimizeButton">

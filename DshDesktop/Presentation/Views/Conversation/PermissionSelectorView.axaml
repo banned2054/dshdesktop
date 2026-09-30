@@ -21,7 +21,7 @@
                 <TextBlock Text="{Binding PermissionPickerLabel}"
                            TextTrimming="CharacterEllipsis" />
                 <Path Grid.Column="1"
-                      Data="M0,0 L4,4 L8,0"
+                      Data="{StaticResource Icon.DropdownChevron}"
                       Width="8" Height="4"
                       Stretch="None"
                       Stroke="{Binding $parent[Button].Foreground}"

@@ -30,6 +30,8 @@
                 <!-- LiveMarkdown 默认颜色与字号；应用自身的语义资源键与其不冲突。 -->
                 <ResourceInclude Source="avares://LiveMarkdown.Avalonia/Defaults.axaml" />
                 <ResourceInclude Source="avares://DshDesktop/Presentation/Styles/ThemeResources.axaml" />
+                <!-- 图标几何统一入口（Icon.*），视图与样式文件共同引用。 -->
+                <ResourceInclude Source="avares://DshDesktop/Presentation/Styles/Icons.axaml" />
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>
     </Application.Resources>
