@@ -130,6 +130,33 @@
     <Style Selector="Button.model-picker-button:disabled /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="{DynamicResource ComposerControlBrush}" />
     </Style>
+    <!-- 执行权限选择按钮：与模型按钮同基线的紧凑变体（预设名较短）；仅在选中会话时可见。 -->
+    <Style Selector="Button.permission-picker-button">
+        <Setter Property="MinWidth" Value="118" />
+        <Setter Property="MaxWidth" Value="220" />
+        <Setter Property="Height" Value="28" />
+        <Setter Property="Padding" Value="10,0" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Background" Value="{DynamicResource ComposerControlBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource ComposerTextBrush}" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.permission-picker-button:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource PopupItemHoverBrush}" />
+    </Style>
+    <Style Selector="Button.permission-picker-button:disabled /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource ComposerControlBrush}" />
+    </Style>
+    <!-- 风险确认弹层内 auto 预设的 EXP 角标：弱化小圆角徽标。 -->
+    <Style Selector="Border.permission-exp-badge">
+        <Setter Property="Background" Value="{DynamicResource PopupItemSelectedBrush}" />
+        <Setter Property="CornerRadius" Value="4" />
+        <Setter Property="Padding" Value="4,1" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
     <Style Selector="StackPanel.composer-stats">
         <Setter Property="Margin" Value="4,0" />
         <Setter Property="Spacing" Value="14" />

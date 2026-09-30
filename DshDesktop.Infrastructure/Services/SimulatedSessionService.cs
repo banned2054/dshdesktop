@@ -6,7 +6,8 @@ using System.Threading.Channels;
 namespace DshDesktop.Infrastructure.Services;
 
 /// <summary>模拟会话服务：内存数据 + 通道推送，行为对齐真实服务的更新语义。</summary>
-public sealed class SimulatedSessionService : ISessionService
+public sealed class SimulatedSessionService(Action<string, string>? onSessionCreatedInWorkspace = null)
+    : ISessionService
 {
     /// <summary>模拟窗口大小：首屏只给最近这么多条消息（附随条目随组携带），更早的按页提供。</summary>
     private const int WindowSize = 3;
@@ -67,14 +68,7 @@ public sealed class SimulatedSessionService : ISessionService
 
     private readonly Lock _syncRoot = new();
 
-    private readonly Action<string, string>? _onSessionCreatedInWorkspace;
-
     private int _nextSessionNumber = 5;
-
-    public SimulatedSessionService(Action<string, string>? onSessionCreatedInWorkspace = null)
-    {
-        _onSessionCreatedInWorkspace = onSessionCreatedInWorkspace;
-    }
 
     public event EventHandler? SessionsChanged;
 
@@ -85,15 +79,14 @@ public sealed class SimulatedSessionService : ISessionService
     }
 
     public Task<ModelSelection> SelectModelAsync(
-        string sessionId, string provider, string model,
-        string? reasoningEffort = null, CancellationToken cancellationToken = default)
+        string            sessionId, string provider, string model, string? reasoningEffort = null,
+        CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         lock (_syncRoot)
         {
             if (!_sessions.TryGetValue(sessionId, out var session))
-                return Task.FromException<ModelSelection>(
-                                                          new KeyNotFoundException($"未找到会话：{sessionId}"));
+                return Task.FromException<ModelSelection>(new KeyNotFoundException($"未找到会话：{sessionId}"));
 
             // 与真实后端一致：选型（含推理档位）落在会话上，经 model/selection 更新回声生效。
             ModelSelection selection = new(provider, model, reasoningEffort);
@@ -117,7 +110,7 @@ public sealed class SimulatedSessionService : ISessionService
     }
 
     public Task<SessionSummary> CreateSessionAsync(
-        string? workspaceId = null, string? sessionId = null, string? agentPreset = null,
+        string?           workspaceId       = null, string? sessionId = null, string? agentPreset = null,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -128,21 +121,21 @@ public sealed class SimulatedSessionService : ISessionService
             if (sessionId is not null && _sessions.TryGetValue(sessionId, out var adopted))
             {
                 if (!string.IsNullOrWhiteSpace(workspaceId))
-                    _onSessionCreatedInWorkspace?.Invoke(workspaceId, sessionId);
+                    onSessionCreatedInWorkspace?.Invoke(workspaceId, sessionId);
 
                 RaiseSessionsChanged();
                 return Task.FromResult(adopted.Summary);
             }
 
-            var now       = DateTimeOffset.Now;
-            var newId     = sessionId ?? $"session-{_nextSessionNumber++}";
-            summary       = new SessionSummary(newId, "新对话", now, false, SessionBlankState.ConfirmedBlank);
+            var now   = DateTimeOffset.Now;
+            var newId = sessionId ?? $"session-{_nextSessionNumber++}";
+            summary = new SessionSummary(newId, "新对话", now, false, SessionBlankState.ConfirmedBlank);
             _sessions.Add(newId, new SimulatedSession(summary, []));
             CreatedSessionCount++;
         }
 
         if (!string.IsNullOrWhiteSpace(workspaceId))
-            _onSessionCreatedInWorkspace?.Invoke(workspaceId, summary.Id);
+            onSessionCreatedInWorkspace?.Invoke(workspaceId, summary.Id);
 
         RaiseSessionsChanged();
         return Task.FromResult(summary);
@@ -244,23 +237,26 @@ public sealed class SimulatedSessionService : ISessionService
         SessionUpdate.Snapshot snapshot;
         SessionUsage           usage;
         SessionStats           stats;
+        string                 permission;
         long                   statsSeq;
         lock (_syncRoot)
         {
             if (!_sessions.TryGetValue(sessionId, out var session))
                 throw new KeyNotFoundException($"未找到会话：{sessionId}");
 
-            channel  = session.Subscribe();
-            snapshot = BuildSnapshot(session, session.WindowEntries(WindowSize));
-            usage    = session.Usage;
-            stats    = session.Stats;
-            statsSeq = session.LastSeq;
+            channel    = session.Subscribe();
+            snapshot   = BuildSnapshot(session, session.WindowEntries(WindowSize));
+            usage      = session.Usage;
+            stats      = session.Stats;
+            permission = session.CurrentPermission;
+            statsSeq   = session.LastSeq;
         }
 
         yield return snapshot;
-        // 统计整值随快照下发（对齐真实后端快照投影基线），seq 供界面做乱序 gating。
+        // 统计与权限整值随快照下发（对齐真实后端快照投影基线），seq 供界面做乱序 gating。
         yield return new SessionUpdate.UsageUpdated(usage, statsSeq);
         yield return new SessionUpdate.StatsUpdated(stats, statsSeq);
+        yield return new SessionUpdate.PermissionsUpdated(permission, statsSeq);
 
         try
         {
@@ -472,6 +468,21 @@ public sealed class SimulatedSessionService : ISessionService
         RaiseSessionsChanged();
     }
 
+    /// <summary>
+    ///     推送权限预设变化（模拟后端接受 /permission 后的投影回流）；由组装层接到
+    ///     SimulatedPermissionPresetService.PresetApplied，保持「切换确认经投影」的语义。
+    /// </summary>
+    public void PushPermission(string sessionId, string preset)
+    {
+        lock (_syncRoot)
+        {
+            if (!_sessions.TryGetValue(sessionId, out var session)) return;
+
+            session.CurrentPermission = preset;
+            session.PushUpdate(new SessionUpdate.PermissionsUpdated(preset, session.NextSeq()));
+        }
+    }
+
     /// <summary>推送一条不结束的流式增量，验证生成中的界面状态（如列表刷新不打断显示）。</summary>
     internal void BeginAssistantStream(string sessionId, string text)
     {
@@ -529,6 +540,9 @@ public sealed class SimulatedSessionService : ISessionService
         public List<ConversationEntry> Entries { get; }
 
         public ModelSelection? CurrentModel { get; set; }
+
+        /// <summary>会话当前权限预设（permissions 投影；新会话按 base 组合默认播种 workspace-write）。</summary>
+        public string CurrentPermission { get; set; } = PermissionPresetValues.WorkspaceWrite;
 
         public SessionUsage Usage { get; set; } = new(0, 0, 0, 0);
 

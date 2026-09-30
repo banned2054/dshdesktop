@@ -145,6 +145,128 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task ApprovalDecisionLeavesComposerPermissionPresetUntouched()
+    {
+        var sessionService          = new SimulatedSessionService();
+        var approvalService         = new SimulatedToolApprovalService();
+        var permissionPresetService = new SimulatedPermissionPresetService();
+        var viewModel = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(),
+                                                new StaticWorkspaceService(), approvalService,
+                                                permissionPresetService : permissionPresetService);
+        await viewModel.InitializeAsync();
+
+        var selectedSessionId = (await SelectFirstSessionAsync(viewModel)).Id;
+        // 模拟 follow 基线给出 workspace-write：选择器显示投影权威值。
+        await WaitUntilAsync(() => viewModel.PermissionSelector.PermissionPickerLabel == "工作区内修改");
+
+        approvalService.PushRequest(selectedSessionId, "fs.write", "需要修改项目文件", "call-1");
+        await WaitUntilAsync(() => viewModel.SessionPendingApprovals.Count == 1);
+        viewModel.ApproveApprovalCommand.Execute(viewModel.SessionPendingApprovals.Single());
+        await WaitUntilAsync(() => approvalService.Decisions.Count == 1);
+
+        // 允许一次只裁决当前 tool call：不触碰 Composer 的当前权限预设。
+        Assert.Equal("workspace-write", viewModel.PermissionSelector.CurrentValue);
+        Assert.Equal("工作区内修改", viewModel.PermissionSelector.PermissionPickerLabel);
+        Assert.Empty(permissionPresetService.Switches);
+
+        await viewModel.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task PermissionProjectionFlowsToSelectorAndSwitchGoesThroughCommand()
+    {
+        var sessionService          = new SimulatedSessionService();
+        var permissionPresetService = new SimulatedPermissionPresetService();
+        var viewModel = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(),
+                                                new StaticWorkspaceService(), new SimulatedToolApprovalService(),
+                                                permissionPresetService : permissionPresetService);
+        await viewModel.InitializeAsync();
+        var selectedSessionId = (await SelectFirstSessionAsync(viewModel)).Id;
+
+        // 快照投影基线 → 选择器显示当前预设；切换请求经服务下达，投影回流后才更新显示。
+        await WaitUntilAsync(() => viewModel.PermissionSelector.PermissionPickerLabel == "工作区内修改");
+
+        viewModel.PermissionSelector.SelectOptionCommand.Execute(
+                                                                 viewModel.PermissionSelector.Options.Single(option =>
+                                                                     option.Value == "read-only"));
+        var (switchedSession, preset) = Assert.Single(permissionPresetService.Switches);
+        Assert.Equal(selectedSessionId, switchedSession);
+        Assert.Equal("read-only", preset);
+        Assert.Equal("workspace-write", viewModel.PermissionSelector.CurrentValue);
+
+        // 模拟后端接受切换后的 permissions 投影回流（session/control 整值更新路径）。
+        sessionService.PushPermission(selectedSessionId, "read-only");
+        await WaitUntilAsync(() => viewModel.PermissionSelector.PermissionPickerLabel == "仅可查看");
+        Assert.Equal("read-only", viewModel.PermissionSelector.CurrentValue);
+
+        await viewModel.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task DraftFirstSendAppliesPreselectedPermissionPreset()
+    {
+        var sessionService          = new SimulatedSessionService();
+        var permissionPresetService = new SimulatedPermissionPresetService();
+        var viewModel = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(),
+                                                new StaticWorkspaceService(), new SimulatedToolApprovalService(),
+                                                permissionPresetService : permissionPresetService);
+        await viewModel.InitializeAsync();
+        Assert.True(viewModel.ShowNewConversationPage);
+
+        // 草稿页本地预选（无会话，不发请求）：完全权限走确认门后才记入草稿。
+        Assert.True(viewModel.PermissionSelector.IsVisible);
+        viewModel.PermissionSelector.Options
+                 .Single(option => option.Value == "danger-full-access")
+                 .SelectCommand.Execute(null);
+        Assert.True(viewModel.PermissionSelector.IsConfirmOpen);
+        Assert.Empty(permissionPresetService.Switches);
+
+        viewModel.PermissionSelector.IsAcknowledged = true;
+        viewModel.PermissionSelector.ConfirmSwitchCommand.Execute(null);
+        Assert.Equal("完全权限", viewModel.PermissionSelector.PermissionPickerLabel);
+        Assert.Empty(permissionPresetService.Switches);
+
+        // 首发送：创建会话后、首条消息前应用预选（预选随会话记账，确认由投影回流）。
+        viewModel.SelectWorkspaceCommand.Execute(viewModel.WorkspaceOptions
+                                                          .Single(option => option.IsWithoutWorkspace));
+        viewModel.Composer.DraftMessage = "预选完全权限的首条消息";
+        viewModel.SendDraftCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.SelectedSession is { Id: not "session-history" });
+
+        var (switchedSession, preset) = Assert.Single(permissionPresetService.Switches);
+        Assert.Equal(viewModel.SelectedSession!.Id, switchedSession);
+        Assert.Equal("danger-full-access", preset);
+
+        // 模拟后端接受切换后的投影回流：选择器改由会话投影驱动并显示新值。
+        sessionService.PushPermission(viewModel.SelectedSession.Id, "danger-full-access");
+        await WaitUntilAsync(() => viewModel.PermissionSelector.PermissionPickerLabel == "完全权限");
+
+        await viewModel.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task DraftFirstSendWithoutPreselectionSkipsPermissionCommand()
+    {
+        var sessionService          = new SimulatedSessionService();
+        var permissionPresetService = new SimulatedPermissionPresetService();
+        var viewModel = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(),
+                                                new StaticWorkspaceService(), new SimulatedToolApprovalService(),
+                                                permissionPresetService : permissionPresetService);
+        await viewModel.InitializeAsync();
+
+        // 未预选权限的草稿首发送：不产生 /permission 命令（后端按其默认播种新会话）。
+        viewModel.SelectWorkspaceCommand.Execute(viewModel.WorkspaceOptions
+                                                          .Single(option => option.IsWithoutWorkspace));
+        viewModel.Composer.DraftMessage = "未预选权限的首条消息";
+        viewModel.SendDraftCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.SelectedSession is { Id: not "session-history" });
+
+        Assert.Empty(permissionPresetService.Switches);
+
+        await viewModel.DisposeAsync();
+    }
+
+    [Fact]
     public async Task SwitchingSessionsLoadsEachSessionSnapshot()
     {
         var viewModel = CreateViewModel();
@@ -1039,8 +1161,8 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
     public async Task DraftPagePresetSelectionIsLocalOnlyAndSentWithCreate()
     {
         var sessionService = new AdoptionSessionService();
-        var viewModel      = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(),
-                                                     new StaticWorkspaceService([]));
+        var viewModel = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(),
+                                                new StaticWorkspaceService([]));
         await viewModel.InitializeAsync();
         await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
 
@@ -1049,10 +1171,10 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         var presets = viewModel.AgentPresetOptions;
         Assert.Equal(4, presets.Count);
         Assert.Equal("标准模式", viewModel.PresetPickerLabel);
-        Assert.True(presets.Single(option => option.Id == "standard").IsSelected);
+        Assert.True(presets.Single(option => option.Id                           == "standard").IsSelected);
         viewModel.SelectPresetCommand.Execute(presets.Single(option => option.Id == "ptc"));
         Assert.Equal("PTC 模式", viewModel.PresetPickerLabel);
-        Assert.True(presets.Single(option => option.Id == "ptc").IsSelected);
+        Assert.True(presets.Single(option => option.Id  == "ptc").IsSelected);
         Assert.False(presets.Single(option => option.Id == "standard").IsSelected);
         Assert.Empty(sessionService.CreateRequests);
 
@@ -1078,8 +1200,8 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
     public async Task DraftPresetChangeAfterFailedSendInvalidatesPendingSession()
     {
         var sessionService = new AdoptionSessionService();
-        var viewModel      = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(),
-                                                     new StaticWorkspaceService([]));
+        var viewModel = new MainWindowViewModel(sessionService, new SimulatedBackendStatusService(),
+                                                new StaticWorkspaceService([]));
         await viewModel.InitializeAsync();
         await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
         viewModel.SelectWorkspaceCommand.Execute(viewModel.WorkspaceOptions
@@ -1373,7 +1495,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
 
         // 手动点击行不受守卫影响；再进草稿页文本仍在。
         viewModel.Sidebar.SelectSessionCommand.Execute(viewModel.Sidebar.Sessions.First(session => session.Id !=
-                                                                    created.Id));
+                                                           created.Id));
         await WaitUntilAsync(() => !viewModel.ShowNewConversationPage);
         viewModel.Sidebar.NewSessionCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
@@ -1598,10 +1720,10 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
     public async Task RegisterWorkspaceFailureSurfacesWindowError()
     {
         var workspaces = new StaticWorkspaceService();
-        var viewModel  = new MainWindowViewModel(new SimulatedSessionService(), new SimulatedBackendStatusService(),
-                                                 workspaces);
+        var viewModel = new MainWindowViewModel(new SimulatedSessionService(), new SimulatedBackendStatusService(),
+                                                workspaces);
         await viewModel.InitializeAsync();
-        workspaces.RegisterError = new HarnessRpcException("workspace/invalid-path", "非法路径", null);
+        workspaces.RegisterError = new HarnessRpcException("workspace/invalid-path", "非法路径");
 
         await viewModel.RegisterWorkspaceAsync("C:/Not/A/Directory");
 
@@ -1774,11 +1896,9 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
 
         // 关联恢复再次失败（收养调用同样抛 attach-failed）：保留草稿与可恢复状态，
         // 不发送、不重复创建，如实展示错误。
-        sessionService.EnqueueCreateError(new HarnessRpcException("session/workspace-attach-failed",
-                                                                  "再次挂接失败（模拟）",
+        sessionService.EnqueueCreateError(new HarnessRpcException("session/workspace-attach-failed", "再次挂接失败（模拟）",
                                                                   JsonDocument.Parse("""{"sessionId":"created-9"}""")
-                                                                              .RootElement.Clone()),
-                                          onlyForNewSession: false);
+                                                                              .RootElement.Clone()), false);
         viewModel.SendDraftCommand.Execute(null);
         await WaitUntilAsync(() => sessionService.CreateRequests.Count == 2 && !viewModel.IsStartingConversation);
         Assert.Empty(sessionService.SendRequests);
@@ -1928,7 +2048,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         }
 
         public Task<SessionSummary> CreateSessionAsync(
-            string? workspaceId = null, string? sessionId = null, string? agentPreset = null,
+            string?           workspaceId       = null, string? sessionId = null, string? agentPreset = null,
             CancellationToken cancellationToken = default)
         {
             return _inner.CreateSessionAsync(workspaceId, sessionId, cancellationToken : cancellationToken);
@@ -1996,11 +2116,11 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         {
             var now = DateTimeOffset.Now;
             _liveTail.Writer.TryWrite(new SessionUpdate.ToolCallStarted(new ToolActivity(6, "call-attach-2", "fs.read",
-                                                                                 "{}", ToolActivityStatus.Running, null,
-                                                                                 null, now, Turn : 1)));
+                                                                            "{}", ToolActivityStatus.Running, null,
+                                                                            null, now, Turn : 1)));
             _liveTail.Writer.TryWrite(new SessionUpdate.MessageAppended(new ConversationMessage(7, "attach-final",
-                                                                                 MessageRole.Assistant, "真正的最终回复", now,
-                                                                                 1)));
+                                                                            MessageRole.Assistant, "真正的最终回复", now,
+                                                                            1)));
         }
 
         public void PushRealTurnEnd()
@@ -2017,9 +2137,9 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         : ISessionService
     {
         private readonly Queue<(Exception Error, bool OnlyForNewSession)> _createErrors = [];
+        private readonly SimulatedSessionService                          _inner = new(onSessionCreatedInWorkspace);
         private readonly Queue<Exception>                                 _selectModelErrors = [];
         private readonly Queue<Exception>                                 _sendErrors = [];
-        private readonly SimulatedSessionService                          _inner = new(onSessionCreatedInWorkspace);
 
         /// <summary>下一次 create 阻塞到手动放行（并发合并与迟到结果测试用）。</summary>
         public TaskCompletionSource? BlockNextCreate { get; set; }
@@ -2058,7 +2178,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         }
 
         public async Task<SessionSummary> CreateSessionAsync(
-            string? workspaceId = null, string? sessionId = null, string? agentPreset = null,
+            string?           workspaceId       = null, string? sessionId = null, string? agentPreset = null,
             CancellationToken cancellationToken = default)
         {
             CreateRequests.Add((workspaceId, sessionId, agentPreset));
@@ -2170,12 +2290,12 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
     {
         private IReadOnlyList<WorkspaceSummary> _items = items ?? [];
 
+        /// <summary>登记编排注入点：非 null 时抛出（模拟业务失败），否则登记成功。</summary>
+        public Exception? RegisterError { get; set; }
+
         public IReadOnlySet<string> ArchivedSessionIds { get; private set; } = new HashSet<string>();
 
         public event EventHandler? WorkspacesChanged;
-
-        /// <summary>登记编排注入点：非 null 时抛出（模拟业务失败），否则登记成功。</summary>
-        public Exception? RegisterError { get; set; }
 
         public Task<IReadOnlyList<WorkspaceSummary>> GetWorkspacesAsync(CancellationToken cancellationToken = default)
         {
@@ -2238,7 +2358,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         }
 
         public Task<SessionSummary> CreateSessionAsync(
-            string? workspaceId = null, string? sessionId = null, string? agentPreset = null,
+            string?           workspaceId       = null, string? sessionId = null, string? agentPreset = null,
             CancellationToken cancellationToken = default)
         {
             return _inner.CreateSessionAsync(workspaceId, sessionId, cancellationToken : cancellationToken);
@@ -2311,7 +2431,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         }
 
         public Task<SessionSummary> CreateSessionAsync(
-            string? workspaceId = null, string? sessionId = null, string? agentPreset = null,
+            string?           workspaceId       = null, string? sessionId = null, string? agentPreset = null,
             CancellationToken cancellationToken = default)
         {
             return _inner.CreateSessionAsync(workspaceId, sessionId, cancellationToken : cancellationToken);

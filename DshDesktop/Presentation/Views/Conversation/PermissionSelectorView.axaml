@@ -1,0 +1,105 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:DshDesktop.ViewModels"
+             x:Class="DshDesktop.Presentation.Views.Conversation.PermissionSelectorView"
+             x:DataType="vm:PermissionSelectorViewModel"
+             mc:Ignorable="d"
+             d:DesignHeight="34" d:DesignWidth="160">
+    <!-- 执行权限选择：按钮 + 预设弹出菜单 + Full access/Auto 风险确认弹层。选中会话展示并
+         切换当前权限（permissions 投影为唯一权威，点选只是请求，确认由后端投影回流，不做
+         乐观更新）；新对话草稿页做本地预选（不发 RPC，首发送创建会话后应用）。 -->
+    <Panel IsVisible="{Binding IsVisible}">
+        <Button x:Name="PermissionPickerButton"
+                Classes="permission-picker-button"
+                Command="{Binding ToggleMenuCommand}"
+                IsEnabled="{Binding IsSelectorEnabled}"
+                AutomationProperties.Name="执行权限"
+                ToolTip.Tip="{Binding PickerToolTip}">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                <TextBlock Text="{Binding PermissionPickerLabel}"
+                           TextTrimming="CharacterEllipsis" />
+                <Path Grid.Column="1"
+                      Data="M0,0 L4,4 L8,0"
+                      Width="8" Height="4"
+                      Stretch="None"
+                      Stroke="{Binding $parent[Button].Foreground}"
+                      StrokeThickness="1.6"
+                      VerticalAlignment="Center" />
+            </Grid>
+        </Button>
+        <!-- 预设菜单：选项来自 permissionPresets/catalog（不硬编码）；当前值勾选，未知值不勾任何行。
+             TopEdgeAlignedLeft：面板左缘对齐按钮（草稿页下拉同款 Placement，避免高度变化跳动）。 -->
+        <Popup x:Name="PermissionPickerPopup"
+               PlacementTarget="{Binding #PermissionPickerButton}"
+               Placement="TopEdgeAlignedLeft"
+               VerticalOffset="-4"
+               IsOpen="{Binding IsMenuOpen, Mode=TwoWay}"
+               IsLightDismissEnabled="True">
+            <Border Classes="popup-surface" Width="252" MaxHeight="360">
+                <ScrollViewer MaxHeight="348">
+                    <ItemsControl ItemsSource="{Binding Options}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:PermissionOptionViewModel">
+                                <Button Classes="popup-item"
+                                        Classes.selected="{Binding IsSelected}"
+                                        Command="{Binding SelectCommand}"
+                                        ToolTip.Tip="{Binding Description}">
+                                    <Grid ColumnDefinitions="*,Auto,Auto">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <TextBlock Text="{Binding DisplayName}"
+                                                       TextTrimming="CharacterEllipsis" />
+                                            <Border Classes="permission-exp-badge"
+                                                    IsVisible="{Binding IsExperimental}">
+                                                <TextBlock Text="EXP" FontSize="10"
+                                                           Foreground="{DynamicResource PopupMutedForegroundBrush}" />
+                                            </Border>
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="2"
+                                                   Classes="popup-check"
+                                                   Text="✓"
+                                                   IsVisible="{Binding IsSelected}" />
+                                    </Grid>
+                                </Button>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </Border>
+        </Popup>
+        <!-- 风险确认弹层：对齐 WebUI RiskConfirmation——描述 + 必勾确认，勾选前「启用」不可点；
+             轻点外部或取消即放弃，不发送任何请求。与预设菜单同用左对齐 Placement。 -->
+        <Popup x:Name="PermissionConfirmPopup"
+               PlacementTarget="{Binding #PermissionPickerButton}"
+               Placement="TopEdgeAlignedLeft"
+               VerticalOffset="-4"
+               IsOpen="{Binding IsConfirmOpen, Mode=TwoWay}"
+               IsLightDismissEnabled="True">
+            <Border Classes="popup-surface" Width="304" Padding="14,12">
+                <StackPanel Spacing="10">
+                    <TextBlock Text="{Binding ConfirmTitle}"
+                               FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap"
+                               Foreground="{DynamicResource PopupForegroundBrush}" />
+                    <TextBlock Text="{Binding ConfirmDescription}"
+                               FontSize="12" TextWrapping="Wrap" LineHeight="18"
+                               Foreground="{DynamicResource PopupMutedForegroundBrush}" />
+                    <CheckBox IsChecked="{Binding IsAcknowledged, Mode=TwoWay}"
+                              Content="{Binding ConfirmAcknowledgeText}"
+                              FontSize="12"
+                              Foreground="{DynamicResource PopupForegroundBrush}" />
+                    <StackPanel Orientation="Horizontal" Spacing="8"
+                                HorizontalAlignment="Right">
+                        <Button Classes="approval-reject"
+                                Content="{Binding ConfirmCancelText}"
+                                Command="{Binding CancelSwitchCommand}" />
+                        <Button Classes="approval-allow"
+                                Content="{Binding ConfirmEnableText}"
+                                Command="{Binding ConfirmSwitchCommand}"
+                                IsEnabled="{Binding IsAcknowledged}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Popup>
+    </Panel>
+</UserControl>

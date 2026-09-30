@@ -35,9 +35,9 @@
                          AcceptsReturn="True"
                          TextWrapping="Wrap"
                          ScrollViewer.VerticalScrollBarVisibility="Auto" />
-                <!-- 工具行：左侧保留命令入口，右侧模型选择与发送按钮同基线，
+                <!-- 工具行：左侧为附件占位与执行权限预设，右侧模型选择与发送按钮同基线，
                      对齐 WebUI 的 Input_Bottom chrome。 -->
-                <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
+                <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto" ColumnSpacing="10">
                     <Button Classes="composer-icon"
                             IsEnabled="False"
                             VerticalAlignment="Center"
@@ -48,11 +48,14 @@
                                   StrokeThickness="2" />
                         </Viewbox>
                     </Button>
-                    <!-- 右侧区域：模型/推理等级选择与发送/停止同基线；两级弹出菜单为
+                    <!-- 执行权限预设紧贴左侧加号；仅在有选中会话时可见（权限是会话级状态）。
+                         右侧区域：模型/推理等级选择与发送/停止同基线；两级弹出菜单为
                          ComposerView 与新对话草稿页共用的 ModelPickerView 控件。 -->
-                    <conversation:ModelPickerView Grid.Column="2" VerticalAlignment="Center"
+                    <conversation:PermissionSelectorView Grid.Column="1" VerticalAlignment="Center"
+                                                         DataContext="{Binding PermissionSelector}" />
+                    <conversation:ModelPickerView Grid.Column="3" VerticalAlignment="Center"
                                                   DataContext="{Binding Composer}" />
-                    <Panel Grid.Column="3" Width="34" Height="34">
+                    <Panel Grid.Column="4" Width="34" Height="34">
                         <Button Classes="composer-stop"
                                 Command="{Binding Composer.CancelCommand}"
                                 IsVisible="{Binding Composer.IsSessionRunning}"

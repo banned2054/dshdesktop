@@ -16,12 +16,10 @@ public static class RpcEnvelope
         string rpcId, string method, TRequest request, JsonTypeInfo<TRequest> requestType, string argName = "request")
     {
         var requestElement = JsonSerializer.SerializeToElement(request, requestType);
-        var payload = JsonSerializer.SerializeToElement(
-                                                        new StreamPayloadWire(new Dictionary<string, JsonElement>
-                                                        {
-                                                            [argName] = requestElement
-                                                        }),
-                                                        HarnessJsonContext.Default.StreamPayloadWire);
+        var payload =
+            JsonSerializer.SerializeToElement(new StreamPayloadWire(new Dictionary<string, JsonElement>
+                                                                        { [argName] = requestElement }),
+                                              HarnessJsonContext.Default.StreamPayloadWire);
         var envelope = new RpcRequestEnvelope("client-request", rpcId, method, payload);
         return JsonSerializer.Serialize(envelope, HarnessJsonContext.Default.RpcRequestEnvelope);
     }
@@ -35,6 +33,26 @@ public static class RpcEnvelope
         return JsonSerializer.Serialize(envelope, HarnessJsonContext.Default.RpcRequestEnvelope);
     }
 
+    /// <summary>
+    ///     构建多命名参数方法的请求体：args 是请求 DTO 的扁平属性表，无 request 包装
+    ///     （如 commands/execute 的 { agentId, line, submittedAttachments }）。
+    /// </summary>
+    public static string BuildArgsRequest<TRequest>(
+        string rpcId, string method, TRequest request, JsonTypeInfo<TRequest> requestType)
+    {
+        var requestElement = JsonSerializer.SerializeToElement(request, requestType);
+        var args           = new Dictionary<string, JsonElement>();
+        if (requestElement.ValueKind == JsonValueKind.Object)
+            foreach (var property in requestElement.EnumerateObject())
+                args[property.Name] = property.Value.Clone();
+
+        var payload =
+            JsonSerializer.SerializeToElement(new StreamPayloadWire(args),
+                                              HarnessJsonContext.Default.StreamPayloadWire);
+        var envelope = new RpcRequestEnvelope("client-request", rpcId, method, payload);
+        return JsonSerializer.Serialize(envelope, HarnessJsonContext.Default.RpcRequestEnvelope);
+    }
+
     /// <summary>解析 server-response；ok 为 false 时携带 code/message。</summary>
     public static RpcResponse ParseResponse(string json)
     {
@@ -43,7 +61,7 @@ public static class RpcEnvelope
         if (root.ValueKind != JsonValueKind.Object) throw new JsonException("响应不是 JSON 对象。");
 
         var rpcId = root.TryGetProperty("rpcId", out var rpcIdElement) &&
-                  rpcIdElement.ValueKind == JsonValueKind.String
+                    rpcIdElement.ValueKind == JsonValueKind.String
             ? rpcIdElement.GetString() ?? string.Empty
             : string.Empty;
         if (!root.TryGetProperty("result", out var result) || result.ValueKind != JsonValueKind.Object)
@@ -53,7 +71,7 @@ public static class RpcEnvelope
         if (ok)
         {
             var value = result.TryGetProperty("value", out var valueElement) &&
-                      valueElement.ValueKind is not (JsonValueKind.Undefined or JsonValueKind.Null)
+                        valueElement.ValueKind is not (JsonValueKind.Undefined or JsonValueKind.Null)
                 ? (JsonElement?)valueElement.Clone()
                 : null;
             return new RpcResponse(rpcId, true, value, null, null);

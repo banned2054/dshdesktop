@@ -23,20 +23,25 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     private readonly Lock           _followGate = new();
     private readonly Action<Action> _postToUi;
 
-    private readonly ISessionService      _sessionService;
-    private readonly IToolApprovalService _toolApprovalService;
-    private readonly IWorkspaceService    _workspaceService;
+    private readonly IPermissionPresetService _permissionPresetService;
+    private readonly ISessionService          _sessionService;
+    private readonly IToolApprovalService     _toolApprovalService;
+    private readonly IWorkspaceService        _workspaceService;
 
     // 时间线组装状态：快照、增量与翻页共用同一套分组规则。
     private TimelineAssembly _assembly;
     private string?          _draftAgentPreset = AgentPresetModes.Default;
     private ModelSelection?  _draftModelSelection;
 
+    // 新对话草稿的本地权限预选（与模型预选同一模式）：选择器回调记账并递增草稿版本，
+    // 首发送创建会话后、发送首条消息前经 /permission 应用（会话创建参数不携带权限）。
+    private string? _draftPermissionPreset;
+
     // 待复用会话记账：AttachCompleted 区分「会话已创建但工作区关联未完成」（重试须先恢复
     // 关联）与「关联已完成、仅后续选型或发送失败」（重试直接复用，不再创建）。AgentPreset
     // 记录创建时的绑定模式：改选后失配失效（preset 已在创建时固定），重试按新选择创建。
     private (string SessionId, string? WorkspaceId, bool WithoutWorkspace, string? AgentPreset,
-              bool AttachCompleted)? _draftPendingSession;
+        bool AttachCompleted)? _draftPendingSession;
 
     private bool _draftWithoutWorkspace;
 
@@ -106,24 +111,32 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     }
 
     public MainWindowViewModel(
-        ISessionService      sessionService,
-        IBackendHostService  backendHostService,
-        IWorkspaceService    workspaceService,
-        IToolApprovalService toolApprovalService,
-        bool                 isSimulatedMode = true,
-        Action<Action>?      postToUi        = null)
+        ISessionService           sessionService,
+        IBackendHostService       backendHostService,
+        IWorkspaceService         workspaceService,
+        IToolApprovalService      toolApprovalService,
+        bool                      isSimulatedMode         = true,
+        Action<Action>?           postToUi                = null,
+        IPermissionPresetService? permissionPresetService = null)
     {
-        _sessionService      = sessionService;
-        _backendHostService  = backendHostService;
-        _toolApprovalService = toolApprovalService;
-        _workspaceService    = workspaceService;
-        IsSimulationMode     = isSimulatedMode;
-        _postToUi            = postToUi ?? (action => action());
+        _sessionService          = sessionService;
+        _backendHostService      = backendHostService;
+        _toolApprovalService     = toolApprovalService;
+        _workspaceService        = workspaceService;
+        _permissionPresetService = permissionPresetService ?? EmptyPermissionPresetService.Instance;
+        IsSimulationMode         = isSimulatedMode;
+        _postToUi                = postToUi ?? (action => action());
         // 草稿/发送/取消与模型选择已迁入 Composer；失败仍走窗口级 ErrorText（null 表示清除）。
         // 发送被接受时 root 立即把会话标记为已开始（不等后端帧回流）。草稿页的本地预选
         // 模型经回调记入草稿（不发 RPC），首发送创建会话后再应用。
-        Composer = new ComposerViewModel(sessionService, text => ErrorText = text ?? string.Empty,
-                                         HandlePromptAccepted, OnDraftModelChanged);
+        Composer = new ComposerViewModel(sessionService, text => ErrorText = text ?? string.Empty, HandlePromptAccepted,
+                                         OnDraftModelChanged);
+        // 执行权限选择器：目录与切换经独立服务，投影权威值由 root 转发（ApplySessionUpdate），
+        // 会话与连接上下文随选中变化推送；草稿页做本地预选（回调记入草稿，首发送后应用）。
+        // 审批（ApprovalPanel）与本选择器互不干涉。
+        PermissionSelector = new PermissionSelectorViewModel(_permissionPresetService,
+                                                             text => ErrorText = text ?? string.Empty, _postToUi,
+                                                             OnDraftPermissionChanged);
         // 会话列表已迁入 Sidebar：选中切换仍由 root 编排（follow、Composer 与审批随 active
         // session 联动），Sidebar 只在用户操作或选中缺失/消失时经回调请求切换；
         // 新建入口统一交给 root 的编排流程（目标解析、复用与防重都在 root）。
@@ -155,6 +168,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         // null→null 不触发 setter）时目录加载完成后菜单即可用；重复进入草稿页的
         // 初始化（SetDraftTarget 等）均可安全重入。
         Composer.SetDraftTarget(true);
+        PermissionSelector.SetDraftTarget(true);
     }
 
     public ObservableCollection<ConversationItemViewModel> ConversationItems { get; } = [];
@@ -164,6 +178,13 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
 
     /// <summary>底部输入区子视图模型：草稿、发送/取消与模型选择；会话/后端上下文由本类在状态变化时推送。</summary>
     public ComposerViewModel Composer { get; }
+
+    /// <summary>
+    ///     执行权限选择子视图模型：当前会话权限预设的展示与切换。目录经 IPermissionPresetService
+    ///     （catalog-changed 广播自行重读），当前权限以 permissions 投影为唯一权威，
+    ///     由本类经 <see cref="ApplySessionUpdate" /> 转发。
+    /// </summary>
+    public PermissionSelectorViewModel PermissionSelector { get; }
 
     /// <summary>左侧会话列表子视图模型：条目、分组投影与新建；选中会话由本类持有并推送给它维护高亮。</summary>
     public SidebarViewModel Sidebar { get; }
@@ -205,7 +226,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     /// <summary>模式下拉按钮文案：当前草稿预选模式的显示名。</summary>
     public string PresetPickerLabel =>
         AgentPresetOptions.FirstOrDefault(option => option.Id == _draftAgentPreset)?.Name
-        ?? _draftAgentPreset ?? "选择模式";
+     ?? _draftAgentPreset ?? "选择模式";
 
     /// <summary>
     ///     下拉滚动区条目：真实工作区（与 <see cref="WorkspaceOptions" /> 同源同序，不含兼容项）。
@@ -265,6 +286,11 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
             Sidebar.ApplySelectedSession(value);
             if (value is not null) Sidebar.SetDraftPageActive(false);
             Composer.SetDraftTarget(value is null);
+            // 权限选择器随选中目标切换：会话内以投影基线回流为准（快照或 control 帧提供）；
+            // 进入草稿页时恢复该草稿的权限预选显示（与模型预选同一恢复路径）。
+            PermissionSelector.SetDraftTarget(value is null);
+            PermissionSelector.SetSession(value?.Id);
+            if (value is null) PermissionSelector.ApplyDraftPreset(_draftPermissionPreset);
             // 装载草稿/会话文本属于既有内容的恢复（切走又回来是同一份草稿），不是用户新
             // 意图：guard 让版本不因导航往返递增，首发送的迟到结果仍能正确识别草稿身份。
             _isRestoringComposerDraft = true;
@@ -402,6 +428,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         if (SelectedSession is not null) SelectedSession.PropertyChanged -= OnSelectedSessionPropertyChanged;
 
         Sidebar.Dispose();
+        PermissionSelector.Dispose();
         _backendHostService.StatusChanged     -= OnBackendStatusChanged;
         _toolApprovalService.ApprovalsChanged -= OnApprovalsChanged;
         _workspaceService.WorkspacesChanged   -= OnWorkspacesChanged;
@@ -496,6 +523,9 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
             {
                 ErrorText = $"模型目录加载失败：{exception.Message}";
             }
+
+        // 权限预设目录独立加载：失败只让权限选择器保持不可用态，不报窗口级错误、不影响聊天。
+        if (IsBackendConnected) await PermissionSelector.ReloadCatalogSafeAsync(cancellationToken);
 
         await RefreshWorkspaceOptionsAsync();
     }
@@ -655,6 +685,11 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
 
             case SessionUpdate.StatsUpdated statsUpdate :
                 Composer.ApplyStats(statsUpdate.Seq, statsUpdate.Stats);
+                break;
+
+            // 权限投影整值更新转发权限选择器（唯一权威来源；gating 同样在选择器内）。
+            case SessionUpdate.PermissionsUpdated permissions :
+                PermissionSelector.ApplyPermission(permissions.Seq, permissions.CurrentValue);
                 break;
 
             case SessionUpdate.StreamStarted started :
@@ -829,11 +864,15 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
             OnPropertyChanged(nameof(IsBackendConnected));
             OnPropertyChanged(nameof(IsBackendDisconnected));
             Composer.SetBackendConnected(IsBackendConnected);
+            PermissionSelector.SetBackendConnected(IsBackendConnected);
             SendDraftCommand.RaiseCanExecuteChanged();
             LoadOlderCommand.RaiseCanExecuteChanged();
             if (IsBackendConnected)
+            {
                 // 重连后代目录可能变化，重新拉取（只读，可安全重试）。
                 _ = Composer.RefreshModelCatalogSafeAsync();
+                _ = PermissionSelector.ReloadCatalogSafeAsync();
+            }
         });
     }
 
@@ -1032,6 +1071,33 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         }
     }
 
+    /// <summary>未提供权限预设服务时的空实现：目录为空（选择器保持不可用态），切换请求无效果。</summary>
+    private sealed class EmptyPermissionPresetService : IPermissionPresetService
+    {
+        public static EmptyPermissionPresetService Instance { get; } = new();
+
+        private static readonly PermissionCatalog Catalog = new([], PermissionPresetValues.WorkspaceWrite);
+
+        public event EventHandler? CatalogChanged
+        {
+            add { }
+            remove { }
+        }
+
+        public Task<PermissionCatalog> GetCatalogAsync(CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(Catalog);
+        }
+
+        public Task<bool> SwitchPresetAsync(string            sessionId, string preset,
+                                            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(false);
+        }
+    }
+
     #region 新对话草稿页与首发送编排
 
     private int _connectingCount;
@@ -1161,23 +1227,24 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     {
         if (_isDraftSendInFlight || SelectedSession is not null) return;
 
-        var textAtSend        = Composer.DraftMessage;
-        var content           = textAtSend.Trim();
-        var generationAtStart = Volatile.Read(ref _navigationGeneration);
-        var versionAtSend     = Volatile.Read(ref _draftVersion);
-        var withoutWorkspace  = _draftWithoutWorkspace;
-        var workspaceId       = withoutWorkspace ? null : _draftWorkspaceId;
-        var presetAtSend      = _draftAgentPreset;
-        var preselectedModel  = _draftModelSelection;
+        var textAtSend            = Composer.DraftMessage;
+        var content               = textAtSend.Trim();
+        var generationAtStart     = Volatile.Read(ref _navigationGeneration);
+        var versionAtSend         = Volatile.Read(ref _draftVersion);
+        var withoutWorkspace      = _draftWithoutWorkspace;
+        var workspaceId           = withoutWorkspace ? null : _draftWorkspaceId;
+        var presetAtSend          = _draftAgentPreset;
+        var preselectedModel      = _draftModelSelection;
+        var preselectedPermission = _draftPermissionPreset;
         _isDraftSendInFlight = true;
         BeginConnecting();
         try
         {
             ErrorText = string.Empty;
             string sessionId;
-            if (_draftPendingSession is { } pending                                          &&
-                pending.WithoutWorkspace == withoutWorkspace                                 &&
-                pending.WorkspaceId      == workspaceId                                      &&
+            if (_draftPendingSession is { } pending          &&
+                pending.WithoutWorkspace == withoutWorkspace &&
+                pending.WorkspaceId      == workspaceId      &&
                 pending.AgentPreset      == presetAtSend)
             {
                 sessionId = pending.SessionId;
@@ -1210,6 +1277,12 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
             if (preselectedModel != null)
                 await _sessionService.SelectModelAsync(sessionId, preselectedModel.Provider, preselectedModel.Model,
                                                        preselectedModel.ReasoningEffort);
+
+            if (preselectedPermission is { } preselectedPreset)
+                // 草稿页预选的权限预设：会话创建参数不携带权限，在首条消息前经 /permission 应用，
+                // 让首轮即按预选执行；重复应用同值无副作用（待复用重试路径安全）。宿主无该命令
+                // （matched=false）时不阻塞发送——会话实际生效值由投影回流展示。
+                await _permissionPresetService.SwitchPresetAsync(sessionId, preselectedPreset);
 
             await _sessionService.SendPromptAsync(sessionId, Guid.NewGuid().ToString(), content);
 
@@ -1267,6 +1340,13 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         Interlocked.Increment(ref _draftVersion);
     }
 
+    /// <summary>草稿页本地预选权限预设（权限选择器回调，无 RPC）：记入草稿并形成新的草稿版本；会话创建后、首条消息前经 /permission 应用。</summary>
+    private void OnDraftPermissionChanged(string preset)
+    {
+        _draftPermissionPreset = preset;
+        Interlocked.Increment(ref _draftVersion);
+    }
+
     /// <summary>
     ///     首发送被接受后收束旧发送的快照。待复用记账无条件作废：会话已进入正常流程，
     ///     不再适用失败重试语义。草稿自快照以来未变（版本一致）时整份消费：移除草稿
@@ -1284,7 +1364,8 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
             _drafts.Remove(string.Empty);
             if (SelectedSession is null) Composer.DraftMessage = string.Empty;
 
-            _draftModelSelection = null;
+            _draftModelSelection   = null;
+            _draftPermissionPreset = null;
 
             _draftAgentPreset            = AgentPresetModes.Default;
             _draftWorkspaceId            = null;
@@ -1295,6 +1376,8 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         RefreshConversationPhase();
         RefreshWorkspaceSelectionMarks();
         RefreshPresetSelectionMarks();
+        // 仍停留草稿页（未导航进新会话）时，预选清空后选择器回退目录默认显示。
+        if (SelectedSession is null) PermissionSelector.ApplyDraftPreset(_draftPermissionPreset);
     }
 
     /// <summary>首发送编排期间合并连点（按钮禁用之外的第二道防线）。</summary>

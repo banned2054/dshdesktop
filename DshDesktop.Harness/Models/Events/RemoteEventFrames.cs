@@ -33,6 +33,9 @@ public static class RemoteEventJson
     /// <summary>审批瀑布的事件名（interaction/user-approval 的 answerer waterfall）。</summary>
     public const string ApprovalRequestEvent = "approval/request";
 
+    /// <summary>权限预设目录变化广播（interaction/permission-presets 的 emit；payload-free）。</summary>
+    public const string PermissionCatalogChangedEvent = "permission-presets/catalog-changed";
+
     public static RemoteEventFrame? Parse(JsonElement element)
     {
         if (element.ValueKind != JsonValueKind.Object            ||

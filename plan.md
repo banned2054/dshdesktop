@@ -120,7 +120,7 @@ Host 适配层候选方案：独立 Node launcher 通过 Node IPC 管理原 Host
 
 ## 阶段 3：可日常使用的会话界面
 
-状态：进行中。已完成：助手气泡 Markdown 渲染（2026-09-20）、历史消息加载与会话切换、工具调用状态/结果/错误展示（2026-09-20）、按轮次折叠过程组（turn-process 对齐，2026-09-20）、空气泡修复与助手无气泡样式（2026-09-20）、思考（reasoning）展示与「加载更早」按钮分页（2026-09-20）、会话列表按工作区分组与「单列表/按工作区」视图下拉（2026-09-21）、新建会话指定工作区归属（2026-09-24）、工具审批 waterfall 交互闭环（2026-09-21）、新对话草稿页取代即时空白会话流程（2026-09-29）、添加工作区登记（2026-09-29）。未开始：Markdown 复制交互复验、用户问题交互、断线专项验证、流式节流与长会话性能、输入法与快捷键验证。
+状态：进行中。已完成：助手气泡 Markdown 渲染（2026-09-20）、历史消息加载与会话切换、工具调用状态/结果/错误展示（2026-09-20）、按轮次折叠过程组（turn-process 对齐，2026-09-20）、空气泡修复与助手无气泡样式（2026-09-20）、思考（reasoning）展示与「加载更早」按钮分页（2026-09-20）、会话列表按工作区分组与「单列表/按工作区」视图下拉（2026-09-21）、新建会话指定工作区归属（2026-09-24）、工具审批 waterfall 交互闭环（2026-09-21）、新对话草稿页取代即时空白会话流程（2026-09-29）、添加工作区登记（2026-09-29）、Composer 执行权限预设选择（2026-09-30）。未开始：Markdown 复制交互复验、用户问题交互、断线专项验证、流式节流与长会话性能、输入法与快捷键验证。
 
 任务：
 
@@ -147,6 +147,7 @@ Host 适配层候选方案：独立 Node launcher 通过 Node IPC 管理原 Host
 - [x] 草稿页输入区沉底对齐正式会话与工作区下拉搜索（2026-09-29）：输入卡片由页面居中、限宽 720 改为沉底通栏，边距对齐正式会话输入区并复用 composer-panel/composer-input/composer-send 样式，卡片外侧补发送状态与键盘提示带；工作区下拉移至输入框上缘左对齐，面板重排为「搜索行 + 滚动工作区列表 + 固定底行（添加工作区占位禁用，后已接入 / 不使用工作区）」，搜索词输入即过滤（忽略大小写）、关闭面板清空；过滤会改变面板高度，Placement 钉死 TopEdgeAlignedLeft 防止上下跳动。SessionHeaderView 移除会话 ID 行与「本地桌面」徽标；PopupMenus 抽出 popup-search/popup-check 供草稿页与侧栏弹层共用；workspace-picker 显式垂直居中（Avalonia 12 Fluent 按钮 ControlTheme 不再默认 Center）。改动当时验证：全量构建（--no-incremental）0 错误、应用启动正常、测试 127 通过/7 跳过；提交前全量复验 0 错误、131 通过/7 跳过（含侧栏提交新增用例）。
 - [x] 启动即停留新对话草稿页（2026-09-29，用户调整）：`InitializeAsync` 在启动后端与首次列表刷新之前先置草稿页守卫（`Sidebar.SetDraftPageActive(true)`），初始化与后台事件触发的刷新都不再把启动页抢成自动选中的旧会话——应用打开即草稿页；用户选中会话时守卫随 `SelectedSession` setter 解除。`MainWindowViewModelTests` 抽出 `SelectFirstSessionAsync` 辅助（需要会话上下文的测试显式选中第一条可见会话），草稿守卫测试改为直接断言「启动即草稿页、选中为空、后台刷新不抢回」。全量构建 0 错误、测试 131 通过/7 跳过。
 - [x] 添加工作区登记（2026-09-29）：侧栏头部与草稿页工作区下拉底行的两处「添加工作区」占位按钮接线为同一链路——视图 code-behind 经 `Utils/FolderPicker`（`StorageProvider.OpenFolderPickerAsync`，`TryGetLocalPath` 取本地路径）取得所选目录后交给 `MainWindowViewModel.RegisterWorkspaceAsync`（在途标记合并连点，失败呈现窗口级错误条，成功不做额外动作、不自动预选）；Core `IWorkspaceService` 新增 `RegisterWorkspaceAsync(path)` 契约，Harness 实现调 `workspace/create`（复用既有线模型与 JSON 注册，信封 `{request:{path}}` camelCase；后端按 realpath 幂等去重、title 自动取路径末段、新行插列表头部），返回工作区行仅供即时反馈，投影经 `workspace/follow` upsert 回流自动刷新下拉选项与侧栏分组；模拟服务对齐语义（路径去重、插头部、事件回流）。验证：`dotnet build DshDesktop.slnx` 0 错误（6 条既有 xUnit2013 警告）；Debug 全套 133 通过/7 跳过（新增登记成功刷新、失败报错 2 用例）；真实 Host E2E（`DSH_E2E_RUNTIME_DIR`）登记步骤改走 `RegisterWorkspaceAsync` 后通过，含幂等重复登记返回同一工作区；PowerShell UIA 冒烟（模拟模式）侧栏按钮已启用、下拉内两处按钮均启用、Esc 收起正常。未验证：原生文件夹对话框内的真实选择体验（本环境无法自动化），待用户界面验证。
+- [x] Composer 执行权限预设选择（2026-09-30）：会话级权限预设（sandbox 模式 × 审批策略打包的命名档位）在 Composer 模型选择器旁可查看与切换——目录来自 `permissionPresets/catalog`（`permission-presets/catalog-changed` 广播触发重读），当前权限以 `permissions` 投影为唯一权威（用户点选只是请求、不做乐观更新、失败保持旧值），切换经 `commands/execute` 提交 `/permission <preset>` 命令行（与 WebUI 同一后端能力），`danger-full-access`/`auto` 走必勾风险确认门（文案对齐 WebUI permission.access zh 字典）；与工具审批（ApprovalPanel 的 allowed-once）互相独立：单次裁决不改变当前预设。同日扩展至新对话草稿页（用户要求）：草稿页做本地预选（无会话不发 RPC，与模型预选同一模式——点选经回调记入草稿并递增草稿版本，未预选时显示 catalog 默认），首发送创建会话后、首条消息前经 `/permission` 应用（`session/create` 无权限参数），此后由投影回流接管；确认门在草稿页同样生效，选目录默认值不产生草稿改动。协议核对与验证记录见「阶段 3 Composer 执行权限预设选择验证记录（2026-09-30）」。
 
 ### 阶段 3 新对话草稿页验证记录（Windows 11 x64，2026-09-29）
 
@@ -203,7 +204,7 @@ Host 适配层候选方案：独立 Node launcher 通过 Node IPC 管理原 Host
 任务：
 
 - [ ] 工作区选择、最近工作区及原生目录选择器（2026-09-29 部分完成：新对话草稿页的工作区下拉（含显式「不使用工作区」）已随草稿页落地，见阶段 3 记录；原"最近工作区目标解析"已随草稿页收束移除；剩余：原生目录选择器登记新工作区与工作区管理界面）。
-- [ ] 模型配置、必要权限设置和后端能力展示。
+- [ ] 模型配置、必要权限设置和后端能力展示。（2026-09-30 部分完成：会话内权限预设的查看与切换已随 Composer 落地，见阶段 3；剩余：Settings 新会话默认预设 `permission.defaultPreset`、模型配置与后端能力展示。）
 - [ ] 附件上传与基础展示。
 - [ ] 桌面偏好保存、日志诊断以及与普通设置分离的凭据处理（新对话草稿的跨重启恢复依赖本条设置设施；2026-09-29 范围修正明确暂不做，进程内草稿已落地）。
 - [ ] 对不支持的插件界面或后端能力给出明确状态。
@@ -442,6 +443,24 @@ UI 层目录重构验证记录（Windows 10 x64，2026-09-22）：
 - 真实 Host E2E（`DSH_E2E_RUNTIME_DIR=<0.1.7-rc.2 runtime>`）：新增 `SessionCreateBindsRequestedAgentPresetOnRealHost` 通过——带 `agentPreset: "minimal"` 创建回显 `minimal`、不带创建回显默认 `standard`，证明字段名与一步直传绑定在真实后端生效。
 - UI 交互冒烟（PowerShell UIAutomation 驱动模拟模式窗口）：模式下拉按钮点开、四条目（标准/PTC/极简/创造）可见、点选「PTC 模式」后按钮文案切换为「PTC 模式」，全部通过。
 - 未验证：Native AOT 发布未重跑（无新增依赖，XAML 编译绑定 `x:DataType` 齐备）；真实凭据下创造模式开新会话的端到端表现；macOS/Linux；弹出菜单在深浅两主题下的逐项目检。
+
+### 阶段 3 Composer 执行权限预设选择验证记录（Windows 11 x64，2026-09-30）
+
+- 协议核对（dsh-v0.1.7-rc.2 @ 477b4f4205 源码，逐字段）：目录一元 RPC 为 `permissionPresets/catalog`（空 args；返回 `options[].{value,name,description?}` 与 `defaultPreset`，`defaultOptions` 本端无消费方不解析）；切换为 `commands/execute`，args 为扁平命名参数 `{agentId, line: "/permission <preset>", submittedAttachments: []}`（无 request 包装），结果 undefined 即宿主无该命令（WebUI matched=false 同语义）；preset 非法时命令 handler 返回 kind:error 而 RPC 仍成功——失败仅表现为投影保持旧值；当前权限投影键 `permissions`（view `{currentValue}`），初值随 follow 快照投影基线、实时更新走 `session/control` 的 projection 帧（seq 水位，乱序丢弃）；目录变化为 `$events` emit 帧 `permission-presets/catalog-changed`（payload-free，转发白名单内）；WebUI 对 `danger-full-access` 与 `auto` 的切换有必勾风险确认门（确认后与普通切换同一调用链），内置三键展示名由客户端映射（zh：仅可查看/工作区内修改/完全权限；宿主定制名透传），`custom` 派生态显示 "Custom" 且菜单无勾选行。desktop-host base 组合无条件挂载 permission 插件（read-only/workspace-write/danger-full-access，默认 workspace-write），无 capability 开关。
+- 实现：Core `IPermissionPresetService`（GetCatalogAsync/SwitchPresetAsync/CatalogChanged）+ `PermissionPresetValues`/`PermissionCatalog`/`PermissionPresetOption` + `SessionUpdate.PermissionsUpdated`；Harness 新增 `HarnessPermissionPresetService`、`commands/execute` 扁平参数信封（`RpcEnvelope.BuildArgsRequest` + RpcClient/Connection `InvokeArgsAsync`，重试语义同既有只读调用——/permission 重复设置同值无副作用可安全重放）、`permissions` 投影解析（follow 快照 + control 帧/基线三路）、catalog-changed emit 分发（HarnessConnection.PermissionCatalogChanged）；Infrastructure `SimulatedPermissionPresetService`（切换记账 + PresetApplied 由组装层接到会话服务模拟投影回流，确认路径与真实后端一致）；Desktop `PermissionSelectorViewModel`（投影唯一权威：点选只发请求、不乐观更新；在途禁用防冲突请求、收束即恢复；unknown 值回退派生展示不崩溃；目录加载中/失败为禁用与不可用态、不向窗口错误条泄漏）+ `PermissionSelectorView`（按钮 + 预设菜单 + 确认弹层，复用 popup-surface/popup-item 与 approval 按钮样式；选项行用捕获 this 的无参命令，避开草稿页下拉曾踩的漏 CommandParameter 坑）+ Composer 工具行接入（模型选择器右侧，`ColumnDefinitions` 增至 5 列）。
+- 与 ApprovalPanel 的关系：allowed-once 单次裁决不读写权限预设（根级测试断言审批通过后 CurrentValue 与切换记录均不变）。
+- `dotnet build DshDesktop.slnx`：0 错误（警告仍为既有 6 条 xUnit2013）。
+- `dotnet test`：161 通过、0 失败、8 按设计跳过。新增 26 用例：选择器纯行为 17（目录映射与展示名、投影权威与乱序 seq、点选发请求且不乐观更新、失败/命令缺失保持旧值并恢复可用、full access/auto 确认门与取消不发请求、已当前值跳过确认、未知值回退、在途禁用、会话切换重置、草稿页隐藏、断连禁用、catalog-changed 重读且不改写当前值、目录失败不可用不泄漏错误）+ 协议 JSON 7（catalog wire 解析映射、commands/execute 扁平信封、undefined 结果=命令缺失、permissions control 帧/基线/快照解析、catalog-changed emit）+ 根级集成 2（审批不触碰权限预设、投影回流经会话更新通道驱动选择器且切换走命令服务）。
+- 模拟模式冒烟（PowerShell UIA + PrintWindow）：选中会话后 Composer 工具行出现「工作区内修改 ▼」（投影基线驱动，内置键 zh 标签映射生效，位于模型选择器与发送按钮之间）；新对话草稿页（无会话）该控件整体隐藏，布局无回归。
+- 未验证：弹层内真实点击与确认弹层的窗口内视觉（权限菜单/确认弹层为本环境 UIA 限制，交互语义由 VM 测试覆盖，待用户界面验证）；真实后端 `permissionPresets/catalog` 与 `commands/execute` 端到端往返（协议形状经源码逐字段核对，真实 Host E2E 未重跑）；Native AOT 发布未重跑（无反射新增：JSON 全源生成、XAML 编译绑定、无 ViewLocator）；macOS/Linux。
+
+### 阶段 3 草稿页权限预选验证记录（Windows 11 x64，2026-09-30）
+
+- 语义（对齐模型预选的既有模式）：草稿页无会话、无投影，权限选择器在草稿页做**本地预选**——点选不发 RPC，经回调记入草稿并递增草稿版本（草稿身份随文本/工作区/模型/权限任一改动递增，导航往返不递增）；未预选时显示 catalog 的 `defaultPreset`（即新会话将被后端播种的值，非硬编码）。首发送编排按快照推进：create（校验工作区）→ 必要时 selectModel → **预选权限经 `commands/execute` 的 `/permission <preset>` 应用**（`session/create` 无权限参数；放在首条消息前，首轮即按预选执行；同值重复应用无副作用，待复用重试路径安全）→ prompt。宿主无该命令（matched=false）不阻塞发送，实际生效值由投影回流展示；预选的 full access/auto 确认门在草稿页同样生效。发送成功且草稿版本未变时预选随草稿整份消费；收养/复用路径与模型预选同语义重放（幂等）。
+- 实现：`PermissionSelectorViewModel` 增加 `SetDraftTarget`/`ApplyDraftPreset`/草稿回调（`IsVisible` 扩展为「有会话或草稿目标」，草稿页可用性不要求投影基线；`EffectiveValue` 统一会话投影值与草稿预选两个来源）；root 记账 `_draftPermissionPreset`（`OnDraftPermissionChanged`）、SelectedSession 切换时 `SetDraftTarget` + 进入草稿页恢复预选显示、`SendDraftAsync` 快照并在首发送应用、`ConsumeNewConversationDraft` 版本未变时整份消费；`NewConversationView` 底行接入选择器（加号右侧，与普通会话同位）。
+- `dotnet build DshDesktop.slnx`：0 错误（警告仍为既有 6 条 xUnit2013）。
+- `dotnet test`：167 通过、0 失败、8 按设计跳过。新增 6 用例：草稿页 VM 4（目录默认显示与本地预选不发包、full access 确认门后本地记账、选目录默认跳过回调、预选恢复与离开草稿清除）+ 根级 2（首发送把预选应用到新会话且经投影回流显示、未预选不产生 `/permission` 命令）。
+- 未验证：草稿页弹层真实点击（本环境 UIA 限制）；真实后端首发送 `/permission` 端到端；Native AOT 未重跑；macOS/Linux。
 
 后续每个阶段记录：实现范围、目标平台、必要验证命令、实际结果、未验证事项。只有验收通过的任务才标记完成。
 

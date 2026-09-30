@@ -101,6 +101,9 @@ public sealed class HarnessConnection(Func<CancellationToken, Task<BackendConnec
     /// <summary>后端取消了先前下达的瀑布请求（eventId）。</summary>
     public event EventHandler<string>? WaterfallCancelled;
 
+    /// <summary>后端广播权限预设目录变化（permission-presets/catalog-changed，emit 帧）。</summary>
+    public event EventHandler? PermissionCatalogChanged;
+
     /// <summary>新事件代就绪；旧代的未决瀑布已随代失效，待决列表应清空。</summary>
     public event EventHandler? EventGenerationReset;
 
@@ -230,6 +233,34 @@ public sealed class HarnessConnection(Func<CancellationToken, Task<BackendConnec
                         ?? throw new HarnessConnectionException("连接尚未建立。");
                 var rpc = new HarnessRpcClient(http);
                 return await rpc.InvokeEmptyAsync(method, valueType, cancellationToken)
+                                .ConfigureAwait(false);
+            }
+            catch (HarnessConnectionException) when (attempt < UnaryRetryAttempts - 1)
+            {
+                await Task.Delay(NextBackoff(attempt), cancellationToken).ConfigureAwait(false);
+            }
+    }
+
+    /// <summary>
+    ///     调用多命名参数方法（args 为请求 DTO 的扁平属性表，如 commands/execute）。
+    ///     载波故障按退避重试；命令本身须具备重放安全（如 /permission 重复设置同值无副作用）。
+    /// </summary>
+    public async Task<TValue> InvokeArgsAsync<TValue, TRequest>(
+        string                 method,
+        TRequest               request,
+        JsonTypeInfo<TRequest> requestType,
+        JsonTypeInfo<TValue>   valueType,
+        CancellationToken      cancellationToken)
+        where TRequest : notnull
+    {
+        for (var attempt = 0;; attempt++)
+            try
+            {
+                await EnsureConnectedAsync(cancellationToken).ConfigureAwait(false);
+                var http = CurrentHttp()
+                        ?? throw new HarnessConnectionException("连接尚未建立。");
+                var rpc = new HarnessRpcClient(http);
+                return await rpc.InvokeArgsAsync(method, request, requestType, valueType, cancellationToken)
                                 .ConfigureAwait(false);
             }
             catch (HarnessConnectionException) when (attempt < UnaryRetryAttempts - 1)
@@ -388,14 +419,17 @@ public sealed class HarnessConnection(Func<CancellationToken, Task<BackendConnec
                     throw new HarnessConnectionException("复用流通道已关闭。", exception);
                 }
 
-                if (frame.Kind == MuxFrameKind.Error)
-                    throw new HarnessRpcException(frame.ErrorCode ?? "gateway/unknown", frame.ErrorMessage ?? "复用流错误。");
+                switch (frame.Kind)
+                {
+                    case MuxFrameKind.Error :
+                        throw new HarnessRpcException(frame.ErrorCode    ?? "gateway/unknown",
+                                                      frame.ErrorMessage ?? "复用流错误。");
+                    case MuxFrameKind.End :
+                        return;
+                }
 
-                if (frame.Kind == MuxFrameKind.End) return;
-
-                if (frame.Kind == MuxFrameKind.Item &&
-                  frame.Value is not null &&
-                  parse(frame.Value.Value) is { } parsed)
+                if (frame is { Kind: MuxFrameKind.Item, Value: not null } &&
+                    parse(frame.Value.Value) is { } parsed)
                     await writer.WriteAsync(parsed, cancellationToken).ConfigureAwait(false);
             }
         }
@@ -405,9 +439,8 @@ public sealed class HarnessConnection(Func<CancellationToken, Task<BackendConnec
         }
     }
 
-    private async IAsyncEnumerable<TFrame> ReadChannelAsync<TFrame>(ChannelReader<TFrame> reader,
-                                                                    [EnumeratorCancellation]
-                                                                    CancellationToken cancellationToken)
+    private async IAsyncEnumerable<TFrame> ReadChannelAsync<TFrame>(
+        ChannelReader<TFrame> reader, [EnumeratorCancellation] CancellationToken cancellationToken)
         where TFrame : class
     {
         while (await reader.WaitToReadAsync(cancellationToken).ConfigureAwait(false))
@@ -469,6 +502,10 @@ public sealed class HarnessConnection(Func<CancellationToken, Task<BackendConnec
                             RaiseSessionActivityAddressed(new SessionActivityNotice(emit.Event, activitySessionId));
                         break;
 
+                    case RemoteEventFrame.Emit { Event: RemoteEventJson.PermissionCatalogChangedEvent } :
+                        RaisePermissionCatalogChanged();
+                        break;
+
                     case RemoteEventFrame.Waterfall { Event: RemoteEventJson.ApprovalRequestEvent } waterfall :
                         // 审批走交互闭环：交给待决列表等待用户裁决，不再自动拒绝。
                         RaiseApprovalRequested(waterfall);
@@ -509,9 +546,7 @@ public sealed class HarnessConnection(Func<CancellationToken, Task<BackendConnec
         await rpc.InvokeAsync("$events/result",
                               new EventsResultRequest(clientId, eventId,
                                                       new EventsOutcomeWire("result",
-                                                                            allowed
-                                                                                ? "allowed-once"
-                                                                                : "rejected")),
+                                                                            allowed ? "allowed-once" : "rejected")),
                               HarnessJsonContext.Default.EventsResultRequest,
                               HarnessJsonContext.Default.SessionAcceptedValue, cancellationToken)
                  .ConfigureAwait(false);
@@ -723,6 +758,18 @@ public sealed class HarnessConnection(Func<CancellationToken, Task<BackendConnec
         catch (Exception)
         {
             // 事件处理器异常不影响连接管理。
+        }
+    }
+
+    private void RaisePermissionCatalogChanged()
+    {
+        try
+        {
+            PermissionCatalogChanged?.Invoke(this, EventArgs.Empty);
+        }
+        catch (Exception)
+        {
+            // 事件处理器异常不影响事件循环。
         }
     }
 

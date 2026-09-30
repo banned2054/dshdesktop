@@ -16,7 +16,8 @@ public abstract record FollowFrame
         ModelSelection?                 CurrentModel      = null,
         SessionUsage?                   Usage             = null,
         SessionStats?                   Stats             = null,
-        long                            ProjectionAsOfSeq = 0) : FollowFrame;
+        long                            ProjectionAsOfSeq = 0,
+        string?                         CurrentPermission = null) : FollowFrame;
 
     public sealed record EventFrame(SessionWireEvent Event) : FollowFrame;
 
@@ -70,23 +71,29 @@ public static class FollowFrameJson
 
                 var hasMore = element.TryGetProperty("hasMore", out var hasMoreElement) &&
                               hasMoreElement.ValueKind == JsonValueKind.True;
-                var           title  = ReadTitleProjection(element);
-                var           values = ReadProjectionValues(element, out var projectionAsOfSeq);
-                SessionUsage? usage  = null;
-                SessionStats? stats  = null;
-                if (values.ValueKind == JsonValueKind.Object)
-                {
-                    if (values.TryGetProperty(SessionControlFrameJson.UsageKey, out var usageElement))
-                        usage = ProjectionValuesJson.ParseUsage(usageElement);
+                var           title      = ReadTitleProjection(element);
+                var           values     = ReadProjectionValues(element, out var projectionAsOfSeq);
+                SessionUsage? usage      = null;
+                SessionStats? stats      = null;
+                string?       permission = null;
+                if (values.ValueKind != JsonValueKind.Object)
+                    return new FollowFrame.Snapshot(header ?? new SessionWireHeader(0, string.Empty, 0, null, null,
+                                                        false, null, null), cursor, records, hasMore, title,
+                                                    ReadModelSelectionProjection(element), usage, stats,
+                                                    projectionAsOfSeq, permission);
+                if (values.TryGetProperty(SessionControlFrameJson.UsageKey, out var usageElement))
+                    usage = ProjectionValuesJson.ParseUsage(usageElement);
 
-                    if (values.TryGetProperty(SessionControlFrameJson.StatsKey, out var statsElement))
-                        stats = ProjectionValuesJson.ParseStats(statsElement);
-                }
+                if (values.TryGetProperty(SessionControlFrameJson.StatsKey, out var statsElement))
+                    stats = ProjectionValuesJson.ParseStats(statsElement);
+
+                if (values.TryGetProperty(SessionControlFrameJson.PermissionsKey, out var permissionElement))
+                    permission = ProjectionValuesJson.ParsePermissions(permissionElement);
 
                 return new FollowFrame.Snapshot(header ?? new SessionWireHeader(0, string.Empty, 0, null, null, false,
                                                                                     null, null), cursor, records,
                                                 hasMore, title, ReadModelSelectionProjection(element), usage, stats,
-                                                projectionAsOfSeq);
+                                                projectionAsOfSeq, permission);
             }
 
             case "event" :
@@ -109,34 +116,34 @@ public static class FollowFrameJson
 
     private static SessionWireHeader ParseHeader(JsonElement element)
     {
-        return new SessionWireHeader(element.TryGetProperty("version", out var version) &&
-                                     version.TryGetInt32(out var v)
-                                         ? v
-                                         : 0,
-                                     element.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String
-                                         ? id.GetString() ?? string.Empty
-                                         : string.Empty,
-                                     element.TryGetProperty("createdAt", out var createdAt) &&
-                                     createdAt.TryGetInt64(out var created)
-                                         ? created
-                                         : 0,
-                                     element.TryGetProperty("cwd", out var cwd) && cwd.ValueKind == JsonValueKind.String
-                                         ? cwd.GetString()
-                                         : null,
-                                     element.TryGetProperty("parentSession", out var parent) &&
-                                     parent.ValueKind == JsonValueKind.String
-                                         ? parent.GetString()
-                                         : null,
-                                     element.TryGetProperty("isSeeded", out var seeded) &&
-                                     seeded.ValueKind == JsonValueKind.True,
-                                     element.TryGetProperty("origin", out var origin) &&
-                                     origin.ValueKind == JsonValueKind.String
-                                         ? origin.GetString()
-                                         : null,
-                                     element.TryGetProperty("agentPreset", out var preset) &&
-                                     preset.ValueKind == JsonValueKind.String
-                                         ? preset.GetString()
-                                         : null);
+        return new
+            SessionWireHeader(element.TryGetProperty("version", out var version) && version.TryGetInt32(out var v)
+                                  ? v
+                                  : 0,
+                              element.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String
+                                  ? id.GetString() ?? string.Empty
+                                  : string.Empty,
+                              element.TryGetProperty("createdAt", out var createdAt) &&
+                              createdAt.TryGetInt64(out var created)
+                                  ? created
+                                  : 0,
+                              element.TryGetProperty("cwd", out var cwd) && cwd.ValueKind == JsonValueKind.String
+                                  ? cwd.GetString()
+                                  : null,
+                              element.TryGetProperty("parentSession", out var parent) &&
+                              parent.ValueKind == JsonValueKind.String
+                                  ? parent.GetString()
+                                  : null,
+                              element.TryGetProperty("isSeeded", out var seeded) &&
+                              seeded.ValueKind == JsonValueKind.True,
+                              element.TryGetProperty("origin", out var origin) &&
+                              origin.ValueKind == JsonValueKind.String
+                                  ? origin.GetString()
+                                  : null,
+                              element.TryGetProperty("agentPreset", out var preset) &&
+                              preset.ValueKind == JsonValueKind.String
+                                  ? preset.GetString()
+                                  : null);
     }
 
     private static string? ReadTitleProjection(JsonElement snapshot)

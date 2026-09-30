@@ -20,8 +20,8 @@ public abstract record SessionControlFrame
         string        Key,
         SessionUsage? Usage,
         SessionStats? Stats,
-        long          Seq)
-        : SessionControlFrame;
+        long          Seq,
+        string?       PermissionValue = null) : SessionControlFrame;
 }
 
 /// <summary>一个会话的全部投影快照（线上形态；只解释消费的键）。</summary>
@@ -30,10 +30,12 @@ public sealed record SessionProjectionSnapshotWire(long AsOfSeq, JsonElement Val
 /// <summary>session/control 帧解析。</summary>
 public static class SessionControlFrameJson
 {
-    /// <summary>projection 帧仅在这两个键上有消费方；其余键解析为无载荷更新（忽略）。</summary>
+    /// <summary>projection 帧仅在这些键上有消费方；其余键解析为无载荷更新（忽略）。</summary>
     public const string UsageKey = "tokenUsage";
 
     public const string StatsKey = "sessionStats";
+
+    public const string PermissionsKey = "permissions";
 
     public static SessionControlFrame? Parse(JsonElement element)
     {
@@ -72,8 +74,9 @@ public static class SessionControlFrameJson
                     !seqElement.TryGetInt64(out var seq))
                     return null;
 
-                SessionUsage? usage = null;
-                SessionStats? stats = null;
+                SessionUsage? usage      = null;
+                SessionStats? stats      = null;
+                string?       permission = null;
                 if (!element.TryGetProperty("value", out var value))
                     return new SessionControlFrame.ProjectionUpdate(sessionId, key, usage, stats, seq);
                 switch (key)
@@ -84,9 +87,12 @@ public static class SessionControlFrameJson
                     case StatsKey :
                         stats = ProjectionValuesJson.ParseStats(value);
                         break;
+                    case PermissionsKey :
+                        permission = ProjectionValuesJson.ParsePermissions(value);
+                        break;
                 }
 
-                return new SessionControlFrame.ProjectionUpdate(sessionId, key, usage, stats, seq);
+                return new SessionControlFrame.ProjectionUpdate(sessionId, key, usage, stats, seq, permission);
             }
 
             default :
@@ -136,6 +142,20 @@ public static class ProjectionValuesJson
                TryGetDouble(element, "decodeMs", out var decodeMs) &&
                TryGetLong(element, "decodeTokens", out var decodeTokens)
             ? new SessionStats(turns, steps, llmMs, toolMs, ttftMs, ttftSteps, decodeMs, decodeTokens)
+            : null;
+    }
+
+    /// <summary>
+    ///     permissions 投影视图：{ currentValue }。currentValue 是会话当前生效的权限预设
+    ///     （可能是 'custom' 等不在 catalog 中的派生态），形状不符返回 null（保持无基线）。
+    /// </summary>
+    public static string? ParsePermissions(JsonElement element)
+    {
+        return element.ValueKind == JsonValueKind.Object               &&
+               element.TryGetProperty("currentValue", out var current) &&
+               current.ValueKind == JsonValueKind.String               &&
+               current.GetString() is { Length: > 0 } value
+            ? value
             : null;
     }
 

@@ -5,6 +5,7 @@ using Avalonia.Threading;
 using DshDesktop.Core.Services;
 using DshDesktop.Harness.Services.Approvals;
 using DshDesktop.Harness.Services.Connection;
+using DshDesktop.Harness.Services.Permissions;
 using DshDesktop.Harness.Services.Sessions;
 using DshDesktop.Harness.Services.Workspaces;
 using DshDesktop.Infrastructure.Services;
@@ -26,37 +27,46 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            var                  configuration = DesktopBackendConfiguration.FromEnvironment();
-            ISessionService      sessionService;
-            IWorkspaceService    workspaceService;
-            IBackendHostService  backendService;
-            IToolApprovalService toolApprovalService;
-            HarnessConnection?   connection      = null;
-            var                  isSimulatedMode = true;
+            var                    configuration = DesktopBackendConfiguration.FromEnvironment();
+            ISessionService        sessionService;
+            IWorkspaceService      workspaceService;
+            IBackendHostService    backendService;
+            IToolApprovalService   toolApprovalService;
+            IPermissionPresetService permissionPresetService;
+            HarnessConnection?     connection      = null;
+            var                    isSimulatedMode = true;
 
             if (configuration is { UseRealBackend: true, Options: { } options })
             {
                 var hostService = new NodeBackendHostService(options);
-                connection          = new HarnessConnection(hostService.StartAsync);
-                sessionService      = new HarnessSessionService(connection, configuration.PreferredModel);
-                workspaceService    = new HarnessWorkspaceService(connection);
-                backendService      = hostService;
-                toolApprovalService = new HarnessToolApprovalService(connection);
-                isSimulatedMode     = false;
+                connection              = new HarnessConnection(hostService.StartAsync);
+                sessionService          = new HarnessSessionService(connection, configuration.PreferredModel);
+                workspaceService        = new HarnessWorkspaceService(connection);
+                backendService          = hostService;
+                toolApprovalService     = new HarnessToolApprovalService(connection);
+                permissionPresetService = new HarnessPermissionPresetService(connection);
+                isSimulatedMode         = false;
             }
             else
             {
-                var simulatedWorkspaces = new SimulatedWorkspaceService();
-                sessionService      = new SimulatedSessionService(simulatedWorkspaces.AddSession);
-                workspaceService    = simulatedWorkspaces;
-                backendService      = new SimulatedBackendStatusService();
-                toolApprovalService = new SimulatedToolApprovalService();
+                var simulatedWorkspaces  = new SimulatedWorkspaceService();
+                var simulatedSessions    = new SimulatedSessionService(simulatedWorkspaces.AddSession);
+                var simulatedPermissions = new SimulatedPermissionPresetService();
+                // 切换确认与真实后端同路径：经 permissions 投影回流（不乐观更新）。
+                simulatedPermissions.PresetApplied += (_, applied) =>
+                    simulatedSessions.PushPermission(applied.SessionId, applied.Preset);
+                sessionService          = simulatedSessions;
+                workspaceService        = simulatedWorkspaces;
+                backendService          = new SimulatedBackendStatusService();
+                toolApprovalService     = new SimulatedToolApprovalService();
+                permissionPresetService = simulatedPermissions;
             }
 
             var viewModel = new MainWindowViewModel(sessionService, backendService, workspaceService,
                                                     toolApprovalService,
                                                     isSimulatedMode,
-                                                    action => Dispatcher.UIThread.Post(action));
+                                                    action => Dispatcher.UIThread.Post(action),
+                                                    permissionPresetService);
             var mainWindow = new MainWindow(viewModel);
             if (configuration.ConfigurationError is { Length: > 0 } error)
             {

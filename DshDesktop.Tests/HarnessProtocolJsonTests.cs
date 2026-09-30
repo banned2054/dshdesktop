@@ -5,6 +5,7 @@ using DshDesktop.Harness.Models.Requests;
 using DshDesktop.Harness.Models.Responses;
 using DshDesktop.Harness.Models.Rpc;
 using DshDesktop.Harness.Services.Connection;
+using DshDesktop.Harness.Services.Permissions;
 using DshDesktop.Harness.Services.Sessions;
 using DshDesktop.Harness.Services.Workspaces;
 using System.Text.Json;
@@ -412,7 +413,7 @@ public sealed class HarnessProtocolJsonTests
         var result = JsonSerializer.SerializeToElement(
                                                        new EventsResultRequest("client-1", "event-1",
                                                                                new EventsOutcomeWire("result",
-                                                                                        "allowed-once")),
+                                                                                   "allowed-once")),
                                                        HarnessJsonContext.Default.EventsResultRequest);
         Assert.Equal("result", result.GetProperty("outcome").GetProperty("kind").GetString());
         Assert.Equal("allowed-once", result.GetProperty("outcome").GetProperty("value").GetString());
@@ -420,9 +421,9 @@ public sealed class HarnessProtocolJsonTests
 
         var rejected = JsonSerializer.SerializeToElement(
                                                          new EventsResultRequest("client-1", "event-2",
-                                                                  new EventsOutcomeWire("rejected",
-                                                                           Error : new EventsOutcomeErrorWire("Error",
-                                                                                    "不支持的交互"))),
+                                                             new EventsOutcomeWire("rejected",
+                                                                 Error : new EventsOutcomeErrorWire("Error",
+                                                                     "不支持的交互"))),
                                                          HarnessJsonContext.Default.EventsResultRequest);
         var error = rejected.GetProperty("outcome").GetProperty("error");
         Assert.Equal("rejected", rejected.GetProperty("outcome").GetProperty("kind").GetString());
@@ -607,27 +608,27 @@ public sealed class HarnessProtocolJsonTests
         var replaced =
             HarnessWorkspaceService.ApplyFrame(items,
                                                new WorkspaceFollowFrame.Upsert(new WorkspaceViewWire("ws-2", "C:/Docs",
-                                                                                        "文档", ["session-b"],
-                                                                                        DateTimeOffset
-                                                                                           .Parse("2026-09-21T10:00:00Z"))));
+                                                                                   "文档", ["session-b"],
+                                                                                   DateTimeOffset
+                                                                                      .Parse("2026-09-21T10:00:00Z"))));
         Assert.Equal(["ws-1", "ws-2"], replaced.Select(item => item.Id));
         Assert.Equal(["session-b"], replaced[1].SessionIds);
 
         // 旧投影不覆盖新（乱序到达）。
         var stale = HarnessWorkspaceService.ApplyFrame(replaced,
                                                        new WorkspaceFollowFrame.Upsert(new WorkspaceViewWire("ws-2",
-                                                                         "C:/Docs", "文档", [],
-                                                                         DateTimeOffset
-                                                                            .Parse("2026-09-18T10:00:00Z"))));
+                                                           "C:/Docs", "文档", [],
+                                                           DateTimeOffset
+                                                              .Parse("2026-09-18T10:00:00Z"))));
         Assert.Equal(["session-b"], stale[1].SessionIds);
 
         // 新工作区插到头部（对齐参考客户端 upsert 语义）。
         var added =
             HarnessWorkspaceService.ApplyFrame(stale,
                                                new WorkspaceFollowFrame.Upsert(new WorkspaceViewWire("ws-3", "C:/New",
-                                                                                        "新工作区", [],
-                                                                                        DateTimeOffset
-                                                                                           .Parse("2026-09-21T11:00:00Z"))));
+                                                                                   "新工作区", [],
+                                                                                   DateTimeOffset
+                                                                                      .Parse("2026-09-21T11:00:00Z"))));
         Assert.Equal(["ws-3", "ws-1", "ws-2"], added.Select(item => item.Id));
 
         // order 按给出的顺序重排，未知 id 排尾。
@@ -825,5 +826,113 @@ public sealed class HarnessProtocolJsonTests
         var otherFrame = Assert.IsType<SessionControlFrame.ProjectionUpdate>(otherKey);
         Assert.Null(otherFrame.Usage);
         Assert.Null(otherFrame.Stats);
+    }
+
+    [Fact]
+    public void PermissionCatalogWireParsesAndMapsToCoreCatalog()
+    {
+        var wire = JsonSerializer.Deserialize("""
+                                              {"options":[{"value":"read-only","name":"read-only"},
+                                                {"value":"workspace-write","name":"workspace-write","description":"工作区内修改"},
+                                                {"value":"danger-full-access","name":"danger-full-access"},
+                                                {"value":"auto","name":"auto"}],
+                                               "defaultOptions":[{"value":"workspace-write","name":"workspace-write"}],
+                                               "defaultPreset":"workspace-write"}
+                                              """,
+                                              HarnessJsonContext.Default.PermissionCatalogWire);
+
+        var catalog = HarnessPermissionPresetService.ToCatalog(Assert.IsType<PermissionCatalogWire>(wire));
+        Assert.Equal("workspace-write", catalog.DefaultPreset);
+        Assert.Equal(4, catalog.Options.Count);
+        var customized = catalog.Options.Single(option => option.Value == "workspace-write");
+        Assert.Equal("工作区内修改", customized.Description);
+        Assert.Null(catalog.Options.Single(option => option.Value == "auto").Description);
+    }
+
+    [Fact]
+    public void CommandExecuteRequestBuildsFlatNamedArgsEnvelope()
+    {
+        var body = RpcEnvelope.BuildArgsRequest("rpc-1", "commands/execute",
+                                                new CommandExecuteRequest("session-1", "/permission auto", []),
+                                                HarnessJsonContext.Default.CommandExecuteRequest);
+
+        using var document = JsonDocument.Parse(body);
+        var       root     = document.RootElement;
+        Assert.Equal("commands/execute", root.GetProperty("method").GetString());
+        var args = root.GetProperty("payload").GetProperty("args");
+        // 扁平命名参数表：与宿主 commands.execute 的形参一一对应，无 request 包装。
+        Assert.Equal("session-1", args.GetProperty("agentId").GetString());
+        Assert.Equal("/permission auto", args.GetProperty("line").GetString());
+        Assert.Equal(JsonValueKind.Array, args.GetProperty("submittedAttachments").ValueKind);
+        Assert.Equal(0, args.GetProperty("submittedAttachments").GetArrayLength());
+        Assert.False(args.TryGetProperty("request", out _));
+    }
+
+    [Fact]
+    public void CommandsExecuteUndefinedResultMeansCommandMissing()
+    {
+        // 宿主无该命令时 result 无 value：信封层解析为 null（服务层翻译为 matched=false）。
+        var response = RpcEnvelope.ParseResponse("""{"type":"server-response","rpcId":"rpc-1","result":{"ok":true}}""");
+        Assert.True(response.Ok);
+        Assert.Null(response.Value);
+    }
+
+    [Fact]
+    public void ControlFrameParsesPermissionsProjectionKey()
+    {
+        var update = SessionControlFrameJson.Parse(JsonDocument.Parse("""
+                                                                      {"type": "projection", "sessionId": "session-1", "key": "permissions",
+                                                                       "seq": 7, "value": {"currentValue": "workspace-write"}}
+                                                                      """).RootElement.Clone());
+        var frame = Assert.IsType<SessionControlFrame.ProjectionUpdate>(update);
+        Assert.Equal(("session-1", "permissions", 7L), (frame.SessionId, frame.Key, frame.Seq));
+        Assert.Equal("workspace-write", frame.PermissionValue);
+        Assert.Null(frame.Usage);
+        Assert.Null(frame.Stats);
+
+        // currentValue 形状不符（非字符串）时保持 null，不产生伪基线。
+        var malformed = SessionControlFrameJson.Parse(JsonDocument.Parse("""
+                                                                         {"type": "projection", "sessionId": "s", "key": "permissions",
+                                                                          "seq": 8, "value": {"currentValue": 42}}
+                                                                         """).RootElement.Clone());
+        Assert.Null(Assert.IsType<SessionControlFrame.ProjectionUpdate>(malformed).PermissionValue);
+    }
+
+    [Fact]
+    public void BaselineValuesCarryParsablePermissionsProjection()
+    {
+        var baseline = SessionControlFrameJson.Parse(JsonDocument.Parse("""
+                                                                        {"type": "baseline",
+                                                                         "value": {"projections": {"session-1": {"asOfSeq": 12, "values": {
+                                                                           "permissions": {"currentValue": "read-only"}}}}}}
+                                                                        """).RootElement.Clone());
+        var frame = Assert.IsType<SessionControlFrame.Baseline>(baseline);
+        Assert.True(frame.Projections.TryGetValue("session-1", out var block));
+        Assert.Equal("read-only", ProjectionValuesJson.ParsePermissions(block!.Values.GetProperty("permissions")));
+    }
+
+    [Fact]
+    public void FollowSnapshotCarriesPermissionsProjection()
+    {
+        var frame = FollowFrameJson.Parse(JsonDocument.Parse("""
+                                                             {"type": "snapshot",
+                                                              "header": {"version": 4, "id": "session-1", "createdAt": 1700000000000, "isSeeded": false},
+                                                              "cursor": 4, "records": [], "hasMore": false,
+                                                              "projections": {"asOfSeq": 9, "values": {"permissions": {"currentValue": "danger-full-access"}}}}
+                                                             """).RootElement.Clone());
+        var snapshot = Assert.IsType<FollowFrame.Snapshot>(frame);
+        Assert.Equal(9, snapshot.ProjectionAsOfSeq);
+        Assert.Equal("danger-full-access", snapshot.CurrentPermission);
+    }
+
+    [Fact]
+    public void EmitFrameParsesPermissionCatalogChangedEvent()
+    {
+        var frame = RemoteEventJson.Parse(JsonDocument
+                                         .Parse("""{"type": "emit", "event": "permission-presets/catalog-changed", "args": []}""")
+                                         .RootElement.Clone());
+        var emit = Assert.IsType<RemoteEventFrame.Emit>(frame);
+        Assert.Equal(RemoteEventJson.PermissionCatalogChangedEvent, emit.Event);
+        Assert.Empty(emit.Args);
     }
 }

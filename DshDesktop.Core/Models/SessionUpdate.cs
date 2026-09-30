@@ -49,6 +49,13 @@ public abstract record SessionUpdate
     /// <summary>会话累计时间/步数统计更新；整值替换，<see cref="Seq" /> 语义同 <see cref="UsageUpdated" />。</summary>
     public sealed record StatsUpdated(SessionStats Stats, long Seq) : SessionUpdate;
 
+    /// <summary>
+    ///     会话权限预设更新（permissions 投影：快照基线或 session/control 实时帧，均为
+    ///     整值替换）。<see cref="Seq" /> 语义同 <see cref="UsageUpdated" />；CurrentValue
+    ///     是会话权限的唯一权威来源（Composer 权限下拉的展示与勾选以此为据）。
+    /// </summary>
+    public sealed record PermissionsUpdated(string CurrentValue, long Seq) : SessionUpdate;
+
     /// <summary>工具调用发起（tool/call）；结果到达前状态为 Running。</summary>
     public sealed record ToolCallStarted(ToolActivity Activity) : SessionUpdate;
 
