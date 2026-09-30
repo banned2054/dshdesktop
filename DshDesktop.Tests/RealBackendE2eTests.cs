@@ -209,12 +209,12 @@ public sealed class RealBackendE2ETests(ITestOutputHelper output)
             Assert.Equal("minimal", bound.AgentPreset);
 
             var fallback = await connection
-                               .InvokeAsync("session/create",
-                                            new SessionCreateRequest(),
-                                            HarnessJsonContext.Default.SessionCreateRequest,
-                                            HarnessJsonContext.Default.SessionCreateValue,
-                                            CancellationToken.None)
-                               .WaitAsync(TimeSpan.FromSeconds(30));
+                                .InvokeAsync("session/create",
+                                             new SessionCreateRequest(),
+                                             HarnessJsonContext.Default.SessionCreateRequest,
+                                             HarnessJsonContext.Default.SessionCreateValue,
+                                             CancellationToken.None)
+                                .WaitAsync(TimeSpan.FromSeconds(30));
             Assert.StartsWith("session-", fallback.SessionId);
             Assert.Equal("standard", fallback.AgentPreset);
         }

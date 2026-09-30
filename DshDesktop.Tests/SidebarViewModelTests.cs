@@ -129,39 +129,57 @@ public sealed class SidebarViewModelTests
         }
 
         public Task<SessionSummary> CreateSessionAsync(
-            string? workspaceId = null, string? sessionId = null, string? agentPreset = null,
+            string?           workspaceId       = null, string? sessionId = null, string? agentPreset = null,
             CancellationToken cancellationToken = default)
         {
             throw new NotSupportedException();
         }
 
-        public void MarkSessionEngaged(string sessionId) => throw new NotSupportedException();
+        public void MarkSessionEngaged(string sessionId)
+        {
+            throw new NotSupportedException();
+        }
 
         public Task<ModelCatalog> GetModelCatalogAsync(CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
+        {
+            throw new NotSupportedException();
+        }
 
         public Task<ModelSelection> SelectModelAsync(
             string  sessionId,              string            provider, string model,
-            string? reasoningEffort = null, CancellationToken cancellationToken = default) =>
+            string? reasoningEffort = null, CancellationToken cancellationToken = default)
+        {
             throw new NotSupportedException();
+        }
 
         public Task<IReadOnlyList<ConversationMessage>> GetMessagesAsync(
-            string sessionId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+            string sessionId, CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
 
         public Task<SessionHistoryPage> LoadOlderAsync(
-            string sessionId, long throughSeq, long beforeSeq, CancellationToken cancellationToken = default) =>
+            string sessionId, long throughSeq, long beforeSeq, CancellationToken cancellationToken = default)
+        {
             throw new NotSupportedException();
+        }
 
         public Task SendPromptAsync(
-            string sessionId, string requestId, string content, CancellationToken cancellationToken = default) =>
+            string sessionId, string requestId, string content, CancellationToken cancellationToken = default)
+        {
             throw new NotSupportedException();
+        }
 
-        public Task CancelAsync(string sessionId, CancellationToken cancellationToken = default) =>
+        public Task CancelAsync(string sessionId, CancellationToken cancellationToken = default)
+        {
             throw new NotSupportedException();
+        }
 
         public IAsyncEnumerable<SessionUpdate> FollowSessionAsync(
-            string sessionId, CancellationToken cancellationToken = default) =>
+            string sessionId, CancellationToken cancellationToken = default)
+        {
             throw new NotSupportedException();
+        }
     }
 
     /// <summary>最小工作区服务桩：静态集合，不触发变更事件。</summary>
@@ -184,7 +202,9 @@ public sealed class SidebarViewModelTests
             return Task.FromResult(Workspaces);
         }
 
-        public Task<WorkspaceSummary> RegisterWorkspaceAsync(string path, CancellationToken cancellationToken = default) =>
+        public Task<WorkspaceSummary> RegisterWorkspaceAsync(string path, CancellationToken cancellationToken = default)
+        {
             throw new NotSupportedException();
+        }
     }
 }
