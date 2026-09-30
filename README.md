@@ -38,24 +38,26 @@ Windows is the current development and validation platform. macOS and Linux are 
 ## ✨ Current Capabilities
 
 - Native Avalonia interface with no browser or WebView shell.
-- Session browsing in a single list or grouped by workspace.
-- Session creation, history loading, streaming replies, cancellation, and connection recovery.
+- Session browsing in a single list or grouped by workspace, with title search and native folder selection to register workspaces.
+- A new-conversation draft with workspace, agent mode, model, and permission choices; the Harness session is created on the first send.
+- History loading, streaming replies, cancellation, and connection recovery.
 - Markdown responses, reasoning details, interrupted-response states, and paged history.
 - Tool-call progress, results, errors, and collapsible per-turn process details.
-- Per-session model selection, token usage, cache-hit rate, and generation-speed statistics.
+- Model selection with reasoning levels filtered by model capabilities, plus token usage, cache-hit rate, and generation-speed statistics.
+- Session permission presets and local draft preselection, with confirmation for full-access or automatic modes and backend projections confirming the active session value.
 - Tool approval prompts with allow-once and reject actions.
 - Explicit Harness host startup, authentication, shutdown, and child-process cleanup.
-- Compiled XAML bindings, source-generated JSON serialization, and verified Windows x64 Native AOT publishing.
+- Compiled XAML bindings, source-generated JSON serialization, and previous Windows x64 Native AOT publishing verification. Recent changes have not all been republished with AOT.
 
-## 🗺️ Planned
+## 🗺️ Current Limitations
 
-- Complete the remaining conversation interactions, including user-question prompts.
-- Finish workspace management, settings, and preference persistence.
-- Validate reconnect behavior, long-session performance, keyboard shortcuts, and input methods.
-- Build and test native releases independently on macOS and Linux.
-- Add packaging, updates, and other distribution features after the core workflow stabilizes.
+- User-question prompts, attachments, settings, and preference persistence are not implemented. Drafts are retained only within the running application.
+- Workspace support covers registration, selection, and session grouping; there is no full workspace-management UI or custom agent-preset catalog.
+- Terminal, file and diff previews, and plugin-management interfaces are not implemented.
+- Reconnect behavior, long-session performance, shortcuts, input methods, and some popup and rich-text interactions still need further GUI or real-backend validation.
+- macOS and Linux have not been verified; stable installers and automatic updates are not provided.
 
-The detailed implementation stages and validation notes are tracked in the [development plan](plan.md).
+Development follows individual feature, GUI, and fix requests. Features may extend beyond DSH's own interface. The [backend compatibility record](Docs/backend-compatibility.md) documents consumed APIs, client-specific behavior, historical validation, and what to check when upgrading DSH; it does not prescribe a feature roadmap.
 
 ## 🚀 Development
 
@@ -88,7 +90,7 @@ Real-backend development currently expects Node.js on `PATH` and reuses the Harn
 
 | Platform | Status |
 | --- | --- |
-| Windows x64 | Development builds, real-backend integration, and Native AOT publishing verified |
+| Windows x64 | Prior development, real-backend, and Native AOT verification recorded; see the compatibility record for scope and remaining checks |
 | macOS | Planned; not yet verified |
 | Linux | Planned; not yet verified |
 
@@ -98,4 +100,4 @@ Licensed under the [Apache License 2.0](./LICENSE). See [NOTICE](./NOTICE) for u
 
 ## 🤝 Contributing
 
-The project is still establishing its core behavior. Focused issues and pull requests are welcome; for behavior changes, please include tests where practical and clearly distinguish implemented behavior from planned work.
+The project is still establishing its core behavior. Focused issues and pull requests are welcome; for behavior changes, please include tests where practical and distinguish implemented behavior from unverified behavior. Update the compatibility record when backend dependencies or client-specific behavior change.
