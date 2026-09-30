@@ -185,6 +185,7 @@ public sealed class PermissionSelectorViewModel : ObservableObject, IDisposable
         IsMenuOpen    = false;
         CancelSwitch();
         OnPropertyChanged(nameof(HasSession));
+        OnPropertyChanged(nameof(IsVisible));
         RefreshPermissionState();
     }
 

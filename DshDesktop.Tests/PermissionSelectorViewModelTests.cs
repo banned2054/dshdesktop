@@ -383,6 +383,32 @@ public sealed class PermissionSelectorViewModelTests
         Assert.False(selector.IsSelectorEnabled);
     }
 
+    [Fact]
+    public void SetSessionFromDraftReRaisesIsVisibleForBinding()
+    {
+        var selector = new PermissionSelectorViewModel(new FakePermissionPresetService(), _ => { });
+        selector.SetDraftTarget(true);
+        Assert.True(selector.IsVisible);
+
+        var isVisibleRaised = false;
+        selector.PropertyChanged += (_, eventArgs) =>
+        {
+            if (eventArgs.PropertyName == nameof(PermissionSelectorViewModel.IsVisible)) isVisibleRaised = true;
+        };
+
+        // 复刻 root 选中会话的调用顺序：先离开草稿——此刻 SessionId 仍为 null，IsVisible
+        // 求值为 false；再 SetSession 使属性转为 true。转 true 时必须重发通知，否则
+        // XAML 绑定不重估，选择器在已有会话中卡在隐藏态。
+        selector.SetDraftTarget(false);
+        Assert.False(selector.IsVisible);
+        isVisibleRaised = false;
+
+        selector.SetSession("session-1");
+
+        Assert.True(selector.IsVisible);
+        Assert.True(isVisibleRaised);
+    }
+
     private static void SelectOptionByValue(PermissionSelectorViewModel selector, string value)
     {
         selector.SelectOptionCommand.Execute(selector.Options.Single(option => option.Value == value));
