@@ -31,6 +31,8 @@ namespace DshDesktop.Harness.Json;
 [JsonSerializable(typeof(SessionModelSelectionWire))]
 [JsonSerializable(typeof(ModelProviderGroupWire))]
 [JsonSerializable(typeof(ModelCatalogModelWire))]
+[JsonSerializable(typeof(ModelReasoningWire))]
+[JsonSerializable(typeof(ModelReasoningEffortWire))]
 [JsonSerializable(typeof(ModelCatalogFailureWire))]
 [JsonSerializable(typeof(SessionSummaryWire))]
 [JsonSerializable(typeof(SessionProjectionHintsWire))]

@@ -15,14 +15,32 @@ public sealed class SimulatedSessionService(Action<string, string>? onSessionCre
     /// <summary>模拟单页更早历史的条目数。</summary>
     private const int OlderPageSize = 4;
 
-    /// <summary>模拟模型目录：默认选型与两个提供方；选型状态按会话记账并经 follow 回声。</summary>
+    /// <summary>
+    ///     模拟模型目录：默认选型与两个提供方；选型状态按会话记账并经 follow 回声。
+    ///     三个模型分别覆盖档位元数据的三种形态：带档位列表+默认档（sim-chat）、
+    ///     带档位无默认（sim-reasoner）、完全无声明（alt-chat——显式档位必被拒，菜单为空）。
+    /// </summary>
     private static readonly ModelCatalog Catalog = new(new ModelSelection("sim", "sim-chat"),
     [
         new ModelProviderGroup("sim", "Simulated",
         [
-            new ModelCatalogEntry("sim-chat", "Sim Chat"), new ModelCatalogEntry("sim-reasoner", "Sim Reasoner")
+            new ModelCatalogEntry("sim-chat", "Sim Chat", new ModelReasoningInfo(
+            [
+                new ReasoningEffortInfo(ReasoningEffortLevels.Off, "Off"),
+                new ReasoningEffortInfo(ReasoningEffortLevels.Low, "Low"),
+                new ReasoningEffortInfo(ReasoningEffortLevels.High, "High")
+            ], ReasoningEffortLevels.Low)),
+            new ModelCatalogEntry("sim-reasoner", "Sim Reasoner", new ModelReasoningInfo(
+            [
+                new ReasoningEffortInfo(ReasoningEffortLevels.Low, "Low"),
+                new ReasoningEffortInfo(ReasoningEffortLevels.High, "High"),
+                new ReasoningEffortInfo(ReasoningEffortLevels.Max, "Max")
+            ]))
         ]),
-        new ModelProviderGroup("sim-alt", "Simulated Alt", [new ModelCatalogEntry("alt-chat", "Alt Chat")])
+        new ModelProviderGroup("sim-alt", "Simulated Alt",
+        [
+            new ModelCatalogEntry("alt-chat", "Alt Chat")
+        ])
     ], []);
 
     private readonly Dictionary<string, SimulatedSession> _sessions = new()

@@ -650,7 +650,10 @@ public sealed class HarnessProtocolJsonTests
                                                  "groups": [
                                                    {"id": "glm", "name": "Zhipu GLM", "models": [
                                                      {"id": "glm-5.3", "name": "GLM 5.3", "description": "旗舰"},
-                                                     {"id": "glm-5.3-flash", "name": "GLM 5.3 Flash"}
+                                                     {"id": "glm-5.3-flash", "name": "GLM 5.3 Flash", "reasoning": {
+                                                       "efforts": [{"id": "low", "name": "Low"}, {"id": "high", "name": "High"}],
+                                                       "defaultEffort": "low"
+                                                     }}
                                                    ]},
                                                    {"id": "empty", "name": "Empty", "models": []}
                                                  ],
@@ -669,6 +672,18 @@ public sealed class HarnessProtocolJsonTests
         Assert.Equal("GLM 5.3 Flash", group.Models[1].Name);
         var failure = Assert.Single(catalog.Failures);
         Assert.Equal(("broken", "credentials unavailable"), (failure.Id, failure.Message));
+
+        // 模型 reasoning 元数据：受支持档位与默认档位映射到应用模型，供界面按模型过滤。
+        Assert.Null(group.Models[0].Reasoning);
+        var reasoning = group.Models[1].Reasoning;
+        Assert.NotNull(reasoning);
+        Assert.Equal(["low", "high"], reasoning!.Efforts.Select(effort => effort.Id));
+        Assert.Equal("Low", reasoning.Efforts[0].Name);
+        Assert.Equal("low", reasoning.DefaultEffort);
+        // 跨模型携带档位的裁决：支持的保留，不支持回退默认档位。
+        Assert.Equal("low", reasoning.Resolve("low"));
+        Assert.Equal("low", reasoning.Resolve("off"));
+        Assert.Null(reasoning.Resolve(null));
     }
 
     [Fact]

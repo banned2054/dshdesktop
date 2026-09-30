@@ -215,8 +215,8 @@ public sealed class HarnessSessionService : ISessionService
                                                             (group.Models ?? [])
                                                            .Where(model => !string.IsNullOrWhiteSpace(model.Id) &&
                                                                            !string.IsNullOrWhiteSpace(model.Name))
-                                                           .Select(model => new ModelCatalogEntry(model.Id, model.Name))
-                                                           .ToArray()))
+                                                           .Select(model => new ModelCatalogEntry(model.Id, model.Name,
+                                                                       ToReasoning(model.Reasoning))).ToArray()))
                     .Where(group => group.Models.Count > 0)
                     .ToArray();
         var failures = (value.Failures ?? [])
@@ -225,6 +225,19 @@ public sealed class HarnessSessionService : ISessionService
                                                                  failure.Message ?? string.Empty))
                       .ToArray();
         return new ModelCatalog(defaultSelection, groups, failures);
+    }
+
+    /// <summary>模型 reasoning 元数据线上形态到应用模型；缺失即模型无档位声明（显式携带必被拒）。</summary>
+    private static ModelReasoningInfo? ToReasoning(ModelReasoningWire? reasoning)
+    {
+        if (reasoning is null) return null;
+
+        return new ModelReasoningInfo(reasoning.Efforts
+                                               .Where(effort => !string.IsNullOrWhiteSpace(effort.Id))
+                                               .Select(effort => new ReasoningEffortInfo(effort.Id, effort.Name,
+                                                           effort.Description))
+                                               .ToArray(),
+                                      reasoning.DefaultEffort);
     }
 
     /// <summary>会话流泵：帧映射为更新写入合并通道；流终止（含业务错误）即完成通道。</summary>

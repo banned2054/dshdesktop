@@ -48,6 +48,9 @@ public sealed class ComposerViewModel : ObservableObject
     private SessionUsage? _usage;
     private long          _usageSeq;
 
+    // 档位菜单的来源标识（provider|model）：生效选型或目录变化时才重建，回声刷新不重建。
+    private string? _effortOptionsKey;
+
     public ComposerViewModel(ISessionService         sessionService, Action<string?> reportError,
                              Action?                 onPromptAccepted    = null,
                              Action<ModelSelection>? onDraftModelChanged = null)
@@ -58,10 +61,6 @@ public sealed class ComposerViewModel : ObservableObject
         _onDraftModelChanged = onDraftModelChanged;
         SendMessageCommand   = new AsyncRelayCommand(SendMessageAsync, CanSendMessage);
         CancelCommand        = new AsyncRelayCommand(CancelGenerationAsync, CanCancelGeneration);
-        EffortOptions = ReasoningEffortLevels.All
-                                             .Select(value => new EffortOptionViewModel(value, EffortLabel(value),
-                                                              option => _ = SelectEffortOptionAsync(option)))
-                                             .ToArray();
         // 可用性只由 XAML 的 IsEnabled 绑定（IsModelPickerEnabled）承担：自研 RelayCommand
         // 不自动重算 CanExecute，命令谓词会在目录未加载时把按钮永久禁用。
         ToggleModelMenuCommand   = new RelayCommand(ToggleModelMenu);
@@ -88,8 +87,12 @@ public sealed class ComposerViewModel : ObservableObject
     /// <summary>模型二级菜单的提供方分组：与 ModelOptions 共享同一批选项实例。</summary>
     public ObservableCollection<ModelGroupMenuViewModel> ModelGroups { get; } = [];
 
-    /// <summary>推理等级菜单项（off/low/high/max）：勾选态随后端回声刷新。</summary>
-    public IReadOnlyList<EffortOptionViewModel> EffortOptions { get; }
+    /// <summary>
+    ///     推理等级菜单项：按当前生效模型的受支持档位动态重建（目录 reasoning 元数据，
+    ///     后端按其校验并拒绝不支持档位）；无元数据的模型显示空菜单（显式档位必被拒，
+    ///     省略档位永远是安全选择）。勾选态随后端回声刷新。
+    /// </summary>
+    public IReadOnlyList<EffortOptionViewModel> EffortOptions { get; private set; } = [];
 
     public string DraftMessage
     {
@@ -421,19 +424,22 @@ public sealed class ComposerViewModel : ObservableObject
 
     private async Task SelectModelInternalAsync(ModelOptionViewModel option, string? reasoningEffort)
     {
+        // 携带档位先经目标模型的受支持列表裁决：不支持回退其默认档位（可能为 null=不指定），
+        // 避免把上一模型的档位带给不支持它的模型（后端显式拒绝，无降级）。
+        var resolvedEffort = option.ResolveEffort(reasoningEffort);
         // 与当前生效选型（含档位）相同、无会话或已有选型在途：回退显示，不重复请求。
         // 失败回退读取当前生效选型而非请求时的值：在途请求跨会话完成时不会污染新会话显示。
         if (_isDraftTarget && SessionId is null)
         {
             // 草稿页本地预选模型：不发 RPC，选型记入草稿，会话创建后由 root 应用。
-            ApplyDraftModel(new ModelSelection(option.Provider, option.Model, reasoningEffort));
+            ApplyDraftModel(new ModelSelection(option.Provider, option.Model, resolvedEffort));
             return;
         }
 
         if (SessionId is null || _isSelectingModel ||
             (EffectiveModel is { } effective &&
              option.Matches(effective)       &&
-             effective.ReasoningEffort == reasoningEffort))
+             effective.ReasoningEffort == resolvedEffort))
         {
             SyncSelectedModelOption();
             return;
@@ -443,7 +449,7 @@ public sealed class ComposerViewModel : ObservableObject
         try
         {
             // 生效值以 follow 流的 model/selection 回声为准（模拟实现同路径）。
-            await _sessionService.SelectModelAsync(SessionId, option.Provider, option.Model, reasoningEffort);
+            await _sessionService.SelectModelAsync(SessionId, option.Provider, option.Model, resolvedEffort);
         }
         catch (Exception exception)
         {
@@ -487,6 +493,7 @@ public sealed class ComposerViewModel : ObservableObject
     /// <summary>菜单勾选态与底栏/主菜单文案统一对齐生效选型（模型组与选项共享实例）。</summary>
     private void RefreshModelMenuState()
     {
+        SyncEffortOptions();
         var effective = EffectiveModel;
         foreach (var option in ModelOptions)
             option.IsSelected = effective is not null && option.Matches(effective);
@@ -500,6 +507,42 @@ public sealed class ComposerViewModel : ObservableObject
         OnPropertyChanged(nameof(CurrentEffortText));
     }
 
+    /// <summary>
+    ///     按当前生效模型重建推理等级菜单（仅在生效选型路由或目录变化时执行）：目录声明了
+    ///     reasoning 的模型只显示其支持档位（展示名取目录，回退内置映射）；无元数据的模型
+    ///     显示空菜单——后端对无档位声明的模型拒绝任何显式档位，省略档位永远安全。
+    /// </summary>
+    private void SyncEffortOptions()
+    {
+        var selection = EffectiveModel;
+        var key       = selection is null ? string.Empty : $"{selection.Provider}|{selection.Model}";
+        if (key == _effortOptionsKey) return;
+
+        _effortOptionsKey = key;
+        var reasoning = FindCatalogEntry(selection)?.Reasoning;
+        EffortOptions = reasoning is { Efforts.Count: > 0 }
+            ? reasoning.Efforts
+                       .Select(effort => new EffortOptionViewModel(effort.Id,
+                                                                   string.IsNullOrWhiteSpace(effort.Name)
+                                                                       ? EffortLabel(effort.Id)
+                                                                       : effort.Name,
+                                                                   option => _ = SelectEffortOptionAsync(option)))
+                       .ToArray()
+            : [];
+        OnPropertyChanged(nameof(EffortOptions));
+    }
+
+    /// <summary>在目录中查找生效选型对应的模型条目（提供方与模型 id 双匹配）。</summary>
+    private ModelCatalogEntry? FindCatalogEntry(ModelSelection? selection)
+    {
+        if (selection is null || _modelCatalog is null) return null;
+
+        return _modelCatalog.Groups
+                            .FirstOrDefault(group => group.Id == selection.Provider)?
+                            .Models
+                            .FirstOrDefault(model => model.Id == selection.Model);
+    }
+
     /// <summary>目录变化时重建菜单选项与提供方分组（当前生效选型保持可选）。</summary>
     private void RebuildModelOptions()
     {
@@ -508,10 +551,11 @@ public sealed class ComposerViewModel : ObservableObject
         if (_modelCatalog is { } catalog)
             foreach (var group in catalog.Groups)
             {
-                var options = group.Models.Select(model => new ModelOptionViewModel(
-                                                       group.Id, group.Name, model.Id, model.Name,
-                                                       option => _ = SelectModelOptionAsync(option)))
-                                   .ToArray();
+                var options = group.Models
+                                   .Select(model => new ModelOptionViewModel(group.Id, group.Name, model.Id, model.Name,
+                                                                             option => _ =
+                                                                                 SelectModelOptionAsync(option),
+                                                                             model.Reasoning)).ToArray();
                 foreach (var option in options) ModelOptions.Add(option);
 
                 ModelGroups.Add(new ModelGroupMenuViewModel(group.Name, options));

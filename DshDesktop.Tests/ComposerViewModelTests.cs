@@ -208,7 +208,8 @@ public sealed class ComposerViewModelTests
         composer.SelectedModelOption = composer.ModelOptions.Single(option => option.Model == "model-y");
 
         // 请求发往当前会话；回声到达前本地生效值不变。
-        Assert.Equal(("session-1", "prov-a", "model-y"), Assert.Single(sessionService.SelectionRequests));
+        Assert.Equal(("session-1", "prov-a", "model-y", (string?)null),
+                     Assert.Single(sessionService.SelectionRequests));
         Assert.Null(composer.CurrentModel);
 
         // 与当前生效选型的守卫在下次请求时生效；同一项重复赋值不触发新请求。
@@ -218,6 +219,67 @@ public sealed class ComposerViewModelTests
         // 生效值以后端回声为准。
         composer.ApplyCurrentModel(new ModelSelection("prov-a", "model-y"));
         Assert.Equal("model-y", composer.SelectedModelOption?.Model);
+    }
+
+    [Fact]
+    public async Task EffortMenuFollowsSelectedModelReasoningMetadata()
+    {
+        var sessionService = new ControllableSessionService();
+        var composer       = new ComposerViewModel(sessionService, _ => { });
+        await composer.RefreshModelCatalogAsync();
+        composer.SetSession("session-1", false, string.Empty);
+
+        // 生效选型为目录默认 model-x：菜单只有其声明的 off/high。
+        composer.ApplyCurrentModel(new ModelSelection("prov-a", "model-x"));
+        Assert.Equal(["off", "high"], composer.EffortOptions.Select(option => option.Value).ToArray());
+
+        // 切到 model-y：菜单变为其声明的 low/high。
+        composer.ApplyCurrentModel(new ModelSelection("prov-a", "model-y"));
+        Assert.Equal(["low", "high"], composer.EffortOptions.Select(option => option.Value).ToArray());
+    }
+
+    [Fact]
+    public async Task ModelWithoutReasoningMetadataShowsEmptyEffortMenu()
+    {
+        var sessionService = new ControllableSessionService();
+        var composer       = new ComposerViewModel(sessionService, _ => { });
+        await composer.RefreshModelCatalogAsync();
+        composer.SetSession("session-1", false, string.Empty);
+
+        composer.ApplyCurrentModel(new ModelSelection("prov-b", "model-z"));
+
+        // 无 reasoning 元数据的模型：任何显式档位都会被后端拒绝，菜单为空。
+        Assert.Empty(composer.EffortOptions);
+    }
+
+    [Fact]
+    public async Task SwitchingModelKeepsEffortSupportedByTarget()
+    {
+        var sessionService = new ControllableSessionService();
+        var composer       = new ComposerViewModel(sessionService, _ => { });
+        await composer.RefreshModelCatalogAsync();
+        composer.SetSession("session-1", false, string.Empty);
+        composer.ApplyCurrentModel(new ModelSelection("prov-a", "model-x", "high"));
+
+        composer.SelectedModelOption = composer.ModelOptions.Single(option => option.Model == "model-y");
+
+        // 目标模型支持 high：原样携带。
+        Assert.Equal(("session-1", "prov-a", "model-y", "high"), Assert.Single(sessionService.SelectionRequests));
+    }
+
+    [Fact]
+    public async Task SwitchingModelFallsBackToTargetDefaultEffortWhenUnsupported()
+    {
+        var sessionService = new ControllableSessionService();
+        var composer       = new ComposerViewModel(sessionService, _ => { });
+        await composer.RefreshModelCatalogAsync();
+        composer.SetSession("session-1", false, string.Empty);
+        composer.ApplyCurrentModel(new ModelSelection("prov-a", "model-y", "low"));
+
+        composer.SelectedModelOption = composer.ModelOptions.Single(option => option.Model == "model-x");
+
+        // model-x 不支持 low：回退其默认档位 high（对齐后端「不支持即拒绝」的语义）。
+        Assert.Equal(("session-1", "prov-a", "model-x", "high"), Assert.Single(sessionService.SelectionRequests));
     }
 
     [Fact]
@@ -442,7 +504,10 @@ public sealed class ComposerViewModelTests
 
         public List<string> CancelledSessions { get; } = [];
 
-        public List<(string SessionId, string Provider, string Model)> SelectionRequests { get; } = [];
+        public List<(string SessionId, string Provider, string Model, string? ReasoningEffort)> SelectionRequests
+        {
+            get;
+        } = [];
 
         public bool FailSend { get; set; }
 
@@ -451,12 +516,22 @@ public sealed class ComposerViewModelTests
         /// <summary>选型请求是否阻塞到手动放行；默认立即完成。</summary>
         public bool BlockSelect { get; set; }
 
-        /// <summary>测试目录：默认 prov-a/model-x，两个提供方共三个模型。</summary>
+        /// <summary>
+        ///     测试目录：默认 prov-a/model-x，两个提供方共三个模型。model-x/model-y 带档位
+        ///     元数据（model-x 含默认档 high），model-z 无声明——显式档位必被后端拒绝的形态。
+        /// </summary>
         public ModelCatalog Catalog { get; } = new(new ModelSelection("prov-a", "model-x"),
         [
             new ModelProviderGroup("prov-a", "Provider A",
             [
-                new ModelCatalogEntry("model-x", "Model X"), new ModelCatalogEntry("model-y", "Model Y")
+                new ModelCatalogEntry("model-x", "Model X", new ModelReasoningInfo(
+                [
+                    new ReasoningEffortInfo("off", "Off"), new ReasoningEffortInfo("high", "High")
+                ], "high")),
+                new ModelCatalogEntry("model-y", "Model Y", new ModelReasoningInfo(
+                [
+                    new ReasoningEffortInfo("low", "Low"), new ReasoningEffortInfo("high", "High")
+                ]))
             ]),
             new ModelProviderGroup("prov-b", "Provider B", [new ModelCatalogEntry("model-z", "Model Z")])
         ], []);
@@ -473,7 +548,7 @@ public sealed class ComposerViewModelTests
         }
 
         public Task<SessionSummary> CreateSessionAsync(
-            string? workspaceId = null, string? sessionId = null, string? agentPreset = null,
+            string?           workspaceId       = null, string? sessionId = null, string? agentPreset = null,
             CancellationToken cancellationToken = default)
         {
             return _inner.CreateSessionAsync(workspaceId, sessionId, cancellationToken : cancellationToken);
@@ -496,7 +571,7 @@ public sealed class ComposerViewModelTests
         {
             // 只记录请求并模拟后端应答，不落到模拟实现：目标会话不必存在于演示数据，
             // Composer 级测试不依赖选型副作用（回声由测试显式 ApplyCurrentModel 模拟）。
-            SelectionRequests.Add((sessionId, provider, model));
+            SelectionRequests.Add((sessionId, provider, model, reasoningEffort));
             SelectStarted.TrySetResult();
             if (BlockSelect) await ReleaseSelect.Task.WaitAsync(cancellationToken);
 

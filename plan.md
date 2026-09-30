@@ -462,6 +462,12 @@ UI 层目录重构验证记录（Windows 10 x64，2026-09-22）：
 - `dotnet test`：167 通过、0 失败、8 按设计跳过。新增 6 用例：草稿页 VM 4（目录默认显示与本地预选不发包、full access 确认门后本地记账、选目录默认跳过回调、预选恢复与离开草稿清除）+ 根级 2（首发送把预选应用到新会话且经投影回流显示、未预选不产生 `/permission` 命令）。
 - 未验证：草稿页弹层真实点击（本环境 UIA 限制）；真实后端首发送 `/permission` 端到端；Native AOT 未重跑；macOS/Linux。
 
+### 推理档位按模型过滤修复（Windows 11 x64，2026-09-30）
+
+- 背景（用户实测报错）：模型选型携带上一模型的推理档位（如 off）切到不支持该档位的模型（glm-5.3-flash），后端按模型能力拒绝（`UNSUPPORTED_REASONING_EFFORT`，报文 `provider "glm" model "..." does not support reasoning effort "off"`，无 clamp/别名回退）。协议核对（dsh 源码 `packages/llm/llm/src/index.ts` resolveCallWithInfo）：每个模型 adapter 声明 `reasoning: { efforts: [...], defaultEffort? }`，且 `session/modelCatalog` 已下发该元数据（session-controller types `ModelReasoning { efforts, defaultEffort }`）——客户端此前未消费。
+- 实现：Core `ModelCatalogEntry` 增加可选 `Reasoning`（`ModelReasoningInfo { Efforts, DefaultEffort }`）与 `ResolveEffort`（支持则保留，不支持回退默认档位，无元数据一律省略=null）；Harness 解析 wire 的 `reasoning.{efforts,defaultEffort}`；Composer「推理等级」菜单按当前生效模型动态重建（仅显示受支持档位，展示名取目录；无元数据的模型空菜单——显式档位必被拒，省略永远安全），仅在生效选型路由或目录变化时重建（回声刷新不重建）；切模型携带的档位先经目标模型支持列表裁决。
+- `dotnet build DshDesktop.slnx`：0 错误；`dotnet test`：171 通过、0 失败、8 按设计跳过。新增 4 用例：菜单跟随模型档位元数据、无元数据空菜单、切模型携带受支持档位、切模型回退目标默认档位；`SelectionRequests` 测试记录扩展为含档位四元组。
+
 后续每个阶段记录：实现范围、目标平台、必要验证命令、实际结果、未验证事项。只有验收通过的任务才标记完成。
 
 
