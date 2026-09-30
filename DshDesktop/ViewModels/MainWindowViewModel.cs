@@ -1287,12 +1287,17 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         }
         catch (Exception exception)
         {
-            ErrorText = $"添加工作区失败：{exception.Message}";
+            ReportWorkspaceError(exception);
         }
         finally
         {
             Interlocked.Exchange(ref _registeringWorkspace, 0);
         }
+    }
+
+    internal void ReportWorkspaceError(Exception exception)
+    {
+        ErrorText = $"添加工作区失败：{exception.Message}";
     }
 
     #endregion

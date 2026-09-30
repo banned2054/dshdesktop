@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using DshDesktop.Services.Platform;
 using DshDesktop.Utils;
 using DshDesktop.ViewModels;
 
@@ -45,21 +46,8 @@ public partial class NewConversationView : UserControl
     {
         if (DataContext is not MainWindowViewModel viewModel) return;
 
-        _ = AddWorkspaceFromPickerAsync(viewModel);
-    }
-
-    private async Task AddWorkspaceFromPickerAsync(MainWindowViewModel viewModel)
-    {
-        try
-        {
-            var folder = await FolderPicker.PickFolderAsync(this, "选择要登记为工作区的文件夹");
-            if (folder is null) return;
-
-            await viewModel.RegisterWorkspaceAsync(folder);
-        }
-        catch (OperationCanceledException)
-        {
-        }
+        _ = FolderPicker.PickAndRegisterWorkspaceAsync(this, viewModel.RegisterWorkspaceAsync,
+                                                       viewModel.ReportWorkspaceError);
     }
 
     /// <summary>
