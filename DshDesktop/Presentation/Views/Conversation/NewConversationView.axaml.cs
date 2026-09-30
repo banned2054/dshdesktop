@@ -2,7 +2,6 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using DshDesktop.Services.Platform;
-using DshDesktop.Utils;
 using DshDesktop.ViewModels;
 
 namespace DshDesktop.Presentation.Views.Conversation;
