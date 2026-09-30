@@ -38,6 +38,8 @@
 | `session/cancel` | `{request:{sessionId}}` | 取消后仍可能 committed，部分回复的 interrupted 标记与流式结算 |
 | `session/projections` | `{request:{sessionId}}`，后台空白核实 | `asOfSeq/values`、不存在时的 null、只读且不激活 Agent、不调用模型或持久化缓存的语义 |
 | `workspace/create` | `{request:{path}}`，登记已有目录 | 目录规范化、幂等去重和 `workspace/follow` 的归属回流 |
+| `workspace/rename` | `{request:{workspaceId,title}}`，重命名工作区显示名 | 返回重命名后的 `workspace` 行；`workspace/name-conflict` 查重为后端权威，本端确认前仅做输入校验 |
+| `workspace/delete` | `{request:{workspaceId}}`，从注册表移除工作区 | 返回 `{deleted:true}`；只删注册，不删目录与会话，其下会话按后端记账回到「未分组」 |
 | `credentials/describe` | `{refs:[引用名]}`，查询凭据解析状态 | 返回字典的 `configured/source/writable`，不包含密钥值；目前供真实配置测试调用 |
 | `$events/result` | `{request:{clientId,eventId,outcome}}`，交互回执 | 事件代、取消与过期回执；审批使用 result，未支持的 waterfall 使用 rejected |
 | `permissionPresets/catalog` | `{}`，权限预设目录 | `options[].value/name/description`、`defaultPreset` 及目录变更广播 |
@@ -77,6 +79,7 @@
 | 内置 Agent 模式 | 本端固定 `standard/ptc/minimal/cordis` 四项，以 create 的 agentPreset 绑定 | 目录化、默认值、可用性与开始后的锁定语义；自定义预设尚未接入 |
 | 权限选择 | 会话以投影为准；草稿为本地预选，首消息前执行 `/permission`；full access/auto 保留确认步骤 | 核对目录值、命令结果、广播、投影以及未来可能新增的创建期权限参数 |
 | 创建失败后的恢复 | 记住已创建会话及目标，关联失败先收养恢复，避免重试额外创建 | `session/workspace-attach-failed` 的 SessionId/details；已有会话的收养与冲突语义 |
+| 工作区菜单 | 工作区行悬浮三点菜单（重命名/删除），交互与文案对齐参考客户端；rename/delete 成功后本地先按 follow 帧语义落投影，帧回流幂等对齐 | `workspace/rename`、`workspace/delete` 的错误码（name-conflict/not-found）与广播帧；上游菜单形态变化不自动同步 |
 | 历史 Unknown 空白核实 | 本端调度只读 projections 查询，限并发、合并在途、退避；失败保留可见，已参与会话不被迟到空白结论隐藏 | 上游目录元数据、缓存格式或只读查询语义变化时复查是否仍需补充逻辑 |
 | 时间线和过程折叠 | 本端把消息、思考和工具活动组织为轮次过程，保留最终回复；历史未读全时不提前折叠 | 记录格式、source、轮次与子调用表示变化；上游新增聚合投影时评估复用 |
 

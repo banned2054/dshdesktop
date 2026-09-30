@@ -90,6 +90,47 @@ public sealed class HarnessWorkspaceService(HarnessConnection connection) : IWor
         return ToSummary(value.Workspace);
     }
 
+    public async Task<WorkspaceSummary> RenameWorkspaceAsync(
+        string workspaceId, string title, CancellationToken cancellationToken = default)
+    {
+        var value = await connection.InvokeAsync("workspace/rename",
+                                                 new WorkspaceRenameRequest(workspaceId, title),
+                                                 HarnessJsonContext.Default.WorkspaceRenameRequest,
+                                                 HarnessJsonContext.Default.WorkspaceRenameValue,
+                                                 cancellationToken)
+                                    .ConfigureAwait(false);
+        // 新标题正常由 workspace/follow 的 upsert 帧回流；这里按同一 upsert 语义先行落投影，
+        // 让标题不经历无帧空窗（帧回流经 UpdatedAt 新者胜，天然幂等对齐）。
+        ApplyLocalChange(items => ApplyFrame(items, new WorkspaceFollowFrame.Upsert(value.Workspace)));
+        return ToSummary(value.Workspace);
+    }
+
+    public async Task DeleteWorkspaceAsync(string workspaceId, CancellationToken cancellationToken = default)
+    {
+        await connection.InvokeAsync("workspace/delete",
+                                     new WorkspaceDeleteRequest(workspaceId),
+                                     HarnessJsonContext.Default.WorkspaceDeleteRequest,
+                                     HarnessJsonContext.Default.WorkspaceDeleteValue,
+                                     cancellationToken)
+                        .ConfigureAwait(false);
+        // 移除由 follow 的 remove 帧回流确认；先行按同一语义落投影避免列表残留空窗。
+        ApplyLocalChange(items => ApplyFrame(items, new WorkspaceFollowFrame.Removed(workspaceId)));
+    }
+
+    /// <summary>把本地变更按帧语义落进投影；与帧泵共用锁与通知，帧回流后幂等对齐。</summary>
+    private void ApplyLocalChange(Func<IReadOnlyList<WorkspaceSummary>, IReadOnlyList<WorkspaceSummary>> apply)
+    {
+        bool changed;
+        lock (_sync)
+        {
+            var next = apply(_items);
+            changed = !ReferenceEquals(next, _items) && !SameItems(next, _items);
+            _items  = next;
+        }
+
+        if (changed) RaiseWorkspacesChanged();
+    }
+
     /// <summary>帧应用到投影；纯逻辑抽出便于直接测试。</summary>
     internal static IReadOnlyList<WorkspaceSummary> ApplyFrame(
         IReadOnlyList<WorkspaceSummary> items, WorkspaceFollowFrame frame)

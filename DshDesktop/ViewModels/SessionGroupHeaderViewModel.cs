@@ -26,7 +26,5 @@ public sealed class SessionGroupHeaderViewModel(
 
     public bool IsWorkspace { get; } = isWorkspace;
 
-    public string CountText => SessionCount > 0 ? $"{SessionCount} 个会话" : "暂无会话";
-
     public ICommand ToggleCommand { get; } = toggleCommand;
 }

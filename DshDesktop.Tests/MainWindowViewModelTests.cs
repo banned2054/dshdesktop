@@ -188,7 +188,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
 
         viewModel.PermissionSelector.SelectOptionCommand.Execute(
                                                                  viewModel.PermissionSelector.Options.Single(option =>
-                                                                     option.Value == "read-only"));
+                                                                              option.Value == "read-only"));
         var (switchedSession, preset) = Assert.Single(permissionPresetService.Switches);
         Assert.Equal(selectedSessionId, switchedSession);
         Assert.Equal("read-only", preset);
@@ -953,7 +953,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         var collapsedHeader = viewModel.Sidebar.SessionRows.OfType<SessionGroupHeaderViewModel>()
                                        .Single(header => header.Key == "ws-main");
         Assert.False(collapsedHeader.IsExpanded);
-        Assert.Equal("2 个会话", collapsedHeader.CountText);
+        Assert.Equal(2, collapsedHeader.SessionCount);
 
         // 切回单列表再切回分组：收起状态按分组键保留。
         viewModel.Sidebar.SessionListModeIndex = 0;
@@ -1495,7 +1495,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
 
         // 手动点击行不受守卫影响；再进草稿页文本仍在。
         viewModel.Sidebar.SelectSessionCommand.Execute(viewModel.Sidebar.Sessions.First(session => session.Id !=
-                                                           created.Id));
+                                                                    created.Id));
         await WaitUntilAsync(() => !viewModel.ShowNewConversationPage);
         viewModel.Sidebar.NewSessionCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
@@ -2116,11 +2116,11 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         {
             var now = DateTimeOffset.Now;
             _liveTail.Writer.TryWrite(new SessionUpdate.ToolCallStarted(new ToolActivity(6, "call-attach-2", "fs.read",
-                                                                            "{}", ToolActivityStatus.Running, null,
-                                                                            null, now, Turn : 1)));
+                                                                                 "{}", ToolActivityStatus.Running, null,
+                                                                                 null, now, Turn : 1)));
             _liveTail.Writer.TryWrite(new SessionUpdate.MessageAppended(new ConversationMessage(7, "attach-final",
-                                                                            MessageRole.Assistant, "真正的最终回复", now,
-                                                                            1)));
+                                                                                 MessageRole.Assistant, "真正的最终回复", now,
+                                                                                 1)));
         }
 
         public void PushRealTurnEnd()
@@ -2293,6 +2293,17 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         /// <summary>登记编排注入点：非 null 时抛出（模拟业务失败），否则登记成功。</summary>
         public Exception? RegisterError { get; set; }
 
+        /// <summary>重命名/删除编排注入点：非 null 时抛出（模拟业务失败）。</summary>
+        public Exception? RenameError { get; set; }
+
+        public Exception? DeleteError { get; set; }
+
+        public string? LastRenamedWorkspaceId { get; private set; }
+
+        public string? LastRenamedTitle { get; private set; }
+
+        public string? LastDeletedWorkspaceId { get; private set; }
+
         public IReadOnlySet<string> ArchivedSessionIds { get; private set; } = new HashSet<string>();
 
         public event EventHandler? WorkspacesChanged;
@@ -2323,6 +2334,33 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
                                        ? workspace with { SessionIds = [.. workspace.SessionIds, sessionId] }
                                        : workspace)
                            .ToArray();
+        }
+
+        /// <summary>模拟 workspace/rename 回流：本地改标题并广播（follow upsert 幂等对齐）。</summary>
+        public Task<WorkspaceSummary> RenameWorkspaceAsync(
+            string workspaceId, string title, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (RenameError is not null) throw RenameError;
+
+            LastRenamedWorkspaceId = workspaceId;
+            LastRenamedTitle       = title;
+            var renamed = _items.Single(workspace => workspace.Id == workspaceId) with { Title = title };
+            _items = _items.Select(workspace => workspace.Id == workspaceId ? renamed : workspace).ToArray();
+            RaiseChanged();
+            return Task.FromResult(renamed);
+        }
+
+        /// <summary>模拟 workspace/delete 回流：本地移除并广播（follow remove 幂等对齐）。</summary>
+        public Task DeleteWorkspaceAsync(string workspaceId, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (DeleteError is not null) throw DeleteError;
+
+            LastDeletedWorkspaceId = workspaceId;
+            _items                 = _items.Where(workspace => workspace.Id != workspaceId).ToArray();
+            RaiseChanged();
+            return Task.CompletedTask;
         }
 
         public void Replace(IReadOnlyList<WorkspaceSummary> next)

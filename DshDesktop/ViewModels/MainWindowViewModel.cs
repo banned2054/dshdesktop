@@ -142,7 +142,8 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         // session 联动），Sidebar 只在用户操作或选中缺失/消失时经回调请求切换；
         // 新建入口统一交给 root 的编排流程（目标解析、复用与防重都在 root）。
         Sidebar = new SidebarViewModel(sessionService, workspaceService, session => SelectedSession = session,
-                                       RequestNewSessionAsync, text => ErrorText = text ?? string.Empty, _postToUi);
+                                       RequestNewSessionAsync, text => ErrorText = text ?? string.Empty, _postToUi,
+                                       RenameWorkspaceAsync, DeleteWorkspaceAsync);
         LoadOlderCommand = new AsyncRelayCommand(LoadOlderAsync, CanLoadOlder);
         SelectWorkspaceCommand =
             new RelayCommand<WorkspaceOptionViewModel>(SelectDraftWorkspace);
@@ -1299,6 +1300,16 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     {
         ErrorText = $"添加工作区失败：{exception.Message}";
     }
+
+    /// <summary>
+    ///     侧栏工作区菜单的重命名请求（回调注入 Sidebar，业务错误由 Sidebar 呈现在
+    ///     重命名弹窗内，不经窗口级错误条）；成功后投影经工作区状态流回流刷新。
+    /// </summary>
+    private Task RenameWorkspaceAsync(string workspaceId, string title) =>
+        _workspaceService.RenameWorkspaceAsync(workspaceId, title);
+
+    /// <summary>侧栏工作区菜单的删除请求（语义同上：只删注册，会话由后端记账回到「未分组」）。</summary>
+    private Task DeleteWorkspaceAsync(string workspaceId) => _workspaceService.DeleteWorkspaceAsync(workspaceId);
 
     #endregion
 }

@@ -65,6 +65,66 @@
     <Style Selector="Button.popup-item.selected /template/ Border#PART_Surface">
         <Setter Property="Background" Value="{DynamicResource PopupItemSelectedBrush}" />
     </Style>
+    <!-- 危险菜单项（删除工作区）：文字与图标取错误红，悬停/聚焦用红调弱底
+         （PopupDangerHoverBrush），其余几何与 popup-item 完全一致。 -->
+    <Style Selector="Button.popup-item-danger">
+        <Setter Property="Foreground" Value="{DynamicResource StatusErrorBrush}" />
+    </Style>
+    <Style
+        Selector="Button.popup-item-danger:pointerover /template/ Border#PART_Surface,
+                     Button.popup-item-danger:focus-visible /template/ Border#PART_Surface">
+        <Setter Property="Background" Value="{DynamicResource PopupDangerHoverBrush}" />
+    </Style>
+    <!-- 弹窗内危险动作按钮（删除工作区）：描边幽灵 + 红字，对齐 DSH deleteAction
+         （variant 仍是 outline，红色只落在文字）；其余同 approval-reject 几何。 -->
+    <Style Selector="Button.popup-danger-action">
+        <Setter Property="Padding" Value="16,6" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="{DynamicResource SubtleBorderBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource StatusErrorBrush}" />
+        <Setter Property="FontSize" Value="13" />
+    </Style>
+    <Style Selector="Button.popup-danger-action:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource PopupDangerHoverBrush}" />
+    </Style>
+    <!-- 弹窗内单行输入框（重命名工作区）：细描边圆角融入弹层面板，
+         聚焦换强调描边；Fluent 状态底色画在模板 Border#PART_BorderElement 上，
+         仅需覆盖描边，底色保持面板同色。 -->
+    <Style Selector="TextBox.popup-input">
+        <Setter Property="Height" Value="36" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Padding" Value="10,0" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="{DynamicResource SubtleBorderBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource PopupForegroundBrush}" />
+        <Setter Property="CaretBrush" Value="{DynamicResource PopupForegroundBrush}" />
+        <Setter Property="SelectionBrush" Value="Transparent" />
+        <Setter Property="SelectionForegroundBrush" Value="{DynamicResource PopupForegroundBrush}" />
+    </Style>
+    <Style Selector="TextBox.popup-input /template/ Border#PART_BorderElement">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="{DynamicResource SubtleBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="8" />
+    </Style>
+    <Style
+        Selector="TextBox.popup-input:pointerover /template/ Border#PART_BorderElement,
+                     TextBox.popup-input:focus /template/ Border#PART_BorderElement,
+                     TextBox.popup-input:focus-visible /template/ Border#PART_BorderElement">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="{DynamicResource AccentTextBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="8" />
+    </Style>
+    <!-- 弹窗内错误提示：弱化卡片上的错误红说明文字。 -->
+    <Style Selector="TextBlock.popup-error">
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="LineHeight" Value="18" />
+        <Setter Property="Foreground" Value="{DynamicResource StatusErrorBrush}" />
+    </Style>
     <!-- 分区分隔线：非常弱的 1px 灰线；左右 inset 与行内边距对齐，不与高亮圆角相接。 -->
     <Style Selector="Border.popup-divider">
         <Setter Property="Height" Value="1" />

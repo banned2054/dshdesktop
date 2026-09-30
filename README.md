@@ -39,6 +39,7 @@ Windows is the current development and validation platform. macOS and Linux are 
 
 - Native Avalonia interface with no browser or WebView shell.
 - Session browsing in a single list or grouped by workspace, with title search and native folder selection to register workspaces.
+- A hover menu on workspace rows for renaming and deleting workspaces (rename validates conflicts in a dialog; delete only removes the registration, keeping the folder and its sessions).
 - A new-conversation draft with workspace, agent mode, model, and permission choices; the Harness session is created on the first send.
 - History loading, streaming replies, cancellation, and connection recovery.
 - Markdown responses, reasoning details, interrupted-response states, and paged history.
@@ -52,7 +53,7 @@ Windows is the current development and validation platform. macOS and Linux are 
 ## 🗺️ Current Limitations
 
 - User-question prompts, attachments, settings, and preference persistence are not implemented. Drafts are retained only within the running application.
-- Workspace support covers registration, selection, and session grouping; there is no full workspace-management UI or custom agent-preset catalog.
+- Workspace support covers registration, selection, session grouping, renaming, and deletion; there is no custom agent-preset catalog.
 - Terminal, file and diff previews, and plugin-management interfaces are not implemented.
 - Reconnect behavior, long-session performance, shortcuts, input methods, and some popup and rich-text interactions still need further GUI or real-backend validation.
 - macOS and Linux have not been verified; stable installers and automatic updates are not provided.

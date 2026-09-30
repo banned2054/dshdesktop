@@ -181,55 +181,121 @@
                     </ItemsControl.ItemsPanel>
                     <ItemsControl.DataTemplates>
                         <DataTemplate x:DataType="vm:SessionGroupHeaderViewModel">
-                            <Grid ColumnDefinitions="*,Auto" HorizontalAlignment="Stretch">
-                                <Button Grid.Column="0" Classes="group-header"
-                                        Classes.current="{Binding IsCurrent}"
-                                        HorizontalAlignment="Stretch"
-                                        AutomationProperties.Name="{Binding TitleText}"
-                                        Command="{Binding $parent[sidebar:SidebarView].DataContext.Sidebar.ToggleGroupCommand}"
-                                        CommandParameter="{Binding}">
-                                    <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="4"
-                                          HorizontalAlignment="Stretch">
-                                        <!-- 展开/折叠状态：收起向右、展开向下（DSH arrowOpen 旋转语义）。 -->
-                                        <Panel Grid.Column="0" Width="8" Height="16" VerticalAlignment="Center">
-                                            <Panel VerticalAlignment="Center" Width="8" Height="8">
-                                                <Path Data="M0,0 L4,4 L0,8"
-                                                      Stroke="{DynamicResource TextMutedBrush}" StrokeThickness="1.5"
-                                                      StrokeLineCap="Round"
-                                                      IsVisible="{Binding !IsExpanded}" />
-                                                <Path Data="M0,4 L4,8 L8,4"
-                                                      Stroke="{DynamicResource TextMutedBrush}" StrokeThickness="1.5"
-                                                      StrokeLineCap="Round"
-                                                      IsVisible="{Binding IsExpanded}" />
+                            <!-- 整行一个圆角矩形（Border.group-row）承担悬停/选中底色；
+                                 右侧悬浮按钮组（工作区菜单 + 新建会话）平时隐藏，
+                                 悬停整行时淡入（显隐样式见 Sidebar.axaml 的 workspace-actions）。
+                                 右键整行打开工作区菜单（位置随点击处，见 code-behind）。 -->
+                            <Border Classes="group-row" Classes.current="{Binding IsCurrent}"
+                                    PointerPressed="OnWorkspaceRowPointerPressed">
+                                <Grid ColumnDefinitions="*,Auto" HorizontalAlignment="Stretch">
+                                    <Button Grid.Column="0" Classes="group-header" Margin="0"
+                                            HorizontalAlignment="Stretch"
+                                            AutomationProperties.Name="{Binding TitleText}"
+                                            Command="{Binding $parent[sidebar:SidebarView].DataContext.Sidebar.ToggleGroupCommand}"
+                                            CommandParameter="{Binding}">
+                                        <Grid ColumnDefinitions="Auto,Auto,*" ColumnSpacing="4"
+                                              HorizontalAlignment="Stretch">
+                                            <!-- 展开/折叠状态：收起向右、展开向下（DSH arrowOpen 旋转语义）。 -->
+                                            <Panel Grid.Column="0" Width="8" Height="16" VerticalAlignment="Center">
+                                                <Panel VerticalAlignment="Center" Width="8" Height="8">
+                                                    <Path Data="M0,0 L4,4 L0,8"
+                                                          Stroke="{DynamicResource TextMutedBrush}"
+                                                          StrokeThickness="1.5"
+                                                          StrokeLineCap="Round"
+                                                          IsVisible="{Binding !IsExpanded}" />
+                                                    <Path Data="M0,4 L4,8 L8,4"
+                                                          Stroke="{DynamicResource TextMutedBrush}"
+                                                          StrokeThickness="1.5"
+                                                          StrokeLineCap="Round"
+                                                          IsVisible="{Binding IsExpanded}" />
+                                                </Panel>
                                             </Panel>
-                                        </Panel>
-                                        <!-- DSH WorkspaceBrowser 的 16px 工作区文件夹图标
+                                            <!-- DSH WorkspaceBrowser 的 16px 工作区文件夹图标
                                              （slot 16×20，label-tertiary 描边风格）。 -->
-                                        <Path Grid.Column="1" Width="16" Height="16" VerticalAlignment="Center"
-                                              Data="M2,11.5 L2,4.5 A1.5,1.5 0 0 1 3.5,3 L6.4,3 A1.5,1.5 0 0 1 7.6,3.6 L8.6,5 L13.5,5 A1.5,1.5 0 0 1 15,6.5 L15,11.5 A1.5,1.5 0 0 1 13.5,13 L3.5,13 A1.5,1.5 0 0 1 2,11.5 Z"
-                                              Stroke="{DynamicResource TextMutedBrush}" StrokeThickness="1.5"
-                                              StrokeLineCap="Round" />
-                                        <TextBlock Grid.Column="2" Text="{Binding TitleText}"
-                                                   FontSize="14" FontWeight="SemiBold"
-                                                   VerticalAlignment="Center"
-                                                   TextTrimming="CharacterEllipsis"
-                                                   ToolTip.Tip="{Binding TitleText}" />
-                                        <TextBlock Grid.Column="3" Text="{Binding CountText}" Classes="caption"
-                                                   Margin="4,0,0,0"
-                                                   VerticalAlignment="Center" />
-                                    </Grid>
-                                </Button>
-                                <Button Grid.Column="1" Classes="workspace-new-session"
-                                        IsVisible="{Binding IsWorkspace}"
-                                        AutomationProperties.Name="在此工作区新建会话"
-                                        ToolTip.Tip="在此工作区新建会话"
-                                        Command="{Binding $parent[sidebar:SidebarView].DataContext.Sidebar.CreateWorkspaceSessionCommand}"
-                                        CommandParameter="{Binding}">
-                                    <Path Width="12" Height="12" Data="M6,1 L6,11 M1,6 L11,6"
-                                          Stroke="{DynamicResource TextMutedBrush}" StrokeThickness="1.5"
-                                          StrokeLineCap="Round" />
-                                </Button>
-                            </Grid>
+                                            <Path Grid.Column="1" Width="16" Height="16" VerticalAlignment="Center"
+                                                  Data="M2,11.5 L2,4.5 A1.5,1.5 0 0 1 3.5,3 L6.4,3 A1.5,1.5 0 0 1 7.6,3.6 L8.6,5 L13.5,5 A1.5,1.5 0 0 1 15,6.5 L15,11.5 A1.5,1.5 0 0 1 13.5,13 L3.5,13 A1.5,1.5 0 0 1 2,11.5 Z"
+                                                  Stroke="{DynamicResource TextMutedBrush}" StrokeThickness="1.5"
+                                                  StrokeLineCap="Round" />
+                                            <TextBlock Grid.Column="2" Text="{Binding TitleText}"
+                                                       FontSize="14" FontWeight="SemiBold"
+                                                       VerticalAlignment="Center"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       ToolTip.Tip="{Binding TitleText}" />
+                                        </Grid>
+                                    </Button>
+                                    <StackPanel Grid.Column="1" Classes="workspace-actions"
+                                                Orientation="Horizontal" Spacing="2"
+                                                IsVisible="{Binding IsWorkspace}">
+                                        <!-- 工作区菜单：水平三点按钮 + 行内弹层（重命名 / 删除工作区，
+                                             对齐 DSH ProjectRowItem 菜单）。开关是纯视图行为
+                                             （每行一个 Popup 实例，经 code-behind 开合），
+                                             业务经 Sidebar 的工作区管理命令走 root 编排。 -->
+                                        <Panel>
+                                            <Button Classes="workspace-menu"
+                                                    Click="OnWorkspaceMenuClick"
+                                                    AutomationProperties.Name="工作区菜单">
+                                                <Path Width="16" Height="16"
+                                                      Data="M3.5,8 m-1.25,0 a1.25,1.25 0 1,0 2.5,0 a1.25,1.25 0 1,0 -2.5,0 M8,8 m-1.25,0 a1.25,1.25 0 1,0 2.5,0 a1.25,1.25 0 1,0 -2.5,0 M12.5,8 m-1.25,0 a1.25,1.25 0 1,0 2.5,0 a1.25,1.25 0 1,0 -2.5,0"
+                                                      Fill="{DynamicResource TextMutedBrush}" />
+                                            </Button>
+                                            <Popup Placement="BottomEdgeAlignedLeft"
+                                                   VerticalOffset="4"
+                                                   IsLightDismissEnabled="True">
+                                                <Border Classes="popup-surface" Width="168">
+                                                    <StackPanel>
+                                                        <Button Classes="popup-item"
+                                                                Click="OnWorkspaceMenuItemClick"
+                                                                Command="{Binding $parent[sidebar:SidebarView].DataContext.Sidebar.OpenWorkspaceRenameCommand}"
+                                                                CommandParameter="{Binding}"
+                                                                AutomationProperties.Name="重命名工作区">
+                                                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="6">
+                                                                <!-- DSH IconEditOutlineRegular：fill 框身 + stroke 笔杆。 -->
+                                                                <Panel Width="14" Height="14"
+                                                                       VerticalAlignment="Center">
+                                                                    <Path Width="14" Height="14"
+                                                                          Data="M8.85596,2.69971 H4.19971 C3.37141,2.69971 2.69992,3.37146 2.69971,4.19971 V11.8003 C2.69992,12.6285 3.37141,13.3003 4.19971,13.3003 H11.8003 C12.6283,13.2999 13.3001,12.6283 13.3003,11.8003 V7.89893 H14.3003 V11.8003 C14.3001,13.1806 13.1806,14.2999 11.8003,14.3003 H4.19971 C2.81913,14.3003 1.69992,13.1808 1.69971,11.8003 V4.19971 C1.69992,2.81918 2.81913,1.69971 4.19971,1.69971 H8.85596 V2.69971 Z"
+                                                                          Fill="{Binding $parent[Button].Foreground}" />
+                                                                    <Path Width="14" Height="14"
+                                                                          Data="M7.7849,8.23878 L13.888,2.13574"
+                                                                          Stroke="{Binding $parent[Button].Foreground}"
+                                                                          StrokeThickness="1" />
+                                                                </Panel>
+                                                                <TextBlock Grid.Column="1" Text="重命名" />
+                                                            </Grid>
+                                                        </Button>
+                                                        <Button Classes="popup-item popup-item-danger"
+                                                                Click="OnWorkspaceMenuItemClick"
+                                                                Command="{Binding $parent[sidebar:SidebarView].DataContext.Sidebar.OpenWorkspaceDeleteCommand}"
+                                                                CommandParameter="{Binding}"
+                                                                AutomationProperties.Name="删除工作区">
+                                                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="6">
+                                                                <!-- DSH IconTrashOutlineRegular：横梁 + 提手 + 桶身 + 两竖纹。 -->
+                                                                <Path Grid.Column="0" Width="14" Height="14"
+                                                                      VerticalAlignment="Center"
+                                                                      Data="M1.28149,3.88831 H14.7187 M5.41602,3.88833 V2.47962 C5.41602,2.29282 5.52492,2.11366 5.71876,1.98157 C5.9126,1.84948 6.17551,1.77527 6.44964,1.77527 H9.55053 C9.82466,1.77527 10.0876,1.84948 10.2814,1.98157 C10.4753,2.11366 10.5842,2.29282 10.5842,2.47962 V3.88833 M2.57349,3.88831 L3.19366,13.2943 C3.21937,13.5502 3.33952,13.7872 3.53065,13.9593 C3.72178,14.1313 3.97016,14.2259 4.22729,14.2246 H11.7728 C12.0299,14.2259 12.2783,14.1313 12.4694,13.9593 C12.6605,13.7872 12.7807,13.5502 12.8064,13.2943 L13.4266,3.88831 M6.44946,6.98926 V11.1238 M9.55054,6.98926 V11.1238"
+                                                                      Stroke="{Binding $parent[Button].Foreground}"
+                                                                      StrokeThickness="1" />
+                                                                <TextBlock Grid.Column="1" Text="删除工作区" />
+                                                            </Grid>
+                                                        </Button>
+                                                    </StackPanel>
+                                                </Border>
+                                            </Popup>
+                                        </Panel>
+                                        <Button Classes="workspace-new-session"
+                                                AutomationProperties.Name="在此工作区新建会话"
+                                                ToolTip.Tip="在此工作区新建会话"
+                                                Command="{Binding $parent[sidebar:SidebarView].DataContext.Sidebar.CreateWorkspaceSessionCommand}"
+                                                CommandParameter="{Binding}">
+                                            <!-- DSH IconNewChatOutlineMedium：气泡包加号
+                                                 （16 viewBox、1.3 描边，默认 butt 线帽）。 -->
+                                            <Path Width="16" Height="16"
+                                                  Data="M2.37091,11.2501 C1.58745,9.89288 1.32067,8.29835 1.61969,6.76006 C1.91872,5.22177 2.76342,3.8433 3.99826,2.87846 C5.2331,1.91362 6.77494,1.42737 8.33988,1.50925 C9.90482,1.59113 11.3875,2.23562 12.5149,3.32406 C13.6425,4.41269 14.3387,5.87206 14.4754,7.4334 C14.612,8.99474 14.18,10.5529 13.2587,11.8209 C12.3375,13.0888 10.9891,13.9813 9.46194,14.3337 C8.18691,14.628 6.85895,14.5294 5.64989,14.0605 C5.1712,13.8748 4.76962,13.4932 4.26534,13.3967 C3.67413,13.2835 2.95257,13.5598 2.03794,14.3337 M8,5 L8,11 M5,8 L11,8"
+                                                  Stroke="{DynamicResource TextMutedBrush}" StrokeThickness="1.3" />
+                                        </Button>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
                         </DataTemplate>
                         <DataTemplate x:DataType="vm:SessionItemViewModel">
                             <Button Classes="session-row"
@@ -283,6 +349,64 @@
                                IsVisible="{Binding IsSimulationMode}" />
                 </StackPanel>
             </Border>
+
+            <!-- 工作区重命名弹窗：对齐 DSH WorkspaceBrowser 的重命名 Modal——预填当前名并全选，
+                 Enter 确认、Esc/取消/浅失焦关闭；确认经 Sidebar 走 root 编排，错误留在弹窗内呈现。
+                 弹窗实例全局一份（状态在 SidebarViewModel），不随行投影重复创建。 -->
+            <Popup x:Name="WorkspaceRenamePopup"
+                   PlacementTarget="{Binding #Surface}" Placement="Center"
+                   IsOpen="{Binding Sidebar.IsRenameOpen, Mode=TwoWay}"
+                   IsLightDismissEnabled="True">
+                <Border Classes="popup-surface" Width="320" Padding="14,12">
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="重命名工作区"
+                                   FontSize="14" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource PopupForegroundBrush}" />
+                        <TextBox x:Name="WorkspaceRenameInput"
+                                 Classes="popup-input"
+                                 Text="{Binding Sidebar.RenameDraftText, Mode=TwoWay}"
+                                 AutomationProperties.Name="工作区名称" />
+                        <TextBlock Classes="popup-error"
+                                   Text="{Binding Sidebar.RenameErrorText}"
+                                   IsVisible="{Binding Sidebar.HasRenameError}" />
+                        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                            <Button Classes="approval-reject" Content="取消"
+                                    Command="{Binding Sidebar.CancelWorkspaceRenameCommand}" />
+                            <Button Classes="approval-allow" Content="重命名"
+                                    Command="{Binding Sidebar.ConfirmWorkspaceRenameCommand}"
+                                    IsEnabled="{Binding Sidebar.CanConfirmRename}" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+            </Popup>
+
+            <!-- 删除工作区确认弹窗：对齐 DSH delete Modal 文案语义——只移出列表，目录与会话保留；
+                 确认经 Sidebar 走 root 编排，失败留弹窗内可重试；无确认输入门槛（取消即可放弃）。 -->
+            <Popup x:Name="WorkspaceDeletePopup"
+                   PlacementTarget="{Binding #Surface}" Placement="Center"
+                   IsOpen="{Binding Sidebar.IsDeleteConfirmOpen, Mode=TwoWay}"
+                   IsLightDismissEnabled="True">
+                <Border Classes="popup-surface" Width="320" Padding="14,12">
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="删除工作区"
+                                   FontSize="14" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource PopupForegroundBrush}" />
+                        <TextBlock Text="{Binding Sidebar.DeleteConfirmText}"
+                                   FontSize="12" TextWrapping="Wrap" LineHeight="18"
+                                   Foreground="{DynamicResource PopupMutedForegroundBrush}" />
+                        <TextBlock Classes="popup-error"
+                                   Text="{Binding Sidebar.DeleteErrorText}"
+                                   IsVisible="{Binding Sidebar.HasDeleteError}" />
+                        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                            <Button Classes="approval-reject" Content="取消"
+                                    Command="{Binding Sidebar.CancelWorkspaceDeleteCommand}" />
+                            <Button Classes="popup-danger-action" Content="删除工作区"
+                                    Command="{Binding Sidebar.ConfirmWorkspaceDeleteCommand}"
+                                    IsEnabled="{Binding Sidebar.CanConfirmDelete}" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+            </Popup>
         </Grid>
     </Border>
 </UserControl>

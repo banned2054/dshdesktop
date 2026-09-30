@@ -72,6 +72,8 @@
             <SolidColorBrush x:Key="PopupSurfaceBrush" Color="#353638" />
             <SolidColorBrush x:Key="PopupItemSelectedBrush" Color="#454648" />
             <SolidColorBrush x:Key="PopupItemHoverBrush" Color="#3D3E40" />
+            <!-- 危险项悬停底：红调弱化底，配 StatusErrorBrush 红字（对齐 DSH hover-danger）。 -->
+            <SolidColorBrush x:Key="PopupDangerHoverBrush" Color="#46282A" />
             <SolidColorBrush x:Key="PopupForegroundBrush" Color="#F1F1F3" />
             <SolidColorBrush x:Key="PopupMutedForegroundBrush" Color="#A7ABB4" />
             <SolidColorBrush x:Key="PopupDividerBrush" Color="#414244" />
@@ -145,6 +147,7 @@
             <SolidColorBrush x:Key="PopupSurfaceBrush" Color="#FFFFFF" />
             <SolidColorBrush x:Key="PopupItemSelectedBrush" Color="#F2F3F4" />
             <SolidColorBrush x:Key="PopupItemHoverBrush" Color="#F8F9FA" />
+            <SolidColorBrush x:Key="PopupDangerHoverBrush" Color="#FBE7E7" />
             <SolidColorBrush x:Key="PopupForegroundBrush" Color="#1A1D22" />
             <SolidColorBrush x:Key="PopupMutedForegroundBrush" Color="#70757E" />
             <SolidColorBrush x:Key="PopupDividerBrush" Color="#EDEEF0" />

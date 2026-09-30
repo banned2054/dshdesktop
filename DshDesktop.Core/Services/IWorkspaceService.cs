@@ -29,4 +29,18 @@ public interface IWorkspaceService
     ///     成功后投影经工作区状态流回流，消费方无需手动刷新；路径非法等业务错误抛出。
     /// </summary>
     Task<WorkspaceSummary> RegisterWorkspaceAsync(string path, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    ///     重命名工作区显示名（workspace/rename）。成功后投影经工作区状态流回流，
+    ///     消费方无需手动刷新；名称冲突或工作区不存在等业务错误抛出。
+    /// </summary>
+    Task<WorkspaceSummary> RenameWorkspaceAsync(
+        string workspaceId, string title, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    ///     从工作区列表移除工作区（workspace/delete，只删注册，不删目录与会话；
+    ///     其下会话由后端记账语义回到「未分组」）。成功后投影经工作区状态流回流；
+    ///     工作区不存在等业务错误抛出。
+    /// </summary>
+    Task DeleteWorkspaceAsync(string workspaceId, CancellationToken cancellationToken = default);
 }

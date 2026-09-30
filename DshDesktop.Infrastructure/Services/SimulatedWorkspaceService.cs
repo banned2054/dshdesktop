@@ -34,11 +34,13 @@ public sealed class SimulatedWorkspaceService : IWorkspaceService
     {
         cancellationToken.ThrowIfCancellationRequested();
         var normalized = path.Trim();
+
         WorkspaceSummary workspace;
         lock (_syncRoot)
         {
             var existing = _workspaces.FirstOrDefault(candidate =>
-                string.Equals(candidate.Path, normalized, StringComparison.OrdinalIgnoreCase));
+                                                          string.Equals(candidate.Path, normalized,
+                                                                        StringComparison.OrdinalIgnoreCase));
             if (existing is not null) return Task.FromResult(existing);
 
             var title = System.IO.Path.GetFileName(normalized.TrimEnd('/', '\\'));
@@ -72,5 +74,40 @@ public sealed class SimulatedWorkspaceService : IWorkspaceService
         }
 
         if (changed) WorkspacesChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>模拟 workspace/rename：按 id 重命名显示名并广播；工作区不存在对齐 not-found 业务错误。</summary>
+    public Task<WorkspaceSummary> RenameWorkspaceAsync(
+        string workspaceId, string title, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        WorkspaceSummary workspace;
+        lock (_syncRoot)
+        {
+            var index = _workspaces.FindIndex(candidate => candidate.Id == workspaceId);
+            if (index < 0) throw new InvalidOperationException($"工作区不存在：{workspaceId}");
+
+            workspace          = _workspaces[index] with { Title = title.Trim(), UpdatedAt = DateTimeOffset.Now };
+            _workspaces[index] = workspace;
+        }
+
+        WorkspacesChanged?.Invoke(this, EventArgs.Empty);
+        return Task.FromResult(workspace);
+    }
+
+    /// <summary>模拟 workspace/delete：只删注册（会话记账不受影响，回流后落「未分组」）并广播。</summary>
+    public Task DeleteWorkspaceAsync(string workspaceId, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        bool removed;
+        lock (_syncRoot)
+        {
+            removed = _workspaces.RemoveAll(candidate => candidate.Id == workspaceId) > 0;
+        }
+
+        if (!removed) throw new InvalidOperationException($"工作区不存在：{workspaceId}");
+
+        WorkspacesChanged?.Invoke(this, EventArgs.Empty);
+        return Task.CompletedTask;
     }
 }

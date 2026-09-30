@@ -2,8 +2,9 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <!-- 侧栏样式：会话列表行、分组头行、新建会话按钮与分隔条。 -->
 
-    <!-- 会话列表行与分组头行：自定义模板自绘 hover/选中高亮，
-         点击分别驱动选择会话与展开收起。
+    <!-- 会话列表行与分组头行：自定义模板，点击分别驱动选择会话与展开收起。
+         对话行在模板 Border#PART_Surface 上自绘 hover/选中高亮；
+         分组头行改由行容器 Border.group-row 承担（右侧悬浮按钮组同一矩形）。
          基础行规格取自 DSH WorkspaceBrowser 的 Rows.module.css：
          行高 34（工作区）/32（对话）、水平内边距 8、圆角 8、行距 2。
          行保持键盘焦点可达：Tab 聚焦、Enter/Space 触发；:focus-visible 显示高亮。
@@ -42,6 +43,52 @@
     <Style Selector="Button.group-header">
         <Setter Property="MinHeight" Value="34" />
         <Setter Property="Padding" Value="8,0" />
+    </Style>
+    <!-- 分组头行容器：整行一个圆角矩形，承担悬停/选中底色（工作区行右侧的
+         悬浮按钮组画在同一矩形内），常态透明。Background 用 Transparent 而非
+         null，保证按钮隐藏区也命中悬停；Margin 承担行距（行内按钮已归零）。 -->
+    <Style Selector="Border.group-row">
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Margin" Value="0,2" />
+    </Style>
+    <Style Selector="Border.group-row:pointerover">
+        <Setter Property="Background" Value="{DynamicResource SessionHoverBrush}" />
+    </Style>
+    <!-- 状态样式声明顺序即优先级：悬停在前、选中（.current）最后，
+         保证行被悬停时当前选中态不被覆盖。键盘焦点高亮仍由行内按钮的
+         :focus-visible 在 PART_Surface 上呈现（Border 不可聚焦）。 -->
+    <Style Selector="Border.group-row.current">
+        <Setter Property="Background" Value="{DynamicResource SessionSelectedBrush}" />
+    </Style>
+    <!-- 工作区行悬浮按钮组：常态隐藏且不参与命中（避免透明按钮拦截行内
+         点击），悬停整行圆角矩形时淡入。Opacity 显隐保持布局稳定——按钮
+         常驻占位，标题列宽与行高不因显隐跳动。 -->
+    <Style Selector="StackPanel.workspace-actions">
+        <Setter Property="Margin" Value="0,3,4,3" />
+        <Setter Property="Opacity" Value="0" />
+        <Setter Property="IsHitTestVisible" Value="False" />
+        <Setter Property="Transitions">
+            <Transitions>
+                <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
+            </Transitions>
+        </Setter>
+    </Style>
+    <Style Selector="Border.group-row:pointerover StackPanel.workspace-actions">
+        <Setter Property="Opacity" Value="1" />
+        <Setter Property="IsHitTestVisible" Value="True" />
+    </Style>
+    <!-- 菜单弹层打开期间（menu-open，code-behind 开合时标记）按钮组保持显现：
+         鼠标移入弹层后行 hover 丢失，锚点按钮随之隐藏会让弹层看起来悬空。 -->
+    <Style Selector="Border.group-row.menu-open StackPanel.workspace-actions">
+        <Setter Property="Opacity" Value="1" />
+        <Setter Property="IsHitTestVisible" Value="True" />
+    </Style>
+    <!-- 右键菜单打开期间（menu-ctx-open）按钮组保持隐藏：菜单已锚定点击处，
+         行 hover 也不浮现按钮组。须声明在 menu-open 之后，两种标记并存时以隐藏为准。 -->
+    <Style Selector="Border.group-row.menu-ctx-open StackPanel.workspace-actions">
+        <Setter Property="Opacity" Value="0" />
+        <Setter Property="IsHitTestVisible" Value="False" />
     </Style>
     <!-- 头部图标按钮（搜索 / 分组方式 / 添加工作区 / 关闭搜索）：对齐 DSH
          WorkspaceBrowser 的 iconButton——28×28 正圆、透明底，悬停 interactive-bg-hover
@@ -97,16 +144,22 @@
         <Setter Property="BorderBrush" Value="Transparent" />
         <Setter Property="BorderThickness" Value="0" />
     </Style>
-    <Style Selector="Button.workspace-new-session">
+    <!-- 工作区行悬浮按钮（三点菜单 / 新建会话）：28×28 小圆角块，悬停行时由
+         workspace-actions 控制显隐，自身悬停再叠一层行悬停色形成按钮层次。 -->
+    <Style Selector="Button.workspace-menu, Button.workspace-new-session">
         <Setter Property="Width" Value="28" />
         <Setter Property="Height" Value="28" />
-        <Setter Property="Margin" Value="0,2" />
+        <Setter Property="Margin" Value="0" />
         <Setter Property="Padding" Value="0" />
         <Setter Property="CornerRadius" Value="7" />
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
     </Style>
-    <Style Selector="Button.workspace-new-session:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Style
+        Selector="Button.workspace-menu:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                     Button.workspace-new-session:pointerover /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="{DynamicResource SessionHoverBrush}" />
     </Style>
     <!-- 状态样式声明顺序即优先级：悬停与焦点在前、选中（.current）最后，
@@ -114,18 +167,13 @@
     <Style Selector="Button.session-row:pointerover /template/ Border#PART_Surface">
         <Setter Property="Background" Value="{DynamicResource SessionHoverBrush}" />
     </Style>
-    <Style Selector="Button.group-header:pointerover /template/ Border#PART_Surface">
-        <Setter Property="Background" Value="{DynamicResource SessionHoverBrush}" />
-    </Style>
     <Style
         Selector="Button.session-row:focus-visible /template/ Border#PART_Surface, Button.group-header:focus-visible /template/ Border#PART_Surface">
         <Setter Property="Background" Value="{DynamicResource SessionHoverBrush}" />
     </Style>
-    <!-- 选中态：工作区行（包含当前会话的组）与对话行共用同一选中底色。 -->
+    <!-- 选中态：对话行与分组头行容器共用同一选中底色（分组头行画在
+         Border.group-row 上，见上方行容器样式）。 -->
     <Style Selector="Button.session-row.current /template/ Border#PART_Surface">
-        <Setter Property="Background" Value="{DynamicResource SessionSelectedBrush}" />
-    </Style>
-    <Style Selector="Button.group-header.current /template/ Border#PART_Surface">
         <Setter Property="Background" Value="{DynamicResource SessionSelectedBrush}" />
     </Style>
     <!-- 顶部「新建会话」按钮：形态对齐 DSH 侧栏 newSession——高 38、圆角 12、

@@ -31,24 +31,36 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
     private readonly ISessionService   _sessionService;
     private readonly IWorkspaceService _workspaceService;
 
+    // 工作区管理请求交 root 编排（真实/模拟服务），业务错误由本类呈现在对应弹窗内。
+    private readonly Func<string, Task>?         _deleteWorkspace;
+    private readonly Func<string, string, Task>? _renameWorkspace;
+
     /// <summary>完整会话目录（后端返回顺序，含未选中空白会话）；可由列表刷新整体重建。</summary>
     private IReadOnlyList<SessionSummary> _catalog = [];
 
     // root 最近推送的选中会话：用于 IsCurrent 标记、空白行可见性与刷新后的选中决策。
     private SessionItemViewModel? _currentSession;
-    private bool                  _isCreatingWorkspaceSession;
+
+    private bool    _isCreatingWorkspaceSession;
+    private bool    _isDeletingWorkspace;
+    private string? _deleteServerError;
+    private string? _deleteTargetKey;
+    private string? _deleteTargetTitle;
+    private bool    _isDeleteConfirmOpen;
 
     // 用户主动停留在新对话草稿页：刷新触发的回退选中不得把草稿页抢回旧会话；
     // 手动点击行与选中会话被删除的回退不受此守卫影响。标记由 root 推送。
-    private bool _isDraftPageActive;
-
-    private bool _isGroupMenuOpen;
-
-    private bool _isRequestingNewSession;
-
-    private bool _isSearchOpen;
-
-    private int _listRefreshPending;
+    private bool    _isDraftPageActive;
+    private bool    _isGroupMenuOpen;
+    private bool    _isRenamingWorkspace;
+    private string? _renameServerError;
+    private string? _renameTargetKey;
+    private string? _renameTargetTitle;
+    private bool    _isRenameOpen;
+    private string  _renameDraftText = string.Empty;
+    private bool    _isRequestingNewSession;
+    private bool    _isSearchOpen;
+    private int     _listRefreshPending;
 
     // 默认按工作区分组，对齐参考 Web 客户端的默认视图选项。
     private int _sessionListModeIndex = SessionListModeByWorkspace;
@@ -63,7 +75,9 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
         Action<SessionItemViewModel?> requestSelection,
         Func<string?, Task>           requestNewSession,
         Action<string?>               reportError,
-        Action<Action>?               postToUi = null)
+        Action<Action>?               postToUi        = null,
+        Func<string, string, Task>?   renameWorkspace = null,
+        Func<string, Task>?           deleteWorkspace = null)
     {
         _sessionService    = sessionService;
         _workspaceService  = workspaceService;
@@ -71,6 +85,8 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
         _requestNewSession = requestNewSession;
         _reportError       = reportError;
         _postToUi          = postToUi ?? (action => action());
+        _renameWorkspace   = renameWorkspace;
+        _deleteWorkspace   = deleteWorkspace;
         NewSessionCommand  = new RelayCommand(() => _ = RequestNewSessionAsync(null));
         CreateWorkspaceSessionCommand = new RelayCommand<SessionGroupHeaderViewModel>(
              CreateWorkspaceSession, group => !_isCreatingWorkspaceSession && group is { IsWorkspace: true });
@@ -81,6 +97,14 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
         ToggleGroupMenuCommand     = new RelayCommand(() => IsGroupMenuOpen = !IsGroupMenuOpen);
         SetGroupByWorkspaceCommand = new RelayCommand(() => SetSessionListMode(SessionListModeByWorkspace));
         SetGroupFlatCommand        = new RelayCommand(() => SetSessionListMode(SessionListModeFlat));
+        OpenWorkspaceRenameCommand = new RelayCommand<SessionGroupHeaderViewModel>(
+             OpenWorkspaceRename, group => group is { IsWorkspace: true });
+        OpenWorkspaceDeleteCommand = new RelayCommand<SessionGroupHeaderViewModel>(
+             OpenWorkspaceDelete, group => group is { IsWorkspace: true });
+        ConfirmWorkspaceRenameCommand = new RelayCommand(() => _ = ConfirmWorkspaceRenameAsync());
+        CancelWorkspaceRenameCommand  = new RelayCommand(CancelWorkspaceRename);
+        ConfirmWorkspaceDeleteCommand = new RelayCommand(() => _ = ConfirmWorkspaceDeleteAsync());
+        CancelWorkspaceDeleteCommand  = new RelayCommand(CancelWorkspaceDelete);
 
         _sessionService.SessionsChanged     += OnSessionsChanged;
         _workspaceService.WorkspacesChanged += OnWorkspacesChanged;
@@ -108,6 +132,18 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
     public RelayCommand SetGroupByWorkspaceCommand { get; }
 
     public RelayCommand SetGroupFlatCommand { get; }
+
+    public RelayCommand<SessionGroupHeaderViewModel> OpenWorkspaceRenameCommand { get; }
+
+    public RelayCommand<SessionGroupHeaderViewModel> OpenWorkspaceDeleteCommand { get; }
+
+    public RelayCommand ConfirmWorkspaceRenameCommand { get; }
+
+    public RelayCommand CancelWorkspaceRenameCommand { get; }
+
+    public RelayCommand ConfirmWorkspaceDeleteCommand { get; }
+
+    public RelayCommand CancelWorkspaceDeleteCommand { get; }
 
     /// <summary>会话列表视图模式：0 单列表，1 按工作区。偏好持久化随阶段 4 桌面设置接入。</summary>
     public int SessionListModeIndex
@@ -148,6 +184,188 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
         get => _isGroupMenuOpen;
         set => SetProperty(ref _isGroupMenuOpen, value);
     }
+
+    /// <summary>重命名工作区弹窗是否打开（工作区菜单「重命名」项打开，浅失焦或取消关闭）。</summary>
+    public bool IsRenameOpen
+    {
+        get => _isRenameOpen;
+        private set => SetProperty(ref _isRenameOpen, value);
+    }
+
+    /// <summary>重命名输入草稿：弹窗打开时预填当前标题；trim 后为确认与校验依据。</summary>
+    public string RenameDraftText
+    {
+        get => _renameDraftText;
+        set
+        {
+            if (!SetProperty(ref _renameDraftText, value ?? string.Empty)) return;
+            // 输入变化即重算本地校验；上一次确认失败的服务端错误随之让位。
+            _renameServerError = null;
+            NotifyRenameValidation();
+        }
+    }
+
+    /// <summary>确认重命名是否可用：非空、与当前名不同、不与其他工作区重名且不在途。</summary>
+    public bool CanConfirmRename =>
+        !_isRenamingWorkspace                          &&
+        _renameTargetKey is not null                   &&
+        RenameTrimmedText.Length > 0                   &&
+        RenameTrimmedText        != _renameTargetTitle &&
+        !HasRenameConflict;
+
+    /// <summary>重命名错误提示：优先呈现服务端错误，否则呈现本地重名冲突。</summary>
+    public string? RenameErrorText =>
+        _renameServerError ??
+        (HasRenameConflict ? $"已存在名为“{RenameTrimmedText}”的工作区。" : null);
+
+    public bool HasRenameError => RenameErrorText is not null;
+
+    /// <summary>删除工作区确认弹窗是否打开（工作区菜单「删除工作区」项打开）。</summary>
+    public bool IsDeleteConfirmOpen
+    {
+        get => _isDeleteConfirmOpen;
+        private set => SetProperty(ref _isDeleteConfirmOpen, value);
+    }
+
+    /// <summary>删除确认描述：向用户说明只移出列表，目录与会话保留并回到「未分组」。</summary>
+    public string DeleteConfirmText =>
+        $"将把“{_deleteTargetTitle}”从工作区列表中移除。文件夹与会话记录会保留，其会话将显示在“未分组”下。";
+
+    /// <summary>删除失败提示（确认弹窗内呈现，可重试或取消）。</summary>
+    public string? DeleteErrorText => _deleteServerError;
+
+    public bool HasDeleteError => _deleteServerError is not null;
+
+    /// <summary>确认删除是否可用：存在删除目标且不在途。</summary>
+    public bool CanConfirmDelete => !_isDeletingWorkspace && _deleteTargetKey is not null;
+
+    /// <summary>重命名草稿的 trim 结果：确认与重名比对都以它为准。</summary>
+    private string RenameTrimmedText => RenameDraftText.Trim();
+
+    /// <summary>其他工作区是否已占用目标名（与本地投影比对，忽略大小写）。</summary>
+    private bool HasRenameConflict =>
+        _renameTargetKey is not null &&
+        _workspaces.Any(workspace => workspace.Id != _renameTargetKey &&
+                                     string.Equals(workspace.Title, RenameTrimmedText,
+                                                   StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>重命名校验相关属性的统一通知点（输入、在途与错误状态变化都会经过）。</summary>
+    private void NotifyRenameValidation()
+    {
+        OnPropertyChanged(nameof(CanConfirmRename));
+        OnPropertyChanged(nameof(RenameErrorText));
+        OnPropertyChanged(nameof(HasRenameError));
+    }
+
+    /// <summary>工作区菜单「重命名」：以该行工作区为对象打开重命名弹窗并预填标题。</summary>
+    private void OpenWorkspaceRename(SessionGroupHeaderViewModel? group)
+    {
+        if (group is not { IsWorkspace: true }) return;
+
+        _renameTargetKey   = group.Key;
+        _renameTargetTitle = group.TitleText;
+        _renameServerError = null;
+        RenameDraftText    = group.TitleText;
+        IsRenameOpen       = true;
+    }
+
+    /// <summary>确认重命名：本地校验通过后交 root 调服务；失败留在弹窗内呈现并可重试。</summary>
+    private async Task ConfirmWorkspaceRenameAsync()
+    {
+        if (_renameWorkspace is null || !CanConfirmRename) return;
+
+        var workspaceId = _renameTargetKey!;
+        var title       = RenameTrimmedText;
+        _isRenamingWorkspace = true;
+        NotifyRenameValidation();
+        try
+        {
+            await _renameWorkspace(workspaceId, title);
+            // 成功：标题经工作区状态流回流重建行投影（组头不可变，不就地改标题）。
+            _renameServerError = null;
+            CloseRename();
+        }
+        catch (Exception exception)
+        {
+            _renameServerError = exception.Message;
+            NotifyRenameValidation();
+        }
+        finally
+        {
+            _isRenamingWorkspace = false;
+            NotifyRenameValidation();
+        }
+    }
+
+    /// <summary>关闭并清理重命名弹窗状态（取消、确认成功与浅失焦共用）。</summary>
+    private void CloseRename()
+    {
+        IsRenameOpen       = false;
+        _renameTargetKey   = null;
+        _renameTargetTitle = null;
+        _renameServerError = null;
+        NotifyRenameValidation();
+    }
+
+    private void CancelWorkspaceRename() => CloseRename();
+
+    /// <summary>工作区菜单「删除工作区」：以该行工作区为对象打开确认弹窗。</summary>
+    private void OpenWorkspaceDelete(SessionGroupHeaderViewModel? group)
+    {
+        if (group is not { IsWorkspace: true }) return;
+
+        _deleteTargetKey   = group.Key;
+        _deleteTargetTitle = group.TitleText;
+        _deleteServerError = null;
+        OnPropertyChanged(nameof(DeleteConfirmText));
+        OnPropertyChanged(nameof(DeleteErrorText));
+        OnPropertyChanged(nameof(HasDeleteError));
+        OnPropertyChanged(nameof(CanConfirmDelete));
+        IsDeleteConfirmOpen = true;
+    }
+
+    /// <summary>确认删除：交 root 调服务（只删注册）；失败留在弹窗内呈现并可重试。</summary>
+    private async Task ConfirmWorkspaceDeleteAsync()
+    {
+        if (_deleteWorkspace is null || !CanConfirmDelete) return;
+
+        var workspaceId = _deleteTargetKey!;
+        _isDeletingWorkspace = true;
+        OnPropertyChanged(nameof(CanConfirmDelete));
+        try
+        {
+            await _deleteWorkspace(workspaceId);
+            // 成功：移除经工作区状态流回流；成员会话按记账语义由刷新投影落「未分组」。
+            _deleteServerError = null;
+            CloseDelete();
+        }
+        catch (Exception exception)
+        {
+            _deleteServerError = exception.Message;
+            OnPropertyChanged(nameof(DeleteErrorText));
+            OnPropertyChanged(nameof(HasDeleteError));
+        }
+        finally
+        {
+            _isDeletingWorkspace = false;
+            OnPropertyChanged(nameof(CanConfirmDelete));
+        }
+    }
+
+    /// <summary>关闭并清理删除确认弹窗状态（取消、确认成功与浅失焦共用）。</summary>
+    private void CloseDelete()
+    {
+        IsDeleteConfirmOpen = false;
+        _deleteTargetKey    = null;
+        _deleteTargetTitle  = null;
+        _deleteServerError  = null;
+        OnPropertyChanged(nameof(DeleteConfirmText));
+        OnPropertyChanged(nameof(DeleteErrorText));
+        OnPropertyChanged(nameof(HasDeleteError));
+        OnPropertyChanged(nameof(CanConfirmDelete));
+    }
+
+    private void CancelWorkspaceDelete() => CloseDelete();
 
     /// <summary>分组方式弹层勾选态：按工作区。随视图模式变化由 SessionListModeIndex 联动。</summary>
     public bool IsGroupByWorkspace => _sessionListModeIndex == SessionListModeByWorkspace;

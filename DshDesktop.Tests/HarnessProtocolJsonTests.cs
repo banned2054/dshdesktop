@@ -641,6 +641,36 @@ public sealed class HarnessProtocolJsonTests
     }
 
     [Fact]
+    public void WorkspaceRenameDeleteRequestsAndResponsesCarryWireShapes()
+    {
+        var renameBody = JsonSerializer.Serialize(new WorkspaceRenameRequest("ws-1", "改名后"),
+                                                  HarnessJsonContext.Default.WorkspaceRenameRequest);
+        using (var document = JsonDocument.Parse(renameBody))
+        {
+            var root = document.RootElement;
+            Assert.Equal("ws-1", root.GetProperty("workspaceId").GetString());
+            Assert.Equal("改名后", root.GetProperty("title").GetString());
+        }
+
+        var deleteBody = JsonSerializer.Serialize(new WorkspaceDeleteRequest("ws-2"),
+                                                  HarnessJsonContext.Default.WorkspaceDeleteRequest);
+        using (var document = JsonDocument.Parse(deleteBody))
+        {
+            Assert.Equal("ws-2", document.RootElement.GetProperty("workspaceId").GetString());
+        }
+
+        var rename =
+            JsonSerializer
+               .Deserialize("""{"workspace":{"workspaceId":"ws-1","path":"C:/Main","title":"改名后","sessionIds":["session-a"],"updatedAt":"2026-09-20T10:00:00Z"}}""",
+                            HarnessJsonContext.Default.WorkspaceRenameValue);
+        Assert.Equal("改名后", Assert.IsType<WorkspaceRenameValue>(rename).Workspace.Title);
+
+        var deleted =
+            JsonSerializer.Deserialize("""{"deleted":true}""", HarnessJsonContext.Default.WorkspaceDeleteValue);
+        Assert.True(Assert.IsType<WorkspaceDeleteValue>(deleted).Deleted);
+    }
+
+    [Fact]
     public void ModelCatalogMapsGroupsFailuresAndDefaultSelection()
     {
         var value = JsonSerializer.Deserialize("""
