@@ -47,6 +47,8 @@ public sealed class ToolActivityItemViewModel : ConversationItemViewModel
                 OnPropertyChanged(nameof(StatusText));
                 OnPropertyChanged(nameof(IsRunning));
                 OnPropertyChanged(nameof(IsFailed));
+                OnPropertyChanged(nameof(IsSucceeded));
+                OnPropertyChanged(nameof(HasError));
             }
         }
     }
@@ -113,10 +115,15 @@ public sealed class ToolActivityItemViewModel : ConversationItemViewModel
         if (!string.IsNullOrWhiteSpace(settled.Name))
         {
             Name = settled.Name;
+            OnPropertyChanged(nameof(Name));
             OnPropertyChanged(nameof(DisplayName));
         }
 
-        if (!string.IsNullOrWhiteSpace(settled.ArgumentsJson)) ArgumentsText = settled.ArgumentsJson;
+        if (!string.IsNullOrWhiteSpace(settled.ArgumentsJson))
+        {
+            ArgumentsText = settled.ArgumentsJson;
+            OnPropertyChanged(nameof(ArgumentsText));
+        }
 
         Status      = settled.Status;
         ResultText  = settled.ResultText;
