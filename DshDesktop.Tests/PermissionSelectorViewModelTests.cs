@@ -415,8 +415,8 @@ public sealed class PermissionSelectorViewModelTests
     }
 
     /// <summary>构造草稿页就绪选择器：已连接、草稿目标态、目录已加载（本地预选模式，无会话）。</summary>
-    private static async Task<(PermissionSelectorViewModel Selector, FakePermissionPresetService Service, List<string> DraftPresets
-        )>
+    private static async
+        Task<(PermissionSelectorViewModel Selector, FakePermissionPresetService Service, List<string>DraftPresets)>
         CreateDraftSelector()
     {
         var service      = new FakePermissionPresetService();
@@ -432,7 +432,7 @@ public sealed class PermissionSelectorViewModelTests
     /// <summary>构造就绪选择器：已连接、选中会话、目录已加载、投影基线 workspace-write。</summary>
     private static async Task<(PermissionSelectorViewModel Selector, FakePermissionPresetService Service)>
         CreateReadySelector(
-        Action<FakePermissionPresetService>? configure = null, List<string?>? errors = null)
+            Action<FakePermissionPresetService>? configure = null, List<string?>? errors = null)
     {
         var service = new FakePermissionPresetService();
         configure?.Invoke(service);
@@ -489,8 +489,8 @@ public sealed class PermissionSelectorViewModelTests
             return Task.FromResult(Catalog);
         }
 
-        public async Task<bool> SwitchPresetAsync(string            sessionId, string preset,
-                                                  CancellationToken cancellationToken = default)
+        public async Task<bool> SwitchPresetAsync(
+            string sessionId, string preset, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
             Switches.Add((sessionId, preset));
