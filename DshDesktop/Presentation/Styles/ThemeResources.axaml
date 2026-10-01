@@ -35,7 +35,8 @@
             <SolidColorBrush x:Key="ScrollBarBorderBrush" Color="Transparent" />
             <!-- 表面：侧栏底色为本轮指定的 #1B1B1C 中性灰。 -->
             <SolidColorBrush x:Key="SidebarBackgroundBrush" Color="#1B1B1C" />
-            <SolidColorBrush x:Key="ChatBackgroundBrush" Color="#10131B" />
+            <!-- 会话区画布：对齐 Codex 的中性深灰 #1E1E1E。 -->
+            <SolidColorBrush x:Key="ChatBackgroundBrush" Color="#1E1E1E" />
             <SolidColorBrush x:Key="PanelBackgroundBrush" Color="#202532" />
             <SolidColorBrush x:Key="SubtleBorderBrush" Color="#252B3A" />
             <!-- 自定义标题栏：全窗口统一的一条 chrome surface，略深于侧栏以区分层级。 -->
@@ -43,7 +44,7 @@
             <!-- Caption 关闭按钮的 Windows 式红（悬停/按下两档），仅标题栏 chrome 使用。 -->
             <SolidColorBrush x:Key="TitleBarCloseHoverBrush" Color="#C42B1C" />
             <SolidColorBrush x:Key="TitleBarClosePressedBrush" Color="#9E1B14" />
-            <!-- WebUI composer surface: neutral elevated gray against the blue-black chat canvas. -->
+            <!-- WebUI composer surface: neutral elevated gray against the chat canvas. -->
             <SolidColorBrush x:Key="ComposerBackgroundBrush" Color="#2B2B2F" />
             <SolidColorBrush x:Key="ComposerControlBrush" Color="#3A3A40" />
             <SolidColorBrush x:Key="ComposerTextBrush" Color="#F1F1F3" />
@@ -83,6 +84,8 @@
             <SolidColorBrush x:Key="OnAccentMutedBrush" Color="#DCE5FF" />
             <!-- 悬浮输入面板发送按钮悬停：气泡强调色提亮一档。 -->
             <SolidColorBrush x:Key="ComposerSendHoverBrush" Color="#78A8FF" />
+            <!-- 行内代码（markdown `code`）chip 底色：会话底色上的中性灰。 -->
+            <SolidColorBrush x:Key="InlineCodeBackgroundBrush" Color="#323232" />
             <!-- 文本与状态 -->
             <SolidColorBrush x:Key="TextMutedBrush" Color="#8D96A6" />
             <SolidColorBrush x:Key="AccentTextBrush" Color="#AFC0FF" />
@@ -132,6 +135,9 @@
             <SolidColorBrush x:Key="OnAccentMutedBrush" Color="#E7EEFF" />
             <!-- 悬浮输入面板发送按钮悬停：气泡强调色加深一档。 -->
             <SolidColorBrush x:Key="ComposerSendHoverBrush" Color="#3563D9" />
+            <!-- 行内代码 chip 底色的浅色对应。
+                 （当前应用固定 Dark 主题，浅色值仅保持语义资源完整性。） -->
+            <SolidColorBrush x:Key="InlineCodeBackgroundBrush" Color="#E9EAEA" />
             <!-- 侧栏顶部「新建会话」按钮三态的浅色对应：实底中性灰同构。
                  （当前应用固定 Dark 主题，浅色值仅保持语义资源完整性。） -->
             <SolidColorBrush x:Key="NewSessionButtonBrush" Color="#E7EAEE" />

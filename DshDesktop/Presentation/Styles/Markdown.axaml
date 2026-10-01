@@ -104,6 +104,29 @@
         Selector="md|CodeBlock /template/ Button#PART_CopyButton:pointerover /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="{DynamicResource CodeBlockButtonActiveBrush}" />
     </Style>
+    <!-- 行内代码：覆盖库默认的半透明黑 chip 底与金橄榄色文字。库对 CodeInline 的
+         Foreground 不做继承回退（置空会导致文字不渲染），因此显式引用正文所用的
+         Fluent 前景资源，使行内代码文字与默认正文同色。
+         Padding 左右参与测量（嵌套排版按 padding+margin 预留步进），垂直方向只外扩绘制；
+         Margin 垂直方向把绘制矩形从行框内向内收缩（不改行高）——在 27px 行高下
+         chip 实际绘制高度 = 27 − 4 = 23，相邻两行 chip 之间保留 4px 间隙。 -->
+    <Style Selector="md|CodeInline">
+        <Setter Property="Foreground" Value="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+        <Setter Property="Background" Value="{DynamicResource InlineCodeBackgroundBrush}" />
+        <Setter Property="Padding" Value="6,0" />
+        <Setter Property="Margin" Value="0,2" />
+    </Style>
+    <!-- 正文排版：只作用于段落正文（ParagraphBlock），标题/代码块/表格保持库的自然行高。
+         27 ≈ 15px 字号的 1.8 倍；库默认行高未设置（自然行高约 20）。 -->
+    <Style Selector="md|MarkdownRenderer md|MarkdownTextBlock.ParagraphBlock">
+        <Setter Property="LineHeight" Value="27" />
+    </Style>
+    <!-- 文档级块间距（相邻段落等块元素之间）：库默认 4px 过密，取 18。
+         只改文档根容器（MarkdownDocument）；列表项、表格单元格与引用块内部的
+         StackPanel 间距仍按库默认，避免列表被拉开。 -->
+    <Style Selector="md|MarkdownRenderer StackPanel.MarkdownDocument">
+        <Setter Property="Spacing" Value="18" />
+    </Style>
     <!-- 库默认样式把 Markdown 文本固定为 Arial、14px；覆盖回应用字体与气泡正文字号。 -->
     <Style Selector="md|MarkdownTextBlock">
         <Setter Property="FontFamily" Value="{DynamicResource FontFamilyNormal}" />
