@@ -58,6 +58,15 @@ public sealed record PromptTextPart(string Text)
 public sealed record SessionCancelRequest(string SessionId);
 
 /// <summary>
+///     session/fork 请求：以源会话最近一个已完成 turn 的事件前缀为种子创建新会话。
+///     不携带分支点参数（atSeq），对齐参考客户端入口行为。
+/// </summary>
+public sealed record SessionForkRequest(string SessionId);
+
+/// <summary>session/rename 请求：标题交后端规范化并作为持久事件落盘。</summary>
+public sealed record SessionRenameRequest(string SessionId, string Title);
+
+/// <summary>
 ///     session/projections 请求：只读查询一个会话的完整投影（observeSession 计算，
 ///     冷会话走 hydratePrepared，不激活 Agent、不发起模型请求、不持久化投影缓存）。
 /// </summary>

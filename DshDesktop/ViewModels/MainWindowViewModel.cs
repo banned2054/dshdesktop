@@ -98,7 +98,8 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
 
     /// <summary>
     ///     保持旧测试与宿主构造调用的兼容性。未提供审批服务时，界面没有审批来源，
-    ///     但纯会话测试不应因此必须组装基础设施实现。
+    ///     但纯会话测试不应因此必须组装基础设施实现；未提供置顶服务时界面同样没有
+    ///     置顶来源（空实现，集合恒空且不持久化）。
     /// </summary>
     public MainWindowViewModel(
         ISessionService     sessionService,
@@ -118,7 +119,8 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         IToolApprovalService      toolApprovalService,
         bool                      isSimulatedMode         = true,
         Action<Action>?           postToUi                = null,
-        IPermissionPresetService? permissionPresetService = null)
+        IPermissionPresetService? permissionPresetService = null,
+        ISidebarPinService?       sidebarPinService       = null)
     {
         _sessionService          = sessionService;
         _backendHostService      = backendHostService;
@@ -141,7 +143,9 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         // 会话列表已迁入 Sidebar：选中切换仍由 root 编排（follow、Composer 与审批随 active
         // session 联动），Sidebar 只在用户操作或选中缺失/消失时经回调请求切换；
         // 新建入口统一交给 root 的编排流程（目标解析、复用与防重都在 root）。
-        Sidebar = new SidebarViewModel(sessionService, workspaceService, session => SelectedSession = session,
+        Sidebar = new SidebarViewModel(sessionService, workspaceService,
+                                       sidebarPinService ?? EmptySidebarPinService.Instance,
+                                       session => SelectedSession                = session,
                                        RequestNewSessionAsync, text => ErrorText = text ?? string.Empty, _postToUi,
                                        RenameWorkspaceAsync, DeleteWorkspaceAsync);
         LoadOlderCommand = new AsyncRelayCommand(LoadOlderAsync, CanLoadOlder);
@@ -890,6 +894,46 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         public IReadOnlyList<PendingApproval> Pending => [];
 
         public Task RespondAsync(string eventId, bool allowed, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.CompletedTask;
+        }
+    }
+
+    /// <summary>未提供置顶注册表时的空实现：集合恒空，置顶请求无效果（旧构造调用的兼容路径）。</summary>
+    private sealed class EmptySidebarPinService : ISidebarPinService
+    {
+        public static EmptySidebarPinService Instance { get; } = new();
+
+        public event EventHandler? PinsChanged
+        {
+            add { }
+            remove { }
+        }
+
+        public IReadOnlyList<string> PinnedSessionIds { get; } = [];
+
+        public IReadOnlyList<string> PinnedWorkspaceIds { get; } = [];
+
+        public Task PinSessionAsync(string sessionId, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.CompletedTask;
+        }
+
+        public Task UnpinSessionAsync(string sessionId, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.CompletedTask;
+        }
+
+        public Task PinWorkspaceAsync(string workspaceId, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.CompletedTask;
+        }
+
+        public Task UnpinWorkspaceAsync(string workspaceId, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
             return Task.CompletedTask;

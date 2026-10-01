@@ -1,6 +1,7 @@
 using DshDesktop.Core.Models;
 using DshDesktop.Core.Services;
 using System.Collections.ObjectModel;
+using System.Text.RegularExpressions;
 
 namespace DshDesktop.ViewModels;
 
@@ -20,6 +21,12 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
 
     private const string UngroupedKey = "$ungrouped";
 
+    // 置顶分类（高于工作区一层）的固定哨兵值：可折叠行头，成员为置顶工作区组与置顶会话。
+    private const string PinnedKey = "$pinned";
+
+    // 「工作区」分类的固定哨兵值：未被置顶的工作区统一收进该分类（项目自有投影）。
+    private const string WorkspacesKey = "$workspaces";
+
     private readonly HashSet<string>     _collapsedGroups = [];
     private readonly Action<Action>      _postToUi;
     private readonly Action<string?>     _reportError;
@@ -30,6 +37,10 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
 
     private readonly ISessionService   _sessionService;
     private readonly IWorkspaceService _workspaceService;
+
+    // 本地置顶注册表（项目自有方案，持久化到本项目配置文件，不消费后端置顶集合）：
+    // 会话与工作区共用，集合变化经 PinsChanged 回流重建行投影。
+    private readonly ISidebarPinService _pinService;
 
     // 工作区管理请求交 root 编排（真实/模拟服务），业务错误由本类呈现在对应弹窗内。
     private readonly Func<string, Task>?         _deleteWorkspace;
@@ -43,6 +54,7 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
 
     private bool    _isCreatingWorkspaceSession;
     private bool    _isDeletingWorkspace;
+    private bool    _isMutatingSessionFlags;
     private string? _deleteServerError;
     private string? _deleteTargetKey;
     private string? _deleteTargetTitle;
@@ -58,9 +70,19 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
     private string? _renameTargetTitle;
     private bool    _isRenameOpen;
     private string  _renameDraftText = string.Empty;
-    private bool    _isRequestingNewSession;
-    private bool    _isSearchOpen;
-    private int     _listRefreshPending;
+    private bool    _isRenamingSession;
+    private string? _sessionRenameServerError;
+    private string? _sessionRenameTargetId;
+    private bool    _isSessionRenameOpen;
+    private string  _sessionRenameDraftText = string.Empty;
+
+    // 弹窗代次：每次实际开合递增（取消、Esc、浅失焦经 TwoWay IsOpen 关闭同样经过）。
+    // 在途确认以提交时捕获的代次判断归属，迟到的成功/失败不得关闭、清空或写入
+    // 后来打开的其他弹窗；仅比较 sessionId 不足以识别关闭后重开的同一会话弹窗。
+    private int  _sessionRenameGeneration;
+    private bool _isRequestingNewSession;
+    private bool _isSearchOpen;
+    private int  _listRefreshPending;
 
     // 默认按工作区分组，对齐参考 Web 客户端的默认视图选项。
     private int _sessionListModeIndex = SessionListModeByWorkspace;
@@ -72,6 +94,7 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
     public SidebarViewModel(
         ISessionService               sessionService,
         IWorkspaceService             workspaceService,
+        ISidebarPinService            sidebarPinService,
         Action<SessionItemViewModel?> requestSelection,
         Func<string?, Task>           requestNewSession,
         Action<string?>               reportError,
@@ -81,6 +104,7 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
     {
         _sessionService    = sessionService;
         _workspaceService  = workspaceService;
+        _pinService        = sidebarPinService;
         _requestSelection  = requestSelection;
         _requestNewSession = requestNewSession;
         _reportError       = reportError;
@@ -101,6 +125,22 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
              OpenWorkspaceRename, group => group is { IsWorkspace: true });
         OpenWorkspaceDeleteCommand = new RelayCommand<SessionGroupHeaderViewModel>(
              OpenWorkspaceDelete, group => group is { IsWorkspace: true });
+        ToggleWorkspacePinCommand = new RelayCommand<SessionGroupHeaderViewModel>(
+             group => _ = ToggleWorkspacePinSafeAsync(group),
+             group => !_isMutatingSessionFlags && group is { IsWorkspace: true });
+        ToggleSessionPinCommand =
+            new RelayCommand<SessionItemViewModel>(session => _ = ToggleSessionPinSafeAsync(session),
+                                                   session => !_isMutatingSessionFlags && session is not null);
+        ArchiveSessionCommand = new RelayCommand<SessionItemViewModel>(session => _ = ArchiveSessionSafeAsync(session),
+                                                                       session => !_isMutatingSessionFlags &&
+                                                                           session is not null);
+        BranchSessionCommand = new RelayCommand<SessionItemViewModel>(session => _ = BranchSessionSafeAsync(session),
+                                                                      session => !_isMutatingSessionFlags &&
+                                                                          session is not null);
+        OpenSessionRenameCommand =
+            new RelayCommand<SessionItemViewModel>(OpenSessionRename, session => session is not null);
+        ConfirmSessionRenameCommand   = new RelayCommand(() => _ = ConfirmSessionRenameAsync());
+        CancelSessionRenameCommand    = new RelayCommand(CancelSessionRename);
         ConfirmWorkspaceRenameCommand = new RelayCommand(() => _ = ConfirmWorkspaceRenameAsync());
         CancelWorkspaceRenameCommand  = new RelayCommand(CancelWorkspaceRename);
         ConfirmWorkspaceDeleteCommand = new RelayCommand(() => _ = ConfirmWorkspaceDeleteAsync());
@@ -108,6 +148,7 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
 
         _sessionService.SessionsChanged     += OnSessionsChanged;
         _workspaceService.WorkspacesChanged += OnWorkspacesChanged;
+        _pinService.PinsChanged             += OnPinsChanged;
     }
 
     public ObservableCollection<SessionItemViewModel> Sessions { get; } = [];
@@ -136,6 +177,25 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
     public RelayCommand<SessionGroupHeaderViewModel> OpenWorkspaceRenameCommand { get; }
 
     public RelayCommand<SessionGroupHeaderViewModel> OpenWorkspaceDeleteCommand { get; }
+
+    /// <summary>会话行悬浮置顶按钮与菜单「置顶/取消置顶」共用：切换本地置顶注册表。</summary>
+    public RelayCommand<SessionItemViewModel> ToggleSessionPinCommand { get; }
+
+    /// <summary>工作区行菜单「置顶/取消置顶」：置顶工作区进入侧栏置顶分类（本地置顶注册表）。</summary>
+    public RelayCommand<SessionGroupHeaderViewModel> ToggleWorkspacePinCommand { get; }
+
+    /// <summary>会话行悬浮归档按钮与菜单「归档会话」共用。</summary>
+    public RelayCommand<SessionItemViewModel> ArchiveSessionCommand { get; }
+
+    /// <summary>会话菜单「分叉会话」：以最近完成 turn 为界复制出新会话。</summary>
+    public RelayCommand<SessionItemViewModel> BranchSessionCommand { get; }
+
+    /// <summary>会话菜单「重命名」：以该行为对象打开重命名弹窗并预填当前标题。</summary>
+    public RelayCommand<SessionItemViewModel> OpenSessionRenameCommand { get; }
+
+    public RelayCommand ConfirmSessionRenameCommand { get; }
+
+    public RelayCommand CancelSessionRenameCommand { get; }
 
     public RelayCommand ConfirmWorkspaceRenameCommand { get; }
 
@@ -367,6 +427,124 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
 
     private void CancelWorkspaceDelete() => CloseDelete();
 
+    /// <summary>重命名会话弹窗是否打开（会话菜单「重命名」项打开，浅失焦或取消关闭）。</summary>
+    public bool IsSessionRenameOpen
+    {
+        get => _isSessionRenameOpen;
+        private set
+        {
+            if (!SetProperty(ref _isSessionRenameOpen, value)) return;
+
+            // 开合即换代（取消、Esc、浅失焦经 TwoWay IsOpen 关闭都走这里）：
+            // 在途确认以提交时捕获的代次判断归属。
+            _sessionRenameGeneration++;
+        }
+    }
+
+    /// <summary>会话重命名输入草稿：弹窗打开时预填当前标题；trim 后为确认与校验依据。</summary>
+    public string SessionRenameDraftText
+    {
+        get => _sessionRenameDraftText;
+        set
+        {
+            if (!SetProperty(ref _sessionRenameDraftText, value ?? string.Empty)) return;
+            // 输入变化即重算本地校验；上一次确认失败的服务端错误随之让位。
+            _sessionRenameServerError = null;
+            NotifySessionRenameValidation();
+        }
+    }
+
+    /// <summary>
+    ///     确认重命名是否可用：存在目标、标题非空且不在途。对齐官方语义，与工作区
+    ///     重命名不同，未变更的标题不阻止确认——确认当前自动标题正是「钉住」它的手势。
+    /// </summary>
+    public bool CanConfirmSessionRename =>
+        !_isRenamingSession                &&
+        _sessionRenameTargetId is not null &&
+        SessionRenameTrimmedText.Length > 0;
+
+    /// <summary>会话重命名错误提示：服务端校验与调用失败在弹窗内呈现（会话标题允许重名，无本地冲突检查）。</summary>
+    public string? SessionRenameErrorText => _sessionRenameServerError;
+
+    public bool HasSessionRenameError => _sessionRenameServerError is not null;
+
+    /// <summary>会话重命名草稿的 trim 结果：确认与未变更比对都以它为准。</summary>
+    private string SessionRenameTrimmedText => SessionRenameDraftText.Trim();
+
+    /// <summary>会话重命名校验相关属性的统一通知点（输入、在途与错误状态变化都会经过）。</summary>
+    private void NotifySessionRenameValidation()
+    {
+        OnPropertyChanged(nameof(CanConfirmSessionRename));
+        OnPropertyChanged(nameof(SessionRenameErrorText));
+        OnPropertyChanged(nameof(HasSessionRenameError));
+    }
+
+    /// <summary>会话菜单「重命名」：以该行为对象打开重命名弹窗并预填当前标题。</summary>
+    private void OpenSessionRename(SessionItemViewModel? session)
+    {
+        if (session is null) return;
+
+        _sessionRenameTargetId    = session.Id;
+        _sessionRenameServerError = null;
+        SessionRenameDraftText    = session.Title ?? string.Empty;
+        IsSessionRenameOpen       = true;
+
+        // 预填与残留草稿相同时草稿 setter 不通知，开窗即补齐校验通知（CanConfirm 与错误文本），
+        // 否则常驻弹窗的确认按钮停留在关闭时通知的禁用态。
+        NotifySessionRenameValidation();
+    }
+
+    /// <summary>确认重命名：本地校验通过后直调 session/rename；失败留在弹窗内呈现并可重试。</summary>
+    private async Task ConfirmSessionRenameAsync()
+    {
+        if (!CanConfirmSessionRename) return;
+
+        var sessionId  = _sessionRenameTargetId!;
+        var title      = SessionRenameTrimmedText;
+        var generation = _sessionRenameGeneration;
+        _isRenamingSession = true;
+        NotifySessionRenameValidation();
+        try
+        {
+            // 服务端接受后的规范化标题就地落投影（权威值）；列表刷新携带同值回流，幂等对齐。
+            var accepted = await _sessionService.RenameSessionAsync(sessionId, title);
+            Sessions.FirstOrDefault(session => session.Id == sessionId)?.ApplyRenamedTitle(accepted);
+            if (generation != _sessionRenameGeneration)
+                // 迟到结果：弹窗已取消/失焦关闭，或已重开（可能是别的会话）——
+                // 只更新原会话标题，不关闭、不清空、不写入当前弹窗。
+                return;
+
+            _sessionRenameServerError = null;
+            CloseSessionRename();
+        }
+        catch (Exception exception)
+        {
+            // 归属已变时不写入：错误只属于发起确认的那个弹窗。
+            if (generation != _sessionRenameGeneration) return;
+
+            _sessionRenameServerError = exception.Message;
+            NotifySessionRenameValidation();
+        }
+        finally
+        {
+            // 在途标记按请求而非弹窗代次复位：弹窗换代后也要复位，否则新弹窗的确认
+            // 按钮会被永久禁用；弹窗内状态（关闭、错误文本）的写入已按代次检查归属。
+            _isRenamingSession = false;
+            NotifySessionRenameValidation();
+        }
+    }
+
+    /// <summary>关闭并清理会话重命名弹窗状态（取消、确认成功与浅失焦共用）。</summary>
+    private void CloseSessionRename()
+    {
+        IsSessionRenameOpen       = false;
+        _sessionRenameTargetId    = null;
+        _sessionRenameServerError = null;
+        NotifySessionRenameValidation();
+    }
+
+    private void CancelSessionRename() => CloseSessionRename();
+
     /// <summary>分组方式弹层勾选态：按工作区。随视图模式变化由 SessionListModeIndex 联动。</summary>
     public bool IsGroupByWorkspace => _sessionListModeIndex == SessionListModeByWorkspace;
 
@@ -384,6 +562,7 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
     {
         _sessionService.SessionsChanged     -= OnSessionsChanged;
         _workspaceService.WorkspacesChanged -= OnWorkspacesChanged;
+        _pinService.PinsChanged             -= OnPinsChanged;
     }
 
     /// <summary>
@@ -462,8 +641,9 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
         // 就地更新既有条目：重建 ObservableCollection 会替换选中实例，
         // 触发重新订阅并让新快照清掉流式气泡，生成中的内容会闪动。
         var existingById = Sessions.ToDictionary(session => session.Id);
+        var visibleIds   = visible.Select(summary => summary.Id).ToHashSet();
         for (var index = Sessions.Count - 1; index >= 0; index--)
-            if (visible.All(summary => summary.Id != Sessions[index].Id))
+            if (!visibleIds.Contains(Sessions[index].Id))
                 Sessions.RemoveAt(index);
 
         var insertIndex = 0;
@@ -472,8 +652,8 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
             if (existingById.TryGetValue(summary.Id, out var item))
             {
                 item.UpdateSummary(summary);
-                var currentIndex = Sessions.IndexOf(item);
-                if (currentIndex != insertIndex) Sessions.Move(currentIndex, insertIndex);
+                if (!ReferenceEquals(Sessions[insertIndex], item))
+                    Sessions.Move(Sessions.IndexOf(item), insertIndex);
             }
             else
             {
@@ -488,19 +668,24 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
         // retained 判定必须基于刷新后的 Sessions：existingById 是刷新前快照，
         // 后端已删除当前会话时它仍会命中，而实例其实已被上面的移除循环剔除。
         if (_currentSession is not null && Sessions.Contains(_currentSession))
-            // 选中实例刷新后仍在列表中（同一实例）：不触发重订阅，也无需 root 协调。
+        {
+            // 选中实例刷新后仍在列表中（同一实例）：不触发重订阅；唯一例外是它已被
+            // 归档（其他客户端归档当前会话，或重连基线带回归档态）——协调回草稿页。
+            await CoordinateArchivedCurrentPageAsync();
             return;
+        }
 
         // 无选中时的回退选中只服务于初始化默认选中：用户主动停留在新对话草稿页时，
         // 创建会话等触发的列表刷新不得把草稿页抢回旧会话（手动点击行不走本分支）。
         if (_currentSession is null && _isDraftPageActive) return;
 
         // 选中已不存在（或尚无选中）：请求 root 采用回退选择。回退按完整目录匹配，
-        // 避免选中空白会话在可见投影中缺席时被误判为消失。
-        var selection = Sessions.FirstOrDefault(session => session.Id == selectedSessionId) ??
-                        _catalog.Where(summary => summary.BlankState != SessionBlankState.ConfirmedBlank)
-                                .Select(summary => Sessions.FirstOrDefault(session => session.Id == summary.Id))
-                                .FirstOrDefault(session => session is not null);
+        // 避免选中空白会话在可见投影中缺席时被误判为消失；归档会话已移出列表表面，不作回退候选。
+        var archived = _workspaceService.ArchivedSessionIds;
+        var selection = Sessions.FirstOrDefault(session => session.Id == selectedSessionId) ?? _catalog
+           .Where(summary => summary.BlankState != SessionBlankState.ConfirmedBlank && !archived.Contains(summary.Id))
+           .Select(summary => Sessions.FirstOrDefault(session => session.Id == summary.Id))
+           .FirstOrDefault(session => session is not null);
         _requestSelection(selection);
     }
 
@@ -509,42 +694,174 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
     {
         _workspaces = await _workspaceService.GetWorkspacesAsync(cancellationToken);
         RebuildSessionRows();
+        // 外部归档事件与重连基线经 WorkspacesChanged 回流，会话目录不变时不会触发
+        // 会话刷新：归档当前会话的页面协调在工作区刷新路径同样执行。
+        await CoordinateArchivedCurrentPageAsync();
     }
 
     /// <summary>
-    ///     按当前视图模式把可见会话投影为呈现行；分组模式对齐参考客户端投影语义。
+    ///     归档集合回流后的当前页面协调：当前选中已被归档（其他客户端归档当前会话，
+    ///     或重连基线包含其归档态）时，对齐本窗口归档当前会话的行为，经 root 既有流程
+    ///     （请求新对话）回到新对话草稿页。用户已主动停留草稿页时不抢导航；非当前会话
+    ///     归档不进入本路径，不影响导航，也不自动选中其他会话。归档行实例保留在目录中
+    ///     待恢复，后端记录不变。
+    /// </summary>
+    private async Task CoordinateArchivedCurrentPageAsync()
+    {
+        if (_currentSession is null) return;
+        if (!_workspaceService.ArchivedSessionIds.Contains(_currentSession.Id)) return;
+        if (_isDraftPageActive) return;
+
+        await RequestNewSessionSafeAsync(null);
+    }
+
+    /// <summary>
+    ///     按当前视图模式把可见会话投影为呈现行。分类是高于工作区一层的自有投影：
+    ///     置顶分类在上（置顶工作区组在上、置顶会话在下，同类按更新时间降序），
+    ///     其后为「工作区」分类，未置顶工作区组统一收进其中（组序为后端顺序）；
+    ///     三个分类头（置顶/工作区/未分组）均为纯文字+右侧箭头的可折叠行，无图标
+    ///     与高亮。置顶会话从原分组提取
+    ///     （不再出现在原位置），置顶工作区的成员仍挂在组内，其中被置顶的会话以并列
+    ///     形式进入置顶会话区（不嵌套）。单列表没有工作区行表示：置顶会话按更新时间
+    ///     降序浮在最前，置顶工作区不参与投影。
     ///     搜索词非空时按标题过滤（忽略大小写）：只影响呈现投影，不改目录与选中语义；
-    ///     过滤时空组（含工作区组）整体隐藏，避免残留无成员的组头。
+    ///     过滤时空组（含工作区组）整体隐藏，避免残留无成员的组头；分类下无可见组时
+    ///     分类头一并隐藏。
+    ///     归档会话默认移出列表表面（参考客户端默认筛选），行实例保留在目录中待恢复。
     /// </summary>
     private void RebuildSessionRows()
     {
-        SessionRows.Clear();
-        var query = _sessionSearchText.Trim();
-        var matches = Sessions.Where(session => query.Length == 0 ||
-                                                session.TitleText.Contains(query, StringComparison.OrdinalIgnoreCase));
+        SyncSessionFlags();
+        var archived = _workspaceService.ArchivedSessionIds;
+        var rows     = new List<object>();
+        var headers  = SessionRows.OfType<SessionGroupHeaderViewModel>().ToDictionary(header => header.Key);
+        var query    = _sessionSearchText.Trim();
+        var matches = Sessions.Where(session => !archived.Contains(session.Id) &&
+                                                (query.Length == 0 ||
+                                                 session.TitleText
+                                                        .Contains(query, StringComparison.OrdinalIgnoreCase)))
+                              .ToArray();
+
+        var pinnedIds = _pinService.PinnedSessionIds.ToHashSet();
+        var pinnedSessions = matches.Where(session => pinnedIds.Contains(session.Id))
+                                    .OrderByDescending(session => session.UpdatedAt)
+                                    .ToArray();
         if (_sessionListModeIndex == SessionListModeFlat)
         {
-            foreach (var session in matches) SessionRows.Add(session);
-
+            rows.AddRange(pinnedSessions);
+            rows.AddRange(matches.Where(session => !pinnedIds.Contains(session.Id)));
+            ApplySessionRows(rows);
             return;
         }
 
-        // 按工作区分组：组序为后端顺序，成员按更新时间降序（参考客户端 orderBy=updated）；
-        // 不被任何工作区记账的会话（含新建空白会话）落入「未分组」，仅在有成员时显示。
-        var filtering = query.Length > 0;
+        // 分组模式：先投影置顶分类（有可见内容才显示分类头），再投影「工作区」分类与「未分组」。
+        var filtering          = query.Length > 0;
+        var pinnedWorkspaceIds = _pinService.PinnedWorkspaceIds;
+        var pinnedWorkspaces = _workspaces.Where(workspace => pinnedWorkspaceIds.Contains(workspace.Id))
+                                          .OrderByDescending(workspace => workspace.UpdatedAt)
+                                          .ToArray();
         var accounted = new HashSet<string>();
-        foreach (var workspace in _workspaces)
-            AppendGroup(workspace.Id, workspace.Title,
-                        matches.Where(session => workspace.SessionIds.Contains(session.Id)), accounted, true,
-                        filtering);
+        foreach (var session in pinnedSessions) accounted.Add(session.Id);
 
-        AppendGroup(UngroupedKey, "未分组", matches.Where(session => !accounted.Contains(session.Id)), accounted,
-                    false, true);
+        if (pinnedSessions.Length > 0 || pinnedWorkspaces.Length > 0)
+        {
+            var pinnedRows = new List<object>();
+            foreach (var workspace in pinnedWorkspaces)
+            {
+                var memberIds = workspace.SessionIds.ToHashSet();
+                AppendGroup(pinnedRows, headers, workspace.Id, workspace.Title,
+                            matches.Where(session => memberIds.Contains(session.Id) &&
+                                                     !pinnedIds.Contains(session.Id)),
+                            accounted, true, true, filtering);
+            }
+
+            pinnedRows.AddRange(pinnedSessions);
+            if (pinnedRows.Count > 0)
+            {
+                var expanded = !_collapsedGroups.Contains(PinnedKey);
+                if (headers.TryGetValue(PinnedKey, out var pinnedHeader))
+                    pinnedHeader.Update("置顶", pinnedRows.Count, expanded, false);
+                else
+                    pinnedHeader = new SessionGroupHeaderViewModel(PinnedKey, "置顶", pinnedRows.Count, expanded,
+                                                                   ToggleGroupCommand, false, isCategory : true);
+                rows.Add(pinnedHeader);
+                if (expanded) rows.AddRange(pinnedRows);
+            }
+        }
+
+        // 工作区分类：未被置顶的工作区统一收进「工作区」分类（组序为后端顺序，
+        // 成员按更新时间降序，参考客户端 orderBy=updated）；置顶工作区已提取到
+        // 置顶分类，不重复出现。分类头与置顶分类同为纯文字行：分类下无可见组时
+        // （搜索过滤空组）一并隐藏。不被任何工作区记账的会话（含新建空白会话）
+        // 落入分类外的「未分组」，仅在有成员时显示。
+        var workspaceRows = new List<object>();
+        foreach (var workspace in _workspaces)
+        {
+            if (pinnedWorkspaceIds.Contains(workspace.Id)) continue;
+
+            var memberIds = workspace.SessionIds.ToHashSet();
+            AppendGroup(workspaceRows, headers, workspace.Id, workspace.Title,
+                        matches.Where(session => memberIds.Contains(session.Id) &&
+                                                 !pinnedIds.Contains(session.Id)),
+                        accounted, true, false, filtering);
+        }
+
+        if (workspaceRows.Count > 0)
+        {
+            var expanded = !_collapsedGroups.Contains(WorkspacesKey);
+            if (headers.TryGetValue(WorkspacesKey, out var workspacesHeader))
+                workspacesHeader.Update("工作区", workspaceRows.Count, expanded, false);
+            else
+                workspacesHeader = new SessionGroupHeaderViewModel(WorkspacesKey, "工作区", workspaceRows.Count,
+                                                                   expanded, ToggleGroupCommand, false,
+                                                                   isCategory : true);
+            rows.Add(workspacesHeader);
+            if (expanded) rows.AddRange(workspaceRows);
+        }
+
+        // 「未分组」同为分类行（纯文字+右侧箭头，不并入工作区分类），仅在有成员时显示。
+        AppendGroup(rows, headers, UngroupedKey, "未分组", matches.Where(session => !accounted.Contains(session.Id)),
+                    accounted,
+                    false, false, true, isCategory : true);
+        ApplySessionRows(rows);
+    }
+
+    /// <summary>保留未变行与控件；刷新不 Reset，排序只移动、筛选只增删实际变化的行。</summary>
+    private void ApplySessionRows(List<object> rows)
+    {
+        var retained = rows.ToHashSet();
+        for (var index = SessionRows.Count - 1; index >= 0; index--)
+            if (!retained.Contains(SessionRows[index]))
+                SessionRows.RemoveAt(index);
+
+        for (var index = 0; index < rows.Count; index++)
+        {
+            var row = rows[index];
+            if (index < SessionRows.Count && ReferenceEquals(SessionRows[index], row)) continue;
+
+            var previousIndex = SessionRows.IndexOf(row);
+            if (previousIndex >= 0) SessionRows.Move(previousIndex, index);
+            else SessionRows.Insert(index, row);
+        }
+    }
+
+    /// <summary>
+    ///     把本地置顶注册表的会话集合同步到行实例（行标记的数据源）；每次投影重建前调用，
+    ///     列表刷新与本地置顶变更共用同一入口。置顶与归档互斥：归档会话行本身已隐藏，
+    ///     标记仍按互斥语义落。
+    /// </summary>
+    private void SyncSessionFlags()
+    {
+        var pinnedIds = _pinService.PinnedSessionIds.ToHashSet();
+        var archived  = _workspaceService.ArchivedSessionIds;
+        foreach (var session in Sessions)
+            session.Pinned = pinnedIds.Contains(session.Id) && !archived.Contains(session.Id);
     }
 
     private void AppendGroup(
-        string key,         string title, IEnumerable<SessionItemViewModel> members, HashSet<string> accounted,
-        bool   isWorkspace, bool   skipWhenEmpty)
+        List<object> rows,        Dictionary<string, SessionGroupHeaderViewModel> headers,
+        string       key,         string title, IEnumerable<SessionItemViewModel> members, HashSet<string> accounted,
+        bool         isWorkspace, bool isPinned, bool skipWhenEmpty, bool isCategory = false)
     {
         var memberList = members.ToList();
         if (memberList.Count == 0 && skipWhenEmpty) return;
@@ -552,11 +869,19 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
         foreach (var member in memberList) accounted.Add(member.Id);
 
         var expanded = !_collapsedGroups.Contains(key);
-        SessionRows.Add(new SessionGroupHeaderViewModel(key, title, memberList.Count, expanded, ToggleGroupCommand,
-                                                        isWorkspace, memberList.Any(member => member.IsCurrent)));
-        if (expanded)
-            foreach (var member in memberList)
-                SessionRows.Add(member);
+        // 分类头不参与选中高亮，IsCurrent 恒为 false。
+        var current = !isCategory && memberList.Any(member => member.IsCurrent);
+        // isPinned 只驱动菜单置顶标记；isCategory 标记分类头——「未分组」恒为分类，
+        // 置顶/工作区分类头在 RebuildSessionRows 显式创建。
+        if (!headers.TryGetValue(key, out var header))
+            headers[key] = header = new SessionGroupHeaderViewModel(key, title, memberList.Count, expanded,
+                                                                    ToggleGroupCommand, isWorkspace, current,
+                                                                    isCategory);
+        header.Update(title, memberList.Count, expanded, current, isPinned);
+        rows.Add(header);
+        if (!expanded) return;
+
+        rows.AddRange(memberList);
     }
 
     private void ToggleGroup(SessionGroupHeaderViewModel? header)
@@ -573,6 +898,9 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
         // 后台线程事件：回到界面线程重读投影（工作区变更频率低，不做合并）。
         _postToUi(() => _ = RefreshWorkspacesSafeAsync());
     }
+
+    /// <summary>本地置顶注册表集合变化：置顶/取消置顶已生效，直接重建行投影。</summary>
+    private void OnPinsChanged(object? sender, EventArgs e) => _postToUi(RebuildSessionRows);
 
     private async Task RefreshWorkspacesSafeAsync()
     {
@@ -671,5 +999,133 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
         {
             _isRequestingNewSession = false;
         }
+    }
+
+    /// <summary>
+    ///     切换会话置顶（本地置顶注册表，持久化到本项目配置文件）：集合变化经
+    ///     PinsChanged 回流重建行投影；持久化失败上报窗口级错误，集合不变。
+    /// </summary>
+    private async Task ToggleSessionPinSafeAsync(SessionItemViewModel? session)
+    {
+        if (session is null || _isMutatingSessionFlags) return;
+
+        _isMutatingSessionFlags = true;
+        RaiseSessionMutationCanExecuteChanged();
+        try
+        {
+            if (session.Pinned) await _pinService.UnpinSessionAsync(session.Id);
+            else await _pinService.PinSessionAsync(session.Id);
+        }
+        catch (Exception exception)
+        {
+            _reportError(exception.Message);
+        }
+        finally
+        {
+            _isMutatingSessionFlags = false;
+            RaiseSessionMutationCanExecuteChanged();
+        }
+    }
+
+    /// <summary>
+    ///     切换工作区置顶（本地置顶注册表，工作区行菜单入口）：置顶工作区提取到侧栏
+    ///     置顶分类（工作区在上、会话在下），分类内其会话仍挂在组内；失败语义同会话置顶。
+    /// </summary>
+    private async Task ToggleWorkspacePinSafeAsync(SessionGroupHeaderViewModel? group)
+    {
+        if (group is null || !group.IsWorkspace || _isMutatingSessionFlags) return;
+
+        _isMutatingSessionFlags = true;
+        RaiseSessionMutationCanExecuteChanged();
+        try
+        {
+            if (group.Pinned) await _pinService.UnpinWorkspaceAsync(group.Key);
+            else await _pinService.PinWorkspaceAsync(group.Key);
+        }
+        catch (Exception exception)
+        {
+            _reportError(exception.Message);
+        }
+        finally
+        {
+            _isMutatingSessionFlags = false;
+            RaiseSessionMutationCanExecuteChanged();
+        }
+    }
+
+    /// <summary>
+    ///     归档会话（workspace/archiveSession，移出列表表面，记录保留）。归档回流（本地
+    ///     RPC 落投影与外部/基线事件共用）经 <see cref="CoordinateArchivedCurrentPageAsync" />
+    ///     统一协调当前页面：归档的是当前会话时对齐参考客户端回到新对话草稿页。
+    /// </summary>
+    private async Task ArchiveSessionSafeAsync(SessionItemViewModel? session)
+    {
+        if (session is null || _isMutatingSessionFlags) return;
+
+        _isMutatingSessionFlags = true;
+        RaiseSessionMutationCanExecuteChanged();
+        try
+        {
+            await _workspaceService.ArchiveSessionAsync(session.Id);
+        }
+        catch (Exception exception)
+        {
+            _reportError(exception.Message);
+        }
+        finally
+        {
+            _isMutatingSessionFlags = false;
+            RaiseSessionMutationCanExecuteChanged();
+        }
+    }
+
+    /// <summary>
+    ///     分叉会话（session/fork，菜单「分叉会话」）：以最近完成 turn 为界复制出独立新会话，
+    ///     子会话经列表刷新上屏、不切换选中（对齐参考客户端）。源会话有标题时按参考客户端
+    ///     语义对子会话做尾部序号递增改名；改名失败不影响已创建的分支，只上报错误。
+    /// </summary>
+    private async Task BranchSessionSafeAsync(SessionItemViewModel? session)
+    {
+        if (session is null || _isMutatingSessionFlags) return;
+
+        _isMutatingSessionFlags = true;
+        RaiseSessionMutationCanExecuteChanged();
+        try
+        {
+            var childId = await _sessionService.ForkSessionAsync(session.Id);
+            if (!string.IsNullOrWhiteSpace(session.Title))
+                await _sessionService.RenameSessionAsync(childId, IncreaseForkTitle(session.Title));
+        }
+        catch (Exception exception)
+        {
+            _reportError(exception.Message);
+        }
+        finally
+        {
+            _isMutatingSessionFlags = false;
+            RaiseSessionMutationCanExecuteChanged();
+        }
+    }
+
+    /// <summary>分叉子会话标题：尾部 (N)/（N）序号递增，无序号追加 " (1)"（对齐参考客户端）。</summary>
+    private static string IncreaseForkTitle(string title)
+    {
+        var ascii = Regex.Match(title, @"^(.*?)\((\d+)\)$");
+        if (ascii.Success && long.TryParse(ascii.Groups[2].Value, out var asciiNumber))
+            return $"{ascii.Groups[1].Value}({asciiNumber + 1})";
+
+        var fullWidth = Regex.Match(title, @"^(.*?)（(\d+)）$");
+        if (fullWidth.Success && long.TryParse(fullWidth.Groups[2].Value, out var fullWidthNumber))
+            return $"{fullWidth.Groups[1].Value}（{fullWidthNumber + 1}）";
+
+        return $"{title} (1)";
+    }
+
+    private void RaiseSessionMutationCanExecuteChanged()
+    {
+        ToggleWorkspacePinCommand.RaiseCanExecuteChanged();
+        ToggleSessionPinCommand.RaiseCanExecuteChanged();
+        ArchiveSessionCommand.RaiseCanExecuteChanged();
+        BranchSessionCommand.RaiseCanExecuteChanged();
     }
 }

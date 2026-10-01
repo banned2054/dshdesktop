@@ -12,11 +12,15 @@ public sealed record WorkspaceViewWire(
 
 /// <summary>
 ///     workspace/follow 的下行帧；每代第一帧必为 Baseline，之后为增量。
-///     Archived 携带归档会话的全量集合（registry 级，不属于单个工作区）。
+///     Baseline 的 value 除工作区条目外还携带 registry 级归档全量集合
+///     （对照 workspace-controller feed.ts 的 baseline()，缺失即冷启动把已归档
+///     会话当正常行展示）；Archived 增量帧同携全量集合。置顶集合（pinned 帧）
+///     属上游协议但本端已改为自有置顶方案，不再消费。
 /// </summary>
 public abstract record WorkspaceFollowFrame
 {
-    public sealed record Baseline(IReadOnlyList<WorkspaceViewWire> Items) : WorkspaceFollowFrame;
+    public sealed record Baseline(IReadOnlyList<WorkspaceViewWire> Items, IReadOnlyList<string> ArchivedSessionIds)
+        : WorkspaceFollowFrame;
 
     public sealed record Upsert(WorkspaceViewWire Workspace) : WorkspaceFollowFrame;
 
@@ -41,17 +45,21 @@ public static class WorkspaceFrameJson
         {
             case "baseline" :
             {
-                var items = new List<WorkspaceViewWire>();
-                if (!element.TryGetProperty("value", out var valueElement)      ||
-                    valueElement.ValueKind != JsonValueKind.Object              ||
-                    !valueElement.TryGetProperty("items", out var itemsElement) ||
-                    itemsElement.ValueKind != JsonValueKind.Array)
-                    return new WorkspaceFollowFrame.Baseline(items);
-                foreach (var item in itemsElement.EnumerateArray())
-                    if (ParseView(item) is { } view)
-                        items.Add(view);
+                var items       = new List<WorkspaceViewWire>();
+                var archivedIds = new List<string>();
+                if (!element.TryGetProperty("value", out var valueElement) ||
+                    valueElement.ValueKind != JsonValueKind.Object)
+                    return new WorkspaceFollowFrame.Baseline(items, archivedIds);
 
-                return new WorkspaceFollowFrame.Baseline(items);
+                if (valueElement.TryGetProperty("items", out var itemsElement) &&
+                    itemsElement.ValueKind == JsonValueKind.Array)
+                    foreach (var item in itemsElement.EnumerateArray())
+                        if (ParseView(item) is { } view)
+                            items.Add(view);
+
+                archivedIds = ParseIdArray(valueElement, "archivedSessionIds");
+
+                return new WorkspaceFollowFrame.Baseline(items, archivedIds);
             }
 
             case "upsert" :
@@ -85,21 +93,26 @@ public static class WorkspaceFrameJson
             }
 
             case "archived" :
-            {
-                var ids = new List<string>();
-                if (!element.TryGetProperty("archivedSessionIds", out var archivedElement) ||
-                    archivedElement.ValueKind != JsonValueKind.Array)
-                    return new WorkspaceFollowFrame.Archived(ids);
-                foreach (var id in archivedElement.EnumerateArray())
-                    if (id.ValueKind == JsonValueKind.String && id.GetString() is { Length: > 0 } parsed)
-                        ids.Add(parsed);
-
-                return new WorkspaceFollowFrame.Archived(ids);
-            }
+                return new WorkspaceFollowFrame.Archived(ParseIdArray(element, "archivedSessionIds"));
 
             default :
                 return null;
         }
+    }
+
+    /// <summary>解析字符串 id 数组属性（缺属性或非数组返回空集合，非空字符串才收录）。</summary>
+    private static List<string> ParseIdArray(JsonElement parent, string propertyName)
+    {
+        var ids = new List<string>();
+        if (!parent.TryGetProperty(propertyName, out var arrayElement) ||
+            arrayElement.ValueKind != JsonValueKind.Array)
+            return ids;
+
+        foreach (var item in arrayElement.EnumerateArray())
+            if (item.ValueKind == JsonValueKind.String && item.GetString() is { Length: > 0 } id)
+                ids.Add(id);
+
+        return ids;
     }
 
     private static WorkspaceViewWire? ParseView(JsonElement element)

@@ -36,6 +36,9 @@ public partial class App : Application
             HarnessConnection?     connection      = null;
             var                    isSimulatedMode = true;
 
+            // 置顶是本项目自有方案（本地配置文件持久化），与后端模式无关，两种模式共用一份。
+            ISidebarPinService sidebarPinService = new SidebarPinService();
+
             if (configuration is { UseRealBackend: true, Options: { } options })
             {
                 var hostService = new NodeBackendHostService(options);
@@ -66,7 +69,8 @@ public partial class App : Application
                                                     toolApprovalService,
                                                     isSimulatedMode,
                                                     action => Dispatcher.UIThread.Post(action),
-                                                    permissionPresetService);
+                                                    permissionPresetService,
+                                                    sidebarPinService);
             var mainWindow = new MainWindow(viewModel);
             if (configuration.ConfigurationError is { Length: > 0 } error)
             {

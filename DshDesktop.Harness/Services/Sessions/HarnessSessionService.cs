@@ -117,6 +117,38 @@ public sealed class HarnessSessionService : ISessionService
         return summary;
     }
 
+    /// <summary>分支会话（session/fork）：返回服务端新铸的子会话 id。</summary>
+    public async Task<string> ForkSessionAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId)) throw new ArgumentException("会话 id 不能为空。", nameof(sessionId));
+
+        var value = await _connection.InvokeAsync("session/fork",
+                                                  new SessionForkRequest(sessionId),
+                                                  HarnessJsonContext.Default.SessionForkRequest,
+                                                  HarnessJsonContext.Default.SessionForkValue,
+                                                  cancellationToken)
+                                     .ConfigureAwait(false);
+        // 子会话经 api-session/added 事件驱动列表刷新，这里不代发本地变更。
+        return value.SessionId;
+    }
+
+    /// <summary>重命名会话（session/rename）：返回后端接受后的标题。</summary>
+    public async Task<string> RenameSessionAsync(
+        string sessionId, string title, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId)) throw new ArgumentException("会话 id 不能为空。", nameof(sessionId));
+
+        if (string.IsNullOrWhiteSpace(title)) throw new ArgumentException("标题不能为空。", nameof(title));
+
+        var value = await _connection.InvokeAsync("session/rename",
+                                                  new SessionRenameRequest(sessionId, title),
+                                                  HarnessJsonContext.Default.SessionRenameRequest,
+                                                  HarnessJsonContext.Default.SessionRenameValue,
+                                                  cancellationToken)
+                                     .ConfigureAwait(false);
+        return value.Title;
+    }
+
     /// <summary>查询模型目录（默认选型与各提供方可选模型）。</summary>
     public async Task<ModelCatalog> GetModelCatalogAsync(CancellationToken cancellationToken = default)
     {
@@ -216,7 +248,7 @@ public sealed class HarnessSessionService : ISessionService
                                                            .Where(model => !string.IsNullOrWhiteSpace(model.Id) &&
                                                                            !string.IsNullOrWhiteSpace(model.Name))
                                                            .Select(model => new ModelCatalogEntry(model.Id, model.Name,
-                                                                       ToReasoning(model.Reasoning))).ToArray()))
+                                                                            ToReasoning(model.Reasoning))).ToArray()))
                     .Where(group => group.Models.Count > 0)
                     .ToArray();
         var failures = (value.Failures ?? [])
@@ -235,7 +267,7 @@ public sealed class HarnessSessionService : ISessionService
         return new ModelReasoningInfo(reasoning.Efforts
                                                .Where(effort => !string.IsNullOrWhiteSpace(effort.Id))
                                                .Select(effort => new ReasoningEffortInfo(effort.Id, effort.Name,
-                                                           effort.Description))
+                                                                effort.Description))
                                                .ToArray(),
                                       reasoning.DefaultEffort);
     }
@@ -371,11 +403,11 @@ public sealed class HarnessSessionService : ISessionService
                         ? callTurn
                         : null;
                     yield return new SessionUpdate.ToolCallStarted(new ToolActivity(wireEvent.Seq, call.CallId,
-                                                                       call.Name, call.Arguments,
-                                                                       ToolActivityStatus.Running, null, null,
-                                                                       DateTimeOffset
-                                                                          .FromUnixTimeMilliseconds(wireEvent
-                                                                              .Time), Turn : turn));
+                                                                            call.Name, call.Arguments,
+                                                                            ToolActivityStatus.Running, null, null,
+                                                                            DateTimeOffset
+                                                                               .FromUnixTimeMilliseconds(wireEvent
+                                                                                            .Time), Turn : turn));
                 }
                 else if (WireEventJson.TryGetToolResult(wireEvent) is { } result)
                 {
@@ -388,8 +420,8 @@ public sealed class HarnessSessionService : ISessionService
                 else if (WireEventJson.TryGetModelSelection(wireEvent) is { } selection)
                 {
                     yield return new SessionUpdate.ModelSelected(new ModelSelection(selection.Provider,
-                                                                     selection.Model,
-                                                                     selection.ReasoningEffort));
+                                                                          selection.Model,
+                                                                          selection.ReasoningEffort));
                 }
 
                 break;

@@ -2,6 +2,28 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <!-- 侧栏样式：会话列表行、分组头行、新建会话按钮与分隔条。 -->
 
+    <Style Selector="ListBox.session-list">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="AutoScrollToSelectedItem" Value="False" />
+    </Style>
+    <!-- 容器只承载虚拟化；选中底色与键盘焦点仍由原来的行按钮绘制。 -->
+    <Style Selector="ListBox.session-list ListBoxItem">
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Margin" Value="0,0,20,0" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <ContentPresenter Content="{TemplateBinding Content}"
+                                  ContentTemplate="{TemplateBinding ContentTemplate}"
+                                  HorizontalContentAlignment="Stretch" />
+            </ControlTemplate>
+        </Setter>
+    </Style>
+
     <!-- 会话列表行与分组头行：自定义模板，点击分别驱动选择会话与展开收起。
          对话行在模板 Border#PART_Surface 上自绘 hover/选中高亮；
          分组头行改由行容器 Border.group-row 承担（右侧悬浮按钮组同一矩形）。
@@ -34,11 +56,12 @@
             </Setter.Value>
         </Setter>
     </Style>
-    <!-- 对话行相对工作区行缩进一个完整图标步进：8（行内边距）+8（箭头）+4（间距）
-         +16（文件夹图标）+4（间距）= 40，标题与工作区标题左对齐，
-         形成明确的 tab 式层级；行命中区域仍占满整行宽。 -->
+    <!-- 对话行相对工作区行缩进一个完整图标步进：行内边距 20 加行内保留的
+         置顶气泡槽 20（16 气泡 + 4 间距）合计 40，标题与工作区标题左对齐，
+         形成明确的 tab 式层级；气泡槽正落在工作区文件夹图标的同一列位
+         （8 行内边距 +8 箭头 +4 间距 = 20 起）；行命中区域仍占满整行宽。 -->
     <Style Selector="Button.session-row">
-        <Setter Property="Padding" Value="40,0,8,0" />
+        <Setter Property="Padding" Value="20,0,8,0" />
     </Style>
     <Style Selector="Button.group-header">
         <Setter Property="MinHeight" Value="34" />
@@ -60,6 +83,15 @@
          :focus-visible 在 PART_Surface 上呈现（Border 不可聚焦）。 -->
     <Style Selector="Border.group-row.current">
         <Setter Property="Background" Value="{DynamicResource SessionSelectedBrush}" />
+    </Style>
+    <!-- 分类头行（置顶/工作区）：纯文字+右侧箭头，整行不画圆角矩形——常态与悬停
+         都保持透明。声明在悬停/选中样式之后，状态底色被压回透明（Avalonia 以
+         声明顺序定优先级）。IsCurrent 恒为 false，选中态不会出现。 -->
+    <Style Selector="Border.group-row.category">
+        <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="Border.group-row.category:pointerover">
+        <Setter Property="Background" Value="Transparent" />
     </Style>
     <!-- 工作区行悬浮按钮组：常态隐藏且不参与命中（避免透明按钮拦截行内
          点击），悬停整行圆角矩形时淡入。Opacity 显隐保持布局稳定——按钮
@@ -89,6 +121,67 @@
     <Style Selector="Border.group-row.menu-ctx-open StackPanel.workspace-actions">
         <Setter Property="Opacity" Value="0" />
         <Setter Property="IsHitTestVisible" Value="False" />
+    </Style>
+    <!-- 会话行尾部：常态信息（运行指示 + 相对时间 + 置顶标记）与悬浮操作条
+         （三点菜单 / 归档 / 置顶）共享同一右侧槽位——两栈在同一 Panel 内叠放，
+         悬停整行时淡出淡入互换（对齐 DSH sessionRow 的 time ↔ rowActions 纯 CSS
+         互换）；叠放保持标题列宽与行高稳定，不因切换跳动。空白新会话行两栈
+         都不显示（IsVisible 绑定在使用处）。 -->
+    <Style Selector="StackPanel.session-trailing">
+        <Setter Property="Transitions">
+            <Transitions>
+                <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
+            </Transitions>
+        </Setter>
+    </Style>
+    <Style Selector="Button.session-row:pointerover StackPanel.session-trailing">
+        <Setter Property="Opacity" Value="0" />
+    </Style>
+    <Style Selector="Button.session-row.menu-open StackPanel.session-trailing">
+        <Setter Property="Opacity" Value="0" />
+    </Style>
+    <Style Selector="StackPanel.session-actions">
+        <Setter Property="Opacity" Value="0" />
+        <Setter Property="IsHitTestVisible" Value="False" />
+        <Setter Property="Transitions">
+            <Transitions>
+                <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
+            </Transitions>
+        </Setter>
+    </Style>
+    <Style Selector="Button.session-row:pointerover StackPanel.session-actions">
+        <Setter Property="Opacity" Value="1" />
+        <Setter Property="IsHitTestVisible" Value="True" />
+    </Style>
+    <!-- 菜单弹层打开期间（menu-open，code-behind 开合时标记）操作条保持显现：
+         鼠标移入弹层后行 hover 丢失，锚点按钮随之隐藏会让弹层看起来悬空。 -->
+    <Style Selector="Button.session-row.menu-open StackPanel.session-actions">
+        <Setter Property="Opacity" Value="1" />
+        <Setter Property="IsHitTestVisible" Value="True" />
+    </Style>
+    <!-- 右键菜单打开期间（menu-ctx-open）操作条保持隐藏：菜单已锚定点击处，
+         行 hover 也不浮现操作条。须声明在 menu-open 之后，两种标记并存时以隐藏为准。 -->
+    <Style Selector="Button.session-row.menu-ctx-open StackPanel.session-actions">
+        <Setter Property="Opacity" Value="0" />
+        <Setter Property="IsHitTestVisible" Value="False" />
+    </Style>
+    <!-- 会话行悬浮操作按钮（三点菜单 / 归档 / 置顶）：24×24 小圆角块（行高 32 内
+         上下留 4），自身悬停叠一层行悬停色形成按钮层次（同 workspace-menu）。 -->
+    <Style Selector="Button.session-action">
+        <Setter Property="Width" Value="24" />
+        <Setter Property="Height" Value="24" />
+        <Setter Property="MinWidth" Value="0" />
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="Margin" Value="0" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="CornerRadius" Value="6" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.session-action:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource SessionHoverBrush}" />
     </Style>
     <!-- 头部图标按钮（搜索 / 分组方式 / 添加工作区 / 关闭搜索）：对齐 DSH
          WorkspaceBrowser 的 iconButton——28×28 正圆、透明底，悬停 interactive-bg-hover

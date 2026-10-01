@@ -36,10 +36,13 @@
 | `session/page` | `{request:{address,throughSeq,beforeSeq,maxMessages}}`，向前加载历史 | 包含/排除游标、消息对齐、`records/hasMore`；当前每页预算 50 条 |
 | `session/prompt` | `{request:{requestId,sessionId,mode:"queue",content,clientTimeZone?}}` | requestId 幂等、接受与执行的区别、文本分块和 IANA 时区；本端目前仅发送文本 |
 | `session/cancel` | `{request:{sessionId}}` | 取消后仍可能 committed，部分回复的 interrupted 标记与流式结算 |
+| `session/fork` | `{request:{sessionId}}`，以最近完成 turn 的事件前缀为种子创建子会话 | 返回新 `sessionId`；无已完成 turn 报 `session/fork-unavailable`，子会话经 `api-session/added` 进入列表；本端未消费 `atSeq` 指定分支点 |
+| `session/rename` | `{request:{sessionId,title}}`，重命名会话 | 返回规范化标题与提交它的 `seq`；无效标题报 `session/title-invalid`；本端用于分叉子会话的尾部序号递增改名与会话菜单的主动重命名 |
 | `session/projections` | `{request:{sessionId}}`，后台空白核实 | `asOfSeq/values`、不存在时的 null、只读且不激活 Agent、不调用模型或持久化缓存的语义 |
 | `workspace/create` | `{request:{path}}`，登记已有目录 | 目录规范化、幂等去重和 `workspace/follow` 的归属回流 |
 | `workspace/rename` | `{request:{workspaceId,title}}`，重命名工作区显示名 | 返回重命名后的 `workspace` 行；`workspace/name-conflict` 查重为后端权威，本端确认前仅做输入校验 |
 | `workspace/delete` | `{request:{workspaceId}}`，从注册表移除工作区 | 返回 `{deleted:true}`；只删注册，不删目录与会话，其下会话按后端记账回到「未分组」 |
+| `workspace/archiveSession` | `{request:{sessionId}}`，归档会话（移出列表表面，记录保留） | 返回全量 `archivedSessionIds`；运行中会话报 `workspace/session-active`（本端直接呈现错误，未做「停止并归档」二次确认） |
 | `credentials/describe` | `{refs:[引用名]}`，查询凭据解析状态 | 返回字典的 `configured/source/writable`，不包含密钥值；目前供真实配置测试调用 |
 | `$events/result` | `{request:{clientId,eventId,outcome}}`，交互回执 | 事件代、取消与过期回执；审批使用 result，未支持的 waterfall 使用 rejected |
 | `permissionPresets/catalog` | `{}`，权限预设目录 | `options[].value/name/description`、`defaultPreset` 及目录变更广播 |
@@ -47,14 +50,14 @@
 
 消费入口：[会话服务](../DshDesktop.Harness/Services/Sessions/HarnessSessionService.cs)、[工作区服务](../DshDesktop.Harness/Services/Workspaces/HarnessWorkspaceService.cs)、[权限服务](../DshDesktop.Harness/Services/Permissions/HarnessPermissionPresetService.cs)、[凭据查询](../DshDesktop.Harness/Services/Settings/HarnessCredentialService.cs)、[连接与回执](../DshDesktop.Harness/Services/Connection/HarnessConnection.cs)。
 
-`workspace/archiveSession` 当前只有 DTO/JSON 注册，没有服务调用或管理界面；`agentPresets/list`、用户问题交互、附件与插件管理也不能从后端存在相应能力推定为本端已支持。
+`agentPresets/list`、用户问题交互、附件与插件管理不能从后端存在相应能力推定为本端已支持；`workspace/unarchiveSession` 与归档筛选/恢复界面当前未接入（本端归档后行隐藏，恢复入口待后续）。
 
 ## 已消费的流、事件与投影
 
 | 流端点 | 当前消费内容 | 升级检查重点 |
 | --- | --- | --- |
 | `session/follow` | 顶层 session 地址、`maxMessages:50`、`assistantStream:true`；快照、持久化事件、助手流式帧 | 快照记录与历史窗口、序号、流结局、模型和权限投影基线 |
-| `workspace/follow` | 空 args；baseline、upsert、remove、order | 注册表顺序、工作区会话成员、空组和移除后的呈现 |
+| `workspace/follow` | 空 args；baseline、upsert、remove、order、archived（pinned 帧属上游协议，本端不再消费） | 注册表顺序、工作区会话成员、空组和移除后的呈现；baseline 的 value 携带 archived 全量集合（feed.ts baseline()，缺消费会冷启动丢归档隐藏）；增量 archived 为 registry 级全量集合帧，驱动归档隐藏。置顶已迁出后端协议（本端自有方案，见下文），baseline 的 pinnedSessionIds 与 pinned 增量帧被忽略 |
 | `session/control` | 空 args；全局 baseline 和 projection 更新 | 投影键、整值替换、seq 水位、快照与实时更新的合并 |
 | `$events` | 空 args；ready、emit、waterfall、cancelled | clientId 事件代、审批待决项清理、目录广播与未支持交互的拒绝回执 |
 
@@ -79,7 +82,10 @@
 | 内置 Agent 模式 | 本端固定 `standard/ptc/minimal/cordis` 四项，以 create 的 agentPreset 绑定 | 目录化、默认值、可用性与开始后的锁定语义；自定义预设尚未接入 |
 | 权限选择 | 会话以投影为准；草稿为本地预选，首消息前执行 `/permission`；full access/auto 保留确认步骤 | 核对目录值、命令结果、广播、投影以及未来可能新增的创建期权限参数 |
 | 创建失败后的恢复 | 记住已创建会话及目标，关联失败先收养恢复，避免重试额外创建 | `session/workspace-attach-failed` 的 SessionId/details；已有会话的收养与冲突语义 |
-| 工作区菜单 | 工作区行悬浮三点菜单（重命名/删除），交互与文案对齐参考客户端；rename/delete 成功后本地先按 follow 帧语义落投影，帧回流幂等对齐 | `workspace/rename`、`workspace/delete` 的错误码（name-conflict/not-found）与广播帧；上游菜单形态变化不自动同步 |
+| 工作区菜单 | 工作区行悬浮三点菜单（置顶工作区/重命名/删除），重命名与删除交互对齐参考客户端；rename/delete 成功后本地先按 follow 帧语义落投影，帧回流幂等对齐；置顶工作区走本地置顶注册表（见下文），不调后端 | `workspace/rename`、`workspace/delete` 的错误码（name-conflict/not-found）与广播帧；上游菜单形态变化不自动同步 |
+| 会话行置顶与归档（置顶为本端自有方案） | 会话行悬停时相对时间与置顶标记让位给三点菜单/归档/置顶三个按钮（对齐参考客户端 sessionRow 的纯 CSS 互换）；归档默认移出列表表面、归档当前会话后回到草稿页，归档成功后本地先按返回的全量集合落投影，帧回流幂等对齐。置顶不消费后端集合：`ISidebarPinService`（Infrastructure `SidebarPinService`）把会话与工作区置顶持久化到本项目配置文件（`%AppData%/DshDesktop/sidebar-pins.json`，多实例并发以磁盘最新状态为基准做读-改-写合并（实例内信号量加跨进程 `.lock` 文件锁互斥），原子替换写入，损坏按空起底）；侧栏重建投影时形成高于工作区一层的「置顶」分类——置顶工作区组在上、置顶会话在下，同类按更新时间降序；置顶会话从原分组提取（不重复出现），置顶工作区内的置顶会话与该工作区并列（不嵌套）；单列表下置顶会话浮顶、置顶工作区不参与投影。**未验证：**GUI 手工冒烟与 AOT 发布 | `workspace/archiveSession` 与 archived 帧的集合语义；`workspace/session-active` 错误目前仅呈现、未做停止并归档确认；取消归档与归档筛选界面未接入；上游 pinned 帧/字段如调整结构需确认本端忽略逻辑不受影响 |
+| 会话分叉 | 会话菜单「分叉会话」以最近完成 turn 为界复制出独立新会话，子会话经目录刷新上屏、不切换选中（对齐参考客户端）；源会话有标题时本端做尾部 (N)/（N）序号递增改名（对齐参考客户端 increaseTitle），改名失败不影响已创建的分支 | `session/fork` 的 `fork-unavailable/not-found` 错误码与 `api-session/added` 摘要（含 parentSessionId）；`atSeq` 未消费，上游调整分支点语义时需复查 |
+| 会话重命名 | 会话菜单「重命名」（官方 order 200）打开输入弹窗（预填当前标题并全选，Enter 确认、Esc/取消/浅失焦关闭）；确认直调 `session/rename`，成功后就地落服务端规范化标题（本地先落投影），列表刷新同值回流幂等对齐；失败留在弹窗内可重试。对齐官方：未变更标题不阻止确认（确认当前自动标题即「钉住」），本地也无重名冲突检查 | `session/rename` 的错误码（`title-invalid/not-found`）与改名持久化事件回流；上游菜单形态变化不自动同步 |
 | 历史 Unknown 空白核实 | 本端调度只读 projections 查询，限并发、合并在途、退避；失败保留可见，已参与会话不被迟到空白结论隐藏 | 上游目录元数据、缓存格式或只读查询语义变化时复查是否仍需补充逻辑 |
 | 时间线和过程折叠 | 本端把消息、思考和工具活动组织为轮次过程，保留最终回复；历史未读全时不提前折叠 | 记录格式、source、轮次与子调用表示变化；上游新增聚合投影时评估复用 |
 
@@ -137,5 +143,7 @@
 | 2026-09-28 | 历史 Unknown 查询、冷缓存与共享 home 只读核实；Windows x64 AOT 发布和模拟启动通过 | 真实 projections 契约已验证；不覆盖之后新增的模式、权限和推理档位变化，也不覆盖 macOS/Linux |
 | 2026-09-29 | 草稿版本与失败恢复测试；工作区登记真实 Host E2E；Agent 模式绑定真实 Host E2E 和模拟 GUI 选择通过 | 原生文件夹选择完整体验、创造模式完整往返和部分弹层仍未验证；自定义模式未接入 |
 | 2026-09-30 | 权限选择及草稿预选、推理档位过滤实现；最近记录为 171 通过、0 失败、8 跳过，build 0 错误 | 权限真实目录/命令往返与首发送权限应用未做真实 Host E2E；部分弹层点击、当前 AOT、macOS/Linux 未重验 |
+| 2026-09-30 | 会话行悬浮置顶/归档操作条与三点菜单实现；协议与 VM 测试 187 通过、0 失败、8 跳过，build 0 错误 | 置顶/归档未做真实 Host E2E 与 GUI 手工冒烟；AOT 未重验；取消归档入口未实现 |
+| 2026-10-01 | 置顶迁出后端协议（不再消费 workspace/pinSession·unpinSession 与 pinned 帧），改为本端自有置顶（本地配置文件持久化）与侧栏置顶分类（工作区在上、会话在下，同类按更新时间排序，工作区与其中置顶会话并列）；协议与 VM 测试 201 通过、0 失败、8 跳过，build 0 错误 | 置顶分类未做 GUI 手工冒烟；AOT 未重验（含新增 Infrastructure JSON 源生成上下文）；归档链路沿用 09-30 结论 |
 
 用户问题、附件、设置、偏好持久化和高级原生界面尚未实现。断线专项、长会话性能、输入法/快捷键、Markdown 复制与部分富元素交互仍需验证；这些是当前缺口和证据边界，不表示已安排执行。

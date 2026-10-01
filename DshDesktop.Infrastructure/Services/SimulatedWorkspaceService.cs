@@ -16,8 +16,7 @@ public sealed class SimulatedWorkspaceService : IWorkspaceService
     ];
 
     public IReadOnlySet<string> ArchivedSessionIds { get; private set; } = new HashSet<string>();
-
-    public event EventHandler? WorkspacesChanged;
+    public event EventHandler?  WorkspacesChanged;
 
     public Task<IReadOnlyList<WorkspaceSummary>> GetWorkspacesAsync(CancellationToken cancellationToken = default)
     {
@@ -106,6 +105,19 @@ public sealed class SimulatedWorkspaceService : IWorkspaceService
         }
 
         if (!removed) throw new InvalidOperationException($"工作区不存在：{workspaceId}");
+
+        WorkspacesChanged?.Invoke(this, EventArgs.Empty);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>模拟 workspace/archiveSession：并入归档集合并广播。</summary>
+    public Task ArchiveSessionAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (_syncRoot)
+        {
+            ArchivedSessionIds = new HashSet<string>(ArchivedSessionIds) { sessionId };
+        }
 
         WorkspacesChanged?.Invoke(this, EventArgs.Empty);
         return Task.CompletedTask;

@@ -8,6 +8,12 @@ public sealed record SessionListValue(IReadOnlyList<SessionSummaryWire> Items);
 /// <summary>session/create 返回值。</summary>
 public sealed record SessionCreateValue(string SessionId, string? AgentPreset = null);
 
+/// <summary>session/fork 返回值：服务端新铸的子会话 id。</summary>
+public sealed record SessionForkValue(string SessionId);
+
+/// <summary>session/rename 返回值：规范化后的标题与提交它的持久事件位置。</summary>
+public sealed record SessionRenameValue(string Title, long Seq);
+
 /// <summary>session/prompt 与 session/cancel 的接受回执。</summary>
 public sealed record SessionAcceptedValue(bool Accepted);
 

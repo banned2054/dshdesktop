@@ -907,8 +907,8 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
 
         viewModel.Sidebar.SessionListModeIndex = 1;
 
-        // 组序为后端顺序；组内成员按更新时间降序；空工作区仍显示；
-        // 未被记账的会话落入「未分组」且该组仅在非空时出现。
+        // 未置顶工作区统一收进「工作区」分类，组序为后端顺序；组内成员按更新时间
+        // 降序；空工作区仍显示；未被记账的会话落入「未分组」且该组仅在非空时出现。
         var shape = viewModel.Sidebar.SessionRows.Select(row => row switch
                               {
                                   SessionGroupHeaderViewModel header => $"header:{header.TitleText}",
@@ -916,10 +916,8 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
                                   _                                  => "other"
                               })
                              .ToArray();
-        Assert.Equal(
-        [
-            "header:主工作区", "session:session-history", "session:session-native",
-            "header:空工作区",
+        Assert.Equal([
+            "header:工作区", "header:主工作区", "session:session-history", "session:session-native", "header:空工作区",
             "header:未分组", "session:session-welcome", "session:session-design"
         ], shape);
         // 模式切换不重建会话实例：选中与高亮保持。
@@ -1032,6 +1030,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
                               })
                              .ToArray();
         Assert.Equal([
+            "header:工作区",
             "header:后到的工作区", "session:session-welcome",
             "header:未分组", "session:session-history", "session:session-native", "session:session-design"
         ], shape);
@@ -2054,6 +2053,17 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
             return _inner.CreateSessionAsync(workspaceId, sessionId, cancellationToken : cancellationToken);
         }
 
+        public Task<string> ForkSessionAsync(string sessionId, CancellationToken cancellationToken = default)
+        {
+            return _inner.ForkSessionAsync(sessionId, cancellationToken);
+        }
+
+        public Task<string> RenameSessionAsync(
+            string sessionId, string title, CancellationToken cancellationToken = default)
+        {
+            return _inner.RenameSessionAsync(sessionId, title, cancellationToken);
+        }
+
         public void MarkSessionEngaged(string sessionId)
         {
             _inner.MarkSessionEngaged(sessionId);
@@ -2189,13 +2199,21 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
                 await gate.Task.WaitAsync(cancellationToken);
             }
 
-            if (_createErrors.TryPeek(out var entry) && (!entry.OnlyForNewSession || sessionId is null))
-            {
-                _createErrors.Dequeue();
-                throw entry.Error;
-            }
+            if (!_createErrors.TryPeek(out var entry) || (entry.OnlyForNewSession && sessionId is not null))
+                return await _inner.CreateSessionAsync(workspaceId, sessionId, cancellationToken : cancellationToken);
+            _createErrors.Dequeue();
+            throw entry.Error;
+        }
 
-            return await _inner.CreateSessionAsync(workspaceId, sessionId, cancellationToken : cancellationToken);
+        public Task<string> ForkSessionAsync(string sessionId, CancellationToken cancellationToken = default)
+        {
+            return _inner.ForkSessionAsync(sessionId, cancellationToken);
+        }
+
+        public Task<string> RenameSessionAsync(
+            string sessionId, string title, CancellationToken cancellationToken = default)
+        {
+            return _inner.RenameSessionAsync(sessionId, title, cancellationToken);
         }
 
         public void MarkSessionEngaged(string sessionId)
@@ -2260,6 +2278,8 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         /// <summary>模拟实现当前目录快照（供 SessionsOverride 组合）。</summary>
         public IReadOnlyList<SessionSummary> Snapshot()
         {
+            // .Result 是同步委托边界（SessionsOverride 无法 await）下的受控使用：
+            // 内层 GetSessionsAsync 为 Task.FromResult 同步完成，无死锁风险。
             return _inner.GetSessionsAsync().Result;
         }
 
@@ -2373,6 +2393,15 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
             ArchivedSessionIds = archived;
         }
 
+        /// <summary>模拟 workspace/archiveSession 回流：并入归档并广播。</summary>
+        public Task ArchiveSessionAsync(string sessionId, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            ArchivedSessionIds = new HashSet<string>(ArchivedSessionIds) { sessionId };
+            RaiseChanged();
+            return Task.CompletedTask;
+        }
+
         public void RaiseChanged()
         {
             WorkspacesChanged?.Invoke(this, EventArgs.Empty);
@@ -2400,6 +2429,17 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
             CancellationToken cancellationToken = default)
         {
             return _inner.CreateSessionAsync(workspaceId, sessionId, cancellationToken : cancellationToken);
+        }
+
+        public Task<string> ForkSessionAsync(string sessionId, CancellationToken cancellationToken = default)
+        {
+            return _inner.ForkSessionAsync(sessionId, cancellationToken);
+        }
+
+        public Task<string> RenameSessionAsync(
+            string sessionId, string title, CancellationToken cancellationToken = default)
+        {
+            return _inner.RenameSessionAsync(sessionId, title, cancellationToken);
         }
 
         public void MarkSessionEngaged(string sessionId)
@@ -2473,6 +2513,17 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
             CancellationToken cancellationToken = default)
         {
             return _inner.CreateSessionAsync(workspaceId, sessionId, cancellationToken : cancellationToken);
+        }
+
+        public Task<string> ForkSessionAsync(string sessionId, CancellationToken cancellationToken = default)
+        {
+            return _inner.ForkSessionAsync(sessionId, cancellationToken);
+        }
+
+        public Task<string> RenameSessionAsync(
+            string sessionId, string title, CancellationToken cancellationToken = default)
+        {
+            return _inner.RenameSessionAsync(sessionId, title, cancellationToken);
         }
 
         public void MarkSessionEngaged(string sessionId)

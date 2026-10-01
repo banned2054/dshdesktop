@@ -25,6 +25,13 @@ public interface IWorkspaceService
     IReadOnlySet<string> ArchivedSessionIds { get; }
 
     /// <summary>
+    ///     归档会话（workspace/archiveSession，移出列表表面，记录保留）。成功后归档集合经
+    ///     工作区状态流回流；会话有运行中活动等业务错误抛出。置顶不走后端（本端
+    ///     <see cref="ISidebarPinService" /> 自有方案），归档集合仍由本服务持有。
+    /// </summary>
+    Task ArchiveSessionAsync(string sessionId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     ///     登记一个已存在的目录为工作区（workspace/create，幂等：路径已登记时返回既有行）。
     ///     成功后投影经工作区状态流回流，消费方无需手动刷新；路径非法等业务错误抛出。
     /// </summary>

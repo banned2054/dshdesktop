@@ -17,10 +17,24 @@ public interface ISessionService
     ///     后端默认），随会话开始由后端锁定；收养路径必须携带与会话一致的取值。
     ///     非幂等操作，结果不确定的失败不得携带新的意图自动重试。
     /// </summary>
-    Task<SessionSummary> CreateSessionAsync(string? workspaceId      = null,
-                                            string?  sessionId       = null,
-                                            string?  agentPreset     = null,
-                                            CancellationToken cancellationToken = default);
+    Task<SessionSummary> CreateSessionAsync(
+        string?           workspaceId       = null, string? sessionId = null, string? agentPreset = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    ///     分支会话（session/fork）：以源会话最近一个已完成 turn 的事件前缀为种子创建
+    ///     独立新会话，返回服务端新铸的子会话 id。不指定分支点，对齐参考客户端入口行为；
+    ///     源会话没有已完成 turn 时后端拒绝（session/fork-unavailable）。子会话继承源
+    ///     cwd 与预设，模型选型取后端当前默认；经 api-session/added 事件进入列表。
+    ///     非幂等操作，结果不确定的失败不得自动重试。
+    /// </summary>
+    Task<string> ForkSessionAsync(string sessionId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    ///     重命名会话（session/rename）：标题交后端规范化并作为持久事件落盘，
+    ///     返回接受后的标题。分支子会话的「尾部序号递增」改名复用本方法。
+    /// </summary>
+    Task<string> RenameSessionAsync(string sessionId, string title, CancellationToken cancellationToken = default);
 
     /// <summary>
     ///     记录"本端已参与对话"的过渡信号（发送被接受、观察到运行或已加载内容）。

@@ -236,7 +236,7 @@ public sealed class RealBackendE2ETests(ITestOutputHelper output)
     /// <summary>
     ///     真实 Host 上的空白复用链路：登记工作区、按工作区创建空白会话、列表三态空白
     ///     （wire blank=true + sessionListMetadata → 确认空白，cwd 随行携带）、按
-    ///     sessionId 收养复用（同一会话，不产生第二个 SessionId）、归档帧回流
+    ///     sessionId 收养复用（同一会话，不产生第二个 SessionId）与归档帧回流
     ///     （ArchivedSessionIds 更新）。隔离 DSH_HOME，无模型凭据。
     /// </summary>
     [SkippableFact]
@@ -280,10 +280,10 @@ public sealed class RealBackendE2ETests(ITestOutputHelper output)
             var created = await sessions.CreateSessionAsync(workspaceId).WaitAsync(TimeSpan.FromSeconds(30));
             await workspaces.GetWorkspacesAsync().WaitAsync(TimeSpan.FromSeconds(10));
             await RealBackendTestSupport.WaitForAsync(
-                                                      () => workspaces.GetWorkspacesAsync().GetAwaiter().GetResult()
-                                                                      .Any(workspace => workspace.Id == workspaceId &&
-                                                                               workspace.SessionIds
-                                                                                  .Contains(created.Id)),
+                                                      async () => (await workspaces.GetWorkspacesAsync())
+                                                                         .Any(workspace => workspace.Id == workspaceId &&
+                                                                                  workspace.SessionIds
+                                                                                     .Contains(created.Id)),
                                                       TimeSpan.FromSeconds(30), "工作区记账未回流");
 
             // 列表三态：活跃新会话 blank=true（sessionListMetadata 背书）→ 确认空白；cwd 随行。
@@ -301,6 +301,7 @@ public sealed class RealBackendE2ETests(ITestOutputHelper output)
             Assert.Single(listAfterAdopt, summary => summary.Id == created.Id);
 
             // 归档协议往返：归档集合经 workspace/archived 帧回流到服务投影。
+            // 置顶已迁到本端自有方案（本地配置文件），不再走 workspace/pinSession 协议。
             var archived = await connection
                                 .InvokeAsync("workspace/archiveSession",
                                              new WorkspaceArchiveSessionRequest(created.Id),
@@ -508,11 +509,10 @@ public sealed class RealBackendE2ETests(ITestOutputHelper output)
             // 服务层后台核实（只读 projections）：Unknown → 有效空白状态，历史残留被确认并隐藏。
             var targetIds = new HashSet<string>([blankId, promptedId]);
             await RealBackendTestSupport.WaitForAsync(
-                                                      () => restartedSessions
-                                                           .GetSessionsAsync().GetAwaiter().GetResult()
-                                                           .Where(summary => targetIds.Contains(summary.Id))
-                                                           .All(summary => summary.BlankState !=
-                                                                           SessionBlankState.Unknown),
+                                                      async () => (await restartedSessions.GetSessionsAsync())
+                                                                         .Where(summary => targetIds.Contains(summary.Id))
+                                                                         .All(summary => summary.BlankState !=
+                                                                                         SessionBlankState.Unknown),
                                                       TimeSpan.FromSeconds(60), "后台核实未将冷行 Unknown 转为有效状态");
 
             var verified = (await restartedSessions.GetSessionsAsync().WaitAsync(TimeSpan.FromSeconds(30)))

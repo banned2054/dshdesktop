@@ -10,8 +10,9 @@ namespace DshDesktop.Harness.Services.Workspaces;
 
 /// <summary>
 ///     基于 workspace/follow 状态流的工作区服务：订阅帧维护投影，
-///     快照语义对齐参考客户端 ClientWorkspaceModel（baseline 整体替换、
-///     upsert 新行插头部且旧投影不覆盖新、order 按给出的顺序重排）。
+///     快照语义对齐参考客户端 ClientWorkspaceModel（baseline 整体替换并落
+///     registry 级归档全量集合、upsert 新行插头部且旧投影不覆盖新、
+///     order 按给出的顺序重排）。置顶不消费后端集合（本端自有方案）。
 /// </summary>
 public sealed class HarnessWorkspaceService(HarnessConnection connection) : IWorkspaceService, IAsyncDisposable
 {
@@ -57,7 +58,9 @@ public sealed class HarnessWorkspaceService(HarnessConnection connection) : IWor
             {
                 var cancellation = new CancellationTokenSource();
                 _pumpCancellation = cancellation;
-                _pump             = Task.Run(() => PumpAsync(cancellation.Token));
+                // 泵生命周期属于服务自身 CTS（随 Dispose 取消），与调用方 token 无关：
+                // 显式 None 声明有意不传播，避免调用方取消误杀后台泵。
+                _pump             = Task.Run(() => PumpAsync(cancellation.Token), CancellationToken.None);
             }
         }
 
@@ -77,8 +80,20 @@ public sealed class HarnessWorkspaceService(HarnessConnection connection) : IWor
         }
     }
 
-    public async Task<WorkspaceSummary> RegisterWorkspaceAsync(string            path,
-                                                               CancellationToken cancellationToken = default)
+    public async Task ArchiveSessionAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        var value = await connection.InvokeAsync("workspace/archiveSession",
+                                                 new WorkspaceArchiveSessionRequest(sessionId),
+                                                 HarnessJsonContext.Default.WorkspaceArchiveSessionRequest,
+                                                 HarnessJsonContext.Default.WorkspaceArchiveValue,
+                                                 cancellationToken)
+                                    .ConfigureAwait(false);
+        // 归档集合同理经 archived 帧回流；先行落投影让归档行立即从列表消失。
+        ApplyLocalArchived(value.ArchivedSessionIds);
+    }
+
+    public async Task<WorkspaceSummary> RegisterWorkspaceAsync(
+        string path, CancellationToken cancellationToken = default)
     {
         var value = await connection.InvokeAsync("workspace/create",
                                                  new WorkspaceCreateRequest(path),
@@ -126,6 +141,20 @@ public sealed class HarnessWorkspaceService(HarnessConnection connection) : IWor
             var next = apply(_items);
             changed = !ReferenceEquals(next, _items) && !SameItems(next, _items);
             _items  = next;
+        }
+
+        if (changed) RaiseWorkspacesChanged();
+    }
+
+    /// <summary>归档集合的本地变更（语义同 archived 帧：全量替换，变化即通知）。</summary>
+    private void ApplyLocalArchived(IReadOnlyList<string> archivedSessionIds)
+    {
+        bool changed;
+        lock (_sync)
+        {
+            var next = archivedSessionIds.ToHashSet();
+            changed             = !next.SetEquals(_archivedSessionIds);
+            _archivedSessionIds = next;
         }
 
         if (changed) RaiseWorkspacesChanged();
@@ -190,21 +219,34 @@ public sealed class HarnessWorkspaceService(HarnessConnection connection) : IWor
                 bool changed;
                 lock (_sync)
                 {
-                    if (frame is WorkspaceFollowFrame.Archived archived)
+                    switch (frame)
                     {
-                        // 归档集合是 registry 级投影：全量替换，变化即通知。
-                        var nextArchived = archived.ArchivedSessionIds.ToHashSet();
-                        changed             = !nextArchived.SetEquals(_archivedSessionIds);
-                        _archivedSessionIds = nextArchived;
-                    }
-                    else
-                    {
-                        var next = ApplyFrame(_items, frame);
-                        // Baseline 无条件通知：它标记一代投影就绪（即使内容为空），
-                        // 消费方以此区分「基线未到达」与「确无工作区」。
-                        changed = frame is WorkspaceFollowFrame.Baseline ||
-                                  (!ReferenceEquals(next, _items) && !SameItems(next, _items));
-                        _items = next;
+                        case WorkspaceFollowFrame.Baseline baseline :
+                        {
+                            // 基线除工作区条目外还携带 registry 级归档全量集合
+                            // （对照 feed.ts baseline()）：缺它冷启动会把已归档会话当正常行
+                            // 展示（点归档被后端 gate 拒绝）。Baseline 无条件通知：
+                            // 它标记一代投影就绪（即使内容为空）。
+                            _archivedSessionIds = baseline.ArchivedSessionIds.ToHashSet();
+                            _items              = ApplyFrame(_items, baseline);
+                            changed             = true;
+                            break;
+                        }
+                        case WorkspaceFollowFrame.Archived archived :
+                        {
+                            // 归档集合是 registry 级投影：全量替换，变化即通知。
+                            var nextArchived = archived.ArchivedSessionIds.ToHashSet();
+                            changed             = !nextArchived.SetEquals(_archivedSessionIds);
+                            _archivedSessionIds = nextArchived;
+                            break;
+                        }
+                        default :
+                        {
+                            var next = ApplyFrame(_items, frame);
+                            changed = !ReferenceEquals(next, _items) && !SameItems(next, _items);
+                            _items  = next;
+                            break;
+                        }
                     }
                 }
 

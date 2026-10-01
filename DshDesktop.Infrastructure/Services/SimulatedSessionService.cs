@@ -159,6 +159,46 @@ public sealed class SimulatedSessionService(Action<string, string>? onSessionCre
         return Task.FromResult(summary);
     }
 
+    /// <summary>
+    ///     分支会话：子会话整体复制源会话条目与元数据（真实后端按最近完成 turn 裁剪前缀，
+    ///     模拟简化为全量），返回新会话 id 并经事件回流驱动列表刷新。
+    /// </summary>
+    public Task<string> ForkSessionAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        string childId;
+        lock (_syncRoot)
+        {
+            if (!_sessions.TryGetValue(sessionId, out var source))
+                throw new KeyNotFoundException($"未找到会话：{sessionId}");
+
+            childId = $"session-{_nextSessionNumber++}";
+            var summary = source.Summary with { Id = childId, UpdatedAt = DateTimeOffset.Now, Running = false };
+            _sessions.Add(childId, new SimulatedSession(summary, [.. source.Entries], source.CurrentModel));
+        }
+
+        RaiseSessionsChanged();
+        return Task.FromResult(childId);
+    }
+
+    /// <summary>重命名会话：标题就地生效并经事件回流（对齐真实后端的持久改名语义）。</summary>
+    public Task<string> RenameSessionAsync(
+        string sessionId, string title, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var accepted = title.Trim();
+        lock (_syncRoot)
+        {
+            if (!_sessions.TryGetValue(sessionId, out var session))
+                throw new KeyNotFoundException($"未找到会话：{sessionId}");
+
+            session.Summary = session.Summary with { Title = accepted, UpdatedAt = DateTimeOffset.Now };
+        }
+
+        RaiseSessionsChanged();
+        return Task.FromResult(accepted);
+    }
+
     public void MarkSessionEngaged(string sessionId)
     {
         if (string.IsNullOrWhiteSpace(sessionId)) return;

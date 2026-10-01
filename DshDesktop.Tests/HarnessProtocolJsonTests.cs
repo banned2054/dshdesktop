@@ -410,21 +410,21 @@ public sealed class HarnessProtocolJsonTests
     [Fact]
     public void WaterfallResultOutcomesUseStrictWireShapes()
     {
-        var result = JsonSerializer.SerializeToElement(
-                                                       new EventsResultRequest("client-1", "event-1",
-                                                                               new EventsOutcomeWire("result",
-                                                                                   "allowed-once")),
-                                                       HarnessJsonContext.Default.EventsResultRequest);
+        var result =
+            JsonSerializer.SerializeToElement(new EventsResultRequest("client-1", "event-1",
+                                                                      new EventsOutcomeWire("result", "allowed-once")),
+                                              HarnessJsonContext.Default.EventsResultRequest);
         Assert.Equal("result", result.GetProperty("outcome").GetProperty("kind").GetString());
         Assert.Equal("allowed-once", result.GetProperty("outcome").GetProperty("value").GetString());
         Assert.False(result.GetProperty("outcome").TryGetProperty("error", out _));
 
-        var rejected = JsonSerializer.SerializeToElement(
-                                                         new EventsResultRequest("client-1", "event-2",
-                                                             new EventsOutcomeWire("rejected",
-                                                                 Error : new EventsOutcomeErrorWire("Error",
-                                                                     "不支持的交互"))),
-                                                         HarnessJsonContext.Default.EventsResultRequest);
+        var rejected =
+            JsonSerializer.SerializeToElement(new EventsResultRequest("client-1", "event-2",
+                                                                      new EventsOutcomeWire("rejected",
+                                                                               Error : new
+                                                                                   EventsOutcomeErrorWire("Error",
+                                                                                            "不支持的交互"))),
+                                              HarnessJsonContext.Default.EventsResultRequest);
         var error = rejected.GetProperty("outcome").GetProperty("error");
         Assert.Equal("rejected", rejected.GetProperty("outcome").GetProperty("kind").GetString());
         Assert.Equal("Error", error.GetProperty("name").GetString());
@@ -534,7 +534,7 @@ public sealed class HarnessProtocolJsonTests
     }
 
     [Fact]
-    public void WorkspaceFollowBaselineFrameParsesItems()
+    public void WorkspaceFollowBaselineFrameParsesItemsAndRegistrySets()
     {
         var frame = WorkspaceFrameJson.Parse(JsonDocument.Parse("""
                                                                 {
@@ -550,7 +550,7 @@ public sealed class HarnessProtocolJsonTests
                                                                         "updatedAt": "2026-09-20T10:00:00.000Z"
                                                                       }
                                                                     ],
-                                                                    "archivedSessionIds": []
+                                                                    "archivedSessionIds": ["session-c", "session-d"]
                                                                   }
                                                                 }
                                                                 """).RootElement);
@@ -562,6 +562,10 @@ public sealed class HarnessProtocolJsonTests
         Assert.Equal("C:/Code/Main", workspace.Path);
         Assert.Equal(["session-a", "session-b"], workspace.SessionIds);
         Assert.Equal(DateTimeOffset.Parse("2026-09-20T10:00:00.000Z"), workspace.UpdatedAt);
+        // 基线携带 registry 级归档全量集合（feed.ts baseline()）；缺它冷启动
+        // 会把已归档会话当正常行展示，点归档被后端 gate 拒绝。置顶集合（pinned 帧）
+        // 属上游协议但本端已改为自有置顶方案，不再消费。
+        Assert.Equal(["session-c", "session-d"], baseline.ArchivedSessionIds);
     }
 
     [Fact]
@@ -597,10 +601,13 @@ public sealed class HarnessProtocolJsonTests
     public void WorkspaceProjectionAppliesBaselineUpsertRemoveAndOrder()
     {
         var baseline = new WorkspaceFollowFrame.Baseline([
-            new WorkspaceViewWire("ws-1", "C:/Main", "主工作区", ["session-a"],
-                                  DateTimeOffset.Parse("2026-09-20T10:00:00Z")),
-            new WorkspaceViewWire("ws-2", "C:/Docs", "文档", [], DateTimeOffset.Parse("2026-09-19T10:00:00Z"))
-        ]);
+                                                             new WorkspaceViewWire("ws-1", "C:/Main", "主工作区",
+                                                                      ["session-a"],
+                                                                      DateTimeOffset.Parse("2026-09-20T10:00:00Z")),
+                                                             new WorkspaceViewWire("ws-2", "C:/Docs", "文档", [],
+                                                                      DateTimeOffset.Parse("2026-09-19T10:00:00Z"))
+                                                         ],
+                                                         ["session-archived"]);
         var items = HarnessWorkspaceService.ApplyFrame([], baseline);
         Assert.Equal(["ws-1", "ws-2"], items.Select(item => item.Id));
 
@@ -608,27 +615,27 @@ public sealed class HarnessProtocolJsonTests
         var replaced =
             HarnessWorkspaceService.ApplyFrame(items,
                                                new WorkspaceFollowFrame.Upsert(new WorkspaceViewWire("ws-2", "C:/Docs",
-                                                                                   "文档", ["session-b"],
-                                                                                   DateTimeOffset
-                                                                                      .Parse("2026-09-21T10:00:00Z"))));
+                                                                                        "文档", ["session-b"],
+                                                                                        DateTimeOffset
+                                                                                           .Parse("2026-09-21T10:00:00Z"))));
         Assert.Equal(["ws-1", "ws-2"], replaced.Select(item => item.Id));
         Assert.Equal(["session-b"], replaced[1].SessionIds);
 
         // 旧投影不覆盖新（乱序到达）。
         var stale = HarnessWorkspaceService.ApplyFrame(replaced,
                                                        new WorkspaceFollowFrame.Upsert(new WorkspaceViewWire("ws-2",
-                                                           "C:/Docs", "文档", [],
-                                                           DateTimeOffset
-                                                              .Parse("2026-09-18T10:00:00Z"))));
+                                                                         "C:/Docs", "文档", [],
+                                                                         DateTimeOffset
+                                                                            .Parse("2026-09-18T10:00:00Z"))));
         Assert.Equal(["session-b"], stale[1].SessionIds);
 
         // 新工作区插到头部（对齐参考客户端 upsert 语义）。
         var added =
             HarnessWorkspaceService.ApplyFrame(stale,
                                                new WorkspaceFollowFrame.Upsert(new WorkspaceViewWire("ws-3", "C:/New",
-                                                                                   "新工作区", [],
-                                                                                   DateTimeOffset
-                                                                                      .Parse("2026-09-21T11:00:00Z"))));
+                                                                                        "新工作区", [],
+                                                                                        DateTimeOffset
+                                                                                           .Parse("2026-09-21T11:00:00Z"))));
         Assert.Equal(["ws-3", "ws-1", "ws-2"], added.Select(item => item.Id));
 
         // order 按给出的顺序重排，未知 id 排尾。
@@ -668,6 +675,34 @@ public sealed class HarnessProtocolJsonTests
         var deleted =
             JsonSerializer.Deserialize("""{"deleted":true}""", HarnessJsonContext.Default.WorkspaceDeleteValue);
         Assert.True(Assert.IsType<WorkspaceDeleteValue>(deleted).Deleted);
+    }
+
+    [Fact]
+    public void SessionForkRenameRequestsAndValuesCarryWireShapes()
+    {
+        var forkBody = JsonSerializer.Serialize(new SessionForkRequest("session-1"),
+                                                HarnessJsonContext.Default.SessionForkRequest);
+        using (var document = JsonDocument.Parse(forkBody))
+            Assert.Equal("session-1", document.RootElement.GetProperty("sessionId").GetString());
+
+        var renameBody = JsonSerializer.Serialize(new SessionRenameRequest("session-1", "新标题"),
+                                                  HarnessJsonContext.Default.SessionRenameRequest);
+        using (var document = JsonDocument.Parse(renameBody))
+        {
+            var root = document.RootElement;
+            Assert.Equal("session-1", root.GetProperty("sessionId").GetString());
+            Assert.Equal("新标题", root.GetProperty("title").GetString());
+        }
+
+        var forked = JsonSerializer.Deserialize("""{"sessionId":"session-9"}""",
+                                                HarnessJsonContext.Default.SessionForkValue);
+        Assert.Equal("session-9", Assert.IsType<SessionForkValue>(forked).SessionId);
+
+        var renamed = JsonSerializer.Deserialize("""{"title":"接受后","seq":42}""",
+                                                 HarnessJsonContext.Default.SessionRenameValue);
+        var renameValue = Assert.IsType<SessionRenameValue>(renamed);
+        Assert.Equal("接受后", renameValue.Title);
+        Assert.Equal(42, renameValue.Seq);
     }
 
     [Fact]

@@ -554,6 +554,17 @@ public sealed class ComposerViewModelTests
             return _inner.CreateSessionAsync(workspaceId, sessionId, cancellationToken : cancellationToken);
         }
 
+        public Task<string> ForkSessionAsync(string sessionId, CancellationToken cancellationToken = default)
+        {
+            return _inner.ForkSessionAsync(sessionId, cancellationToken);
+        }
+
+        public Task<string> RenameSessionAsync(
+            string sessionId, string title, CancellationToken cancellationToken = default)
+        {
+            return _inner.RenameSessionAsync(sessionId, title, cancellationToken);
+        }
+
         public void MarkSessionEngaged(string sessionId)
         {
             _inner.MarkSessionEngaged(sessionId);

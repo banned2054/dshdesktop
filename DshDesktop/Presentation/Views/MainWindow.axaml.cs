@@ -25,7 +25,12 @@ public partial class MainWindow : Window
                                                        new SimulatedBackendStatusService(),
                                                        new SimulatedWorkspaceService(),
                                                        new SimulatedToolApprovalService(),
-                                                       isSimulatedMode : true))
+                                                       isSimulatedMode : true,
+                                                       // 预览器路径：置顶落盘到临时目录，避免污染真实用户配置。
+                                                       sidebarPinService :
+                                                       new SidebarPinService(Path.Combine(Path.GetTempPath(),
+                                                                                      "DshDesktop.Preview",
+                                                                                      "sidebar-pins.json"))))
     {
     }
 

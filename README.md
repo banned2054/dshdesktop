@@ -38,8 +38,10 @@ Windows is the current development and validation platform. macOS and Linux are 
 ## ✨ Current Capabilities
 
 - Native Avalonia interface with no browser or WebView shell.
-- Session browsing in a single list or grouped by workspace, with title search and native folder selection to register workspaces.
-- A hover menu on workspace rows for renaming and deleting workspaces (rename validates conflicts in a dialog; delete only removes the registration, keeping the folder and its sessions).
+- Session browsing in a single list or grouped by workspace, with title search and native folder selection to register workspaces; in grouped mode, unpinned workspaces are collected under a single "Workspaces" category.
+- A hover menu on workspace rows for pinning, renaming, and deleting workspaces (pinned workspaces join the sidebar pinned section; rename validates conflicts in a dialog; delete only removes the registration, keeping the folder and its sessions).
+- A hover action strip on session rows with a menu, archive, and pin buttons that replaces the relative time; the menu renames the session (the backend normalizes the title) and forks a session by copying its latest completed turn into a new session with an incremented title; archived sessions leave the list while their records are kept (archiving the current session returns to the draft page).
+- Pinning is project-local (the backend pin registry is not consumed) and persisted in the project's own config file: a pinned section above the workspace grouping shows pinned workspaces (groups first) and pinned sessions (below), extracted from their original spots and sorted by update time within each kind; a pinned session of a pinned workspace sits parallel to the workspace, without conflict. The pinned section, the "Workspaces" section, and "Ungrouped" are all plain-text category rows: an expand arrow to the right of the title, no icon, no hover or selection highlight.
 - A new-conversation draft with workspace, agent mode, model, and permission choices; the Harness session is created on the first send.
 - History loading, streaming replies, cancellation, and connection recovery.
 - Markdown responses, reasoning details, interrupted-response states, and paged history.
@@ -53,7 +55,7 @@ Windows is the current development and validation platform. macOS and Linux are 
 ## 🗺️ Current Limitations
 
 - User-question prompts, attachments, settings, and preference persistence are not implemented. Drafts are retained only within the running application.
-- Workspace support covers registration, selection, session grouping, renaming, and deletion; there is no custom agent-preset catalog.
+- Workspace support covers registration, selection, session grouping, renaming, and deletion; session pin, archive, fork, and rename plus workspace pinning are wired up, while unarchive entry and archived filtering are not yet implemented; there is no custom agent-preset catalog.
 - Terminal, file and diff previews, and plugin-management interfaces are not implemented.
 - Reconnect behavior, long-session performance, shortcuts, input methods, and some popup and rich-text interactions still need further GUI or real-backend validation.
 - macOS and Linux have not been verified; stable installers and automatic updates are not provided.
