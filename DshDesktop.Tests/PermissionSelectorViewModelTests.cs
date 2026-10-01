@@ -12,9 +12,9 @@ namespace DshDesktop.Tests;
 public sealed class PermissionSelectorViewModelTests
 {
     [Fact]
-    public void CatalogMapsToOptionItemsWithDisplayNames()
+    public async Task CatalogMapsToOptionItemsWithDisplayNames()
     {
-        var (selector, _) = CreateReadySelector(service =>
+        var (selector, _) = await CreateReadySelector(service =>
         {
             service.Catalog = new PermissionCatalog(
             [
@@ -35,9 +35,9 @@ public sealed class PermissionSelectorViewModelTests
     }
 
     [Fact]
-    public void ProjectionIsTheAuthoritativeCurrentPermission()
+    public async Task ProjectionIsTheAuthoritativeCurrentPermission()
     {
-        var (selector, _) = CreateReadySelector();
+        var (selector, _) = await CreateReadySelector();
 
         selector.ApplyPermission(9, "workspace-write");
         Assert.Equal("工作区内修改", selector.PermissionPickerLabel);
@@ -51,9 +51,9 @@ public sealed class PermissionSelectorViewModelTests
     }
 
     [Fact]
-    public void SelectingPresetSendsSwitchAndWaitsForProjection()
+    public async Task SelectingPresetSendsSwitchAndWaitsForProjection()
     {
-        var (selector, service) = CreateReadySelector();
+        var (selector, service) = await CreateReadySelector();
 
         var option = selector.Options.Single(item => item.Value == "read-only");
         option.SelectCommand.Execute(null);
@@ -74,7 +74,7 @@ public sealed class PermissionSelectorViewModelTests
     public async Task SwitchFailureKeepsOldStateAndReenablesSelector()
     {
         var errors = new List<string?>();
-        var (selector, service) = CreateReadySelector(errors : errors);
+        var (selector, service) = await CreateReadySelector(errors : errors);
         service.SwitchError     = new InvalidOperationException("连接中断（模拟）");
 
         SelectOptionByValue(selector, "read-only");
@@ -93,7 +93,7 @@ public sealed class PermissionSelectorViewModelTests
     public async Task MissingPermissionCommandReportsWithoutStateChange()
     {
         var errors = new List<string?>();
-        var (selector, service) = CreateReadySelector(errors : errors);
+        var (selector, service) = await CreateReadySelector(errors : errors);
         service.CommandMissing  = true;
 
         SelectOptionByValue(selector, "read-only");
@@ -104,9 +104,9 @@ public sealed class PermissionSelectorViewModelTests
     }
 
     [Fact]
-    public void FullAccessRequiresAcknowledgedConfirmationBeforeRequest()
+    public async Task FullAccessRequiresAcknowledgedConfirmationBeforeRequest()
     {
-        var (selector, service) = CreateReadySelector();
+        var (selector, service) = await CreateReadySelector();
 
         SelectOptionByValue(selector, "danger-full-access");
 
@@ -132,9 +132,9 @@ public sealed class PermissionSelectorViewModelTests
     }
 
     [Fact]
-    public void CancellingConfirmationSendsNothing()
+    public async Task CancellingConfirmationSendsNothing()
     {
-        var (selector, service) = CreateReadySelector();
+        var (selector, service) = await CreateReadySelector();
 
         SelectOptionByValue(selector, "danger-full-access");
         Assert.True(selector.IsConfirmOpen);
@@ -150,9 +150,9 @@ public sealed class PermissionSelectorViewModelTests
     }
 
     [Fact]
-    public void AutoPresetUsesExperimentalConfirmationCopy()
+    public async Task AutoPresetUsesExperimentalConfirmationCopy()
     {
-        var (selector, service) = CreateReadySelector(service =>
+        var (selector, service) = await CreateReadySelector(service =>
         {
             service.Catalog = new PermissionCatalog(
             [
@@ -181,9 +181,9 @@ public sealed class PermissionSelectorViewModelTests
     }
 
     [Fact]
-    public void SelectingAlreadyCurrentPresetSkipsConfirmationAndRequest()
+    public async Task SelectingAlreadyCurrentPresetSkipsConfirmationAndRequest()
     {
-        var (selector, service) = CreateReadySelector();
+        var (selector, service) = await CreateReadySelector();
         selector.ApplyPermission(5, "danger-full-access");
 
         SelectOptionByValue(selector, "danger-full-access");
@@ -193,9 +193,9 @@ public sealed class PermissionSelectorViewModelTests
     }
 
     [Fact]
-    public void UnknownPresetValueFallsBackWithoutCrashing()
+    public async Task UnknownPresetValueFallsBackWithoutCrashing()
     {
-        var (selector, _) = CreateReadySelector();
+        var (selector, _) = await CreateReadySelector();
 
         selector.ApplyPermission(4, "custom");
         Assert.Equal("Custom", selector.PermissionPickerLabel);
@@ -208,9 +208,9 @@ public sealed class PermissionSelectorViewModelTests
     }
 
     [Fact]
-    public void StaleProjectionSeqIsIgnored()
+    public async Task StaleProjectionSeqIsIgnored()
     {
-        var (selector, _) = CreateReadySelector();
+        var (selector, _) = await CreateReadySelector();
 
         selector.ApplyPermission(10, "read-only");
         selector.ApplyPermission(5, "workspace-write");
@@ -222,7 +222,7 @@ public sealed class PermissionSelectorViewModelTests
     [Fact]
     public async Task InFlightSwitchDisablesSelectorUntilRequestSettles()
     {
-        var (selector, service) = CreateReadySelector();
+        var (selector, service) = await CreateReadySelector();
         service.PendingSwitch   = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
         SelectOptionByValue(selector, "read-only");
@@ -239,9 +239,9 @@ public sealed class PermissionSelectorViewModelTests
     }
 
     [Fact]
-    public void SessionSwitchResetsProjectionStateUntilNextBaseline()
+    public async Task SessionSwitchResetsProjectionStateUntilNextBaseline()
     {
-        var (selector, _) = CreateReadySelector();
+        var (selector, _) = await CreateReadySelector();
 
         selector.SetSession("session-2");
 
@@ -256,9 +256,9 @@ public sealed class PermissionSelectorViewModelTests
     }
 
     [Fact]
-    public void DraftPageWithoutSessionHidesSelector()
+    public async Task DraftPageWithoutSessionHidesSelector()
     {
-        var (selector, _) = CreateReadySelector();
+        var (selector, _) = await CreateReadySelector();
 
         selector.SetSession(null);
 
@@ -267,9 +267,9 @@ public sealed class PermissionSelectorViewModelTests
     }
 
     [Fact]
-    public void DisconnectedBackendDisablesSelector()
+    public async Task DisconnectedBackendDisablesSelector()
     {
-        var (selector, _) = CreateReadySelector();
+        var (selector, _) = await CreateReadySelector();
 
         selector.SetBackendConnected(false);
         Assert.False(selector.IsSelectorEnabled);
@@ -279,9 +279,9 @@ public sealed class PermissionSelectorViewModelTests
     }
 
     [Fact]
-    public void CatalogChangedBroadcastReloadsOptions()
+    public async Task CatalogChangedBroadcastReloadsOptions()
     {
-        var (selector, service) = CreateReadySelector();
+        var (selector, service) = await CreateReadySelector();
         Assert.Equal(1, service.CatalogRequests);
 
         service.Catalog = new PermissionCatalog(
@@ -317,9 +317,9 @@ public sealed class PermissionSelectorViewModelTests
     }
 
     [Fact]
-    public void DraftPageShowsCatalogDefaultAndPreselectsLocally()
+    public async Task DraftPageShowsCatalogDefaultAndPreselectsLocally()
     {
-        var (selector, service, draftPresets) = CreateDraftSelector();
+        var (selector, service, draftPresets) = await CreateDraftSelector();
 
         // 草稿页无会话也可见（本地预选，不发 RPC）；未预选时显示目录默认——即新会话将被后端播种的预设。
         Assert.False(selector.HasSession);
@@ -336,9 +336,9 @@ public sealed class PermissionSelectorViewModelTests
     }
 
     [Fact]
-    public void DraftFullAccessRequiresConfirmationBeforeLocalPreset()
+    public async Task DraftFullAccessRequiresConfirmationBeforeLocalPreset()
     {
-        var (selector, service, draftPresets) = CreateDraftSelector();
+        var (selector, service, draftPresets) = await CreateDraftSelector();
 
         SelectOptionByValue(selector, "danger-full-access");
 
@@ -356,9 +356,9 @@ public sealed class PermissionSelectorViewModelTests
     }
 
     [Fact]
-    public void DraftSelectingCatalogDefaultSkipsCallback()
+    public async Task DraftSelectingCatalogDefaultSkipsCallback()
     {
-        var (selector, _, draftPresets) = CreateDraftSelector();
+        var (selector, _, draftPresets) = await CreateDraftSelector();
 
         // 目录默认即当前生效值：与 WebUI 一致直接返回，不产生草稿改动。
         SelectOptionByValue(selector, "workspace-write");
@@ -367,9 +367,9 @@ public sealed class PermissionSelectorViewModelTests
     }
 
     [Fact]
-    public void DraftPreselectionRestoresAndLeavingDraftClearsIt()
+    public async Task DraftPreselectionRestoresAndLeavingDraftClearsIt()
     {
-        var (selector, _, _) = CreateDraftSelector();
+        var (selector, _, _) = await CreateDraftSelector();
 
         // root 在进入草稿页时推送既有草稿的预选（null=未预选，显示目录默认）。
         selector.ApplyDraftPreset("read-only");
@@ -415,8 +415,8 @@ public sealed class PermissionSelectorViewModelTests
     }
 
     /// <summary>构造草稿页就绪选择器：已连接、草稿目标态、目录已加载（本地预选模式，无会话）。</summary>
-    private static (PermissionSelectorViewModel Selector, FakePermissionPresetService Service, List<string> DraftPresets
-        )
+    private static async Task<(PermissionSelectorViewModel Selector, FakePermissionPresetService Service, List<string> DraftPresets
+        )>
         CreateDraftSelector()
     {
         var service      = new FakePermissionPresetService();
@@ -425,12 +425,13 @@ public sealed class PermissionSelectorViewModelTests
                                                        onDraftPresetChanged : draftPresets.Add);
         selector.SetBackendConnected(true);
         selector.SetDraftTarget(true);
-        selector.ReloadCatalogAsync().GetAwaiter().GetResult();
+        await selector.ReloadCatalogAsync();
         return (selector, service, draftPresets);
     }
 
     /// <summary>构造就绪选择器：已连接、选中会话、目录已加载、投影基线 workspace-write。</summary>
-    private static (PermissionSelectorViewModel Selector, FakePermissionPresetService Service) CreateReadySelector(
+    private static async Task<(PermissionSelectorViewModel Selector, FakePermissionPresetService Service)>
+        CreateReadySelector(
         Action<FakePermissionPresetService>? configure = null, List<string?>? errors = null)
     {
         var service = new FakePermissionPresetService();
@@ -438,7 +439,7 @@ public sealed class PermissionSelectorViewModelTests
         var selector = new PermissionSelectorViewModel(service, text => errors?.Add(text));
         selector.SetBackendConnected(true);
         selector.SetSession("session-1");
-        selector.ReloadCatalogAsync().GetAwaiter().GetResult();
+        await selector.ReloadCatalogAsync();
         selector.ApplyPermission(3, "workspace-write");
         return (selector, service);
     }

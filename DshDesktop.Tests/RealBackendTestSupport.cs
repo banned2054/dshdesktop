@@ -108,6 +108,16 @@ internal static class RealBackendTestSupport
         throw new TimeoutException($"{description}（超时 {timeout.TotalSeconds:0}s）。");
     }
 
+    public static async Task<bool> WaitForAsync(Func<Task<bool>> condition, TimeSpan timeout, string description)
+    {
+        var deadline = DateTimeOffset.UtcNow + timeout;
+        while (!await condition() && DateTimeOffset.UtcNow < deadline) await Task.Delay(200);
+
+        if (!await condition()) throw new TimeoutException($"{description}（超时 {timeout.TotalSeconds:0}s）。");
+
+        return true;
+    }
+
     /// <summary>
     ///     订阅线程与断言线程之间的更新收集：ConcurrentQueue 避免跨线程读写普通 List 的竞态。
     /// </summary>
