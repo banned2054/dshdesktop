@@ -7,6 +7,7 @@ using DshDesktop.Harness.Services.Approvals;
 using DshDesktop.Harness.Services.Connection;
 using DshDesktop.Harness.Services.Permissions;
 using DshDesktop.Harness.Services.Sessions;
+using DshDesktop.Harness.Services.Settings;
 using DshDesktop.Harness.Services.Workspaces;
 using DshDesktop.Infrastructure.Services;
 using DshDesktop.Infrastructure.Services.Backend;
@@ -33,6 +34,8 @@ public partial class App : Application
             IBackendHostService    backendService;
             IToolApprovalService   toolApprovalService;
             IPermissionPresetService permissionPresetService;
+            ISettingsService       settingsService;
+            ICredentialsService    credentialService;
             HarnessConnection?     connection      = null;
             var                    isSimulatedMode = true;
 
@@ -48,6 +51,9 @@ public partial class App : Application
                 backendService          = hostService;
                 toolApprovalService     = new HarnessToolApprovalService(connection);
                 permissionPresetService = new HarnessPermissionPresetService(connection);
+                // 设置域服务先行装配；设置界面落地时由 ViewModel 消费。
+                settingsService         = new HarnessSettingsService(connection);
+                credentialService       = new HarnessCredentialService(connection);
                 isSimulatedMode         = false;
             }
             else
@@ -63,6 +69,8 @@ public partial class App : Application
                 backendService          = new SimulatedBackendStatusService();
                 toolApprovalService     = new SimulatedToolApprovalService();
                 permissionPresetService = simulatedPermissions;
+                settingsService         = new SimulatedSettingsService();
+                credentialService       = new SimulatedCredentialsService();
             }
 
             var viewModel = new MainWindowViewModel(sessionService, backendService, workspaceService,

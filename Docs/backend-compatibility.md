@@ -1,16 +1,14 @@
 # 后端兼容性记录
 
-核对日期：2026-09-30。
+核对日期：2026-10-02。
 
 本文件记录 DshDesktop 当前依赖的后端契约、本端补充逻辑，以及升级 DSH 时需要检查的内容。当前能力与缺口见 [中文说明](README.zh-CN.md) 和 [English README](../README.md)。开发由每次明确提出的需求驱动，本文件不规定开发阶段、优先级或交付承诺，也不授权执行升级或后续功能。
 
 ## 参考版本与证据边界
 
-- 当前本机参考源码为 `dsh-v0.1.7-rc.2`，commit `477b4f4205`；2026-09-30 只读核对本机 checkout 的 tag/HEAD，以及开发 runtime 中 `@deepseek-ai/dsh-desktop-host` 的包版本 `0.1.7-rc.2`。
+- 当前基线为 `dsh-v0.2.0-rc.2`，commit `639ed01539`：2026-10-01 本机 checkout master 自 `0.1.7-rc.2`（`477b4f4205`）快进至该 commit 并重建，junction CLI 实测 `0.2.0-rc.2`，launcher 冒烟出 `ready` 且干净关停（见「历史兼容性记录」2026-10-01 段）。后续升级核对自该基线向前 diff，不再对照 0.1.7。
 - 本机参考路径 `C:/Code/JavaScript/deepseek-harness` 只用于分析。应用使用 `DSH_DESKTOP_RUNTIME_DIR` 指定的已构建 runtime，不硬编码该源码路径。
-- checkout 和包版本核对不证明 `lib` 产物已重建或当前运行链路已通过验收。更换 runtime 时须分别记录源码版本、构建产物和验证结果。
-- 下方历史记录来自退役开发计划的工作区内容，包括原有未提交的升级与回退记录。本次仅整理文档和核对消费方源码，没有重新运行构建、测试、真实 Host、模型、GUI 或 AOT 验收。
-- `0.2.0-rc.2` 曾做过兼容性验证，随后因第三方插件兼容性回到 `0.1.7-rc.2`。该历史不代表当前客户端全部功能已在 `0.2.0-rc.2` 上验证。
+- checkout 和包版本核对不证明当前运行链路已通过验收。更换 runtime 时须分别记录源码版本、构建产物和验证结果。
 
 ## Host、传输与数据边界
 
@@ -30,7 +28,7 @@
 | 方法 | 当前 args 与用途 | 升级检查重点 |
 | --- | --- | --- |
 | `session/list` | `{_request:{cursor?}}`，会话目录 | 目录分页、空白三态、行投影与缓存缺失的语义 |
-| `session/create` | `{request:{workspaceId?,sessionId?,agentPreset?}}`，创建或收养会话 | 工作区关联、已有 SessionId 的复用、预设绑定、错误 details；请求 DTO 另有 `cwd`，当前服务未赋值 |
+| `session/create` | `{request:{workspaceId?,sessionId?,agentPreset?}}`，创建或收养会话 | 工作区关联、已有 SessionId 的复用、预设绑定、错误 details；0.2.0 核对：未知 `agentPreset` 报 `agent-preset/not-found`（details 含 available 列表），收养冲突报 `agent-preset/conflict`；请求 DTO 另有 `cwd`，当前服务未赋值 |
 | `session/modelCatalog` | `{}`，模型目录 | `groups/default/failures` 与每个模型的 `reasoning.efforts/defaultEffort` |
 | `session/selectModel` | `{request:{sessionId,provider,model,reasoningEffort?}}` | 选型回显、能力校验和不支持档位的错误语义 |
 | `session/page` | `{request:{address,throughSeq,beforeSeq,maxMessages}}`，向前加载历史 | 包含/排除游标、消息对齐、`records/hasMore`；当前每页预算 50 条 |
@@ -43,12 +41,19 @@
 | `workspace/rename` | `{request:{workspaceId,title}}`，重命名工作区显示名 | 返回重命名后的 `workspace` 行；`workspace/name-conflict` 查重为后端权威，本端确认前仅做输入校验 |
 | `workspace/delete` | `{request:{workspaceId}}`，从注册表移除工作区 | 返回 `{deleted:true}`；只删注册，不删目录与会话，其下会话按后端记账回到「未分组」 |
 | `workspace/archiveSession` | `{request:{sessionId}}`，归档会话（移出列表表面，记录保留） | 返回全量 `archivedSessionIds`；运行中会话报 `workspace/session-active`（本端直接呈现错误，未做「停止并归档」二次确认） |
-| `credentials/describe` | `{refs:[引用名]}`，查询凭据解析状态 | 返回字典的 `configured/source/writable`，不包含密钥值；目前供真实配置测试调用 |
+| `credentials/describe` | `{refs:[引用名]}`，批量查询凭据解析状态 | 返回字典的 `configured/source/writable`，不包含密钥值；批量 ≤64，超限或语法错整包拒 |
+| `settings/describe` | `{}`，全量读取设置文档 | 命名空间视图的 `schema/value/base/user/secrets/revision`；value 恒为脱敏生效值，secret 路径只暴露配置状态 |
+| `settings/update` | `{ns,patch,expectedRevision?}`，patch 深合并进该 ns 用户段 | args 按形参名扁平组织；`expectedRevision` 缺省=无条件写；`settings/conflict` 语义为重读重放；写后以返回视图落状态 |
+| `settings/replace` | `{ns,section,expectedRevision?}`，整段替换该 ns 用户段 | section 为完整替换内容，用户段旧覆盖字段随替换消失；基线层继续在生效值中透出 |
+| `settings/mutate` | `{ns,ops,expectedRevision?}`，path 寻址按序编辑用户段 | ops 为 `{op:'set',path,value}` / `{op:'unset',path}`；ops 解析于服务端现存储段（用户段） |
+| `settings/openSettingsDocument` | `{}`，物化 patch 文档并调系统编辑器 | 返回 `{opened:true}`；形参 signal 为中止信号，本端映射 CancellationToken |
+| `credentials/set` | `{ref,value}`，写入凭据值（不可读取回） | ref 语法 `^[A-Za-z_][A-Za-z0-9_]*$`、value 非空；`credential/rejected` 的 message 为 seam 原文，须原样展示 |
+| `credentials/unset` | `{ref}`，移除凭据值 | 同上 |
 | `$events/result` | `{request:{clientId,eventId,outcome}}`，交互回执 | 事件代、取消与过期回执；审批使用 result，未支持的 waterfall 使用 rejected |
-| `permissionPresets/catalog` | `{}`，权限预设目录 | `options[].value/name/description`、`defaultPreset` 及目录变更广播 |
+| `permissionPresets/catalog` | `{}`，权限预设目录 | `options[].value/name/description`、`defaultPreset` 及目录变更广播；0.2.0 另返回 `defaultOptions`（本端忽略），AUTO 预设审批策略为 ask（原 never） |
 | `commands/execute` | `{agentId,line:"/permission <preset>",submittedAttachments:[]}`，切换权限 | args 为扁平命名参数；无命令时值缺失；RPC 成功不等于预设已生效，须等待投影 |
 
-消费入口：[会话服务](../DshDesktop.Harness/Services/Sessions/HarnessSessionService.cs)、[工作区服务](../DshDesktop.Harness/Services/Workspaces/HarnessWorkspaceService.cs)、[权限服务](../DshDesktop.Harness/Services/Permissions/HarnessPermissionPresetService.cs)、[凭据查询](../DshDesktop.Harness/Services/Settings/HarnessCredentialService.cs)、[连接与回执](../DshDesktop.Harness/Services/Connection/HarnessConnection.cs)。
+消费入口：[会话服务](../DshDesktop.Harness/Services/Sessions/HarnessSessionService.cs)、[工作区服务](../DshDesktop.Harness/Services/Workspaces/HarnessWorkspaceService.cs)、[权限服务](../DshDesktop.Harness/Services/Permissions/HarnessPermissionPresetService.cs)、[设置服务](../DshDesktop.Harness/Services/Settings/HarnessSettingsService.cs)、[凭据服务](../DshDesktop.Harness/Services/Settings/HarnessCredentialService.cs)、[连接与回执](../DshDesktop.Harness/Services/Connection/HarnessConnection.cs)。
 
 `agentPresets/list`、用户问题交互、附件与插件管理不能从后端存在相应能力推定为本端已支持；`workspace/unarchiveSession` 与归档筛选/恢复界面当前未接入（本端归档后行隐藏，恢复入口待后续）。
 
@@ -61,7 +66,7 @@
 | `session/control` | 空 args；全局 baseline 和 projection 更新 | 投影键、整值替换、seq 水位、快照与实时更新的合并 |
 | `$events` | 空 args；ready、emit、waterfall、cancelled | clientId 事件代、审批待决项清理、目录广播与未支持交互的拒绝回执 |
 
-- `$events` 中 `api-session/*` 驱动会话目录刷新及空白核实失效；`permission-presets/catalog-changed` 驱动权限目录重读；`approval/request` 进入工具审批界面。其余 waterfall 当前按协议拒绝，用户问题尚无回答界面。
+- `$events` 中 `api-session/*` 驱动会话目录刷新及空白核实失效；`permission-presets/catalog-changed` 驱动权限目录重读；`approval/request` 进入工具审批界面；`settings/document-updated`（位置参数 ns/revision）驱动设置文档按命名空间刷新，`credentials/reference-updated`（位置参数 ref）驱动凭据状态重查，`credentials/record-updated` 同属转发事件但本端未消费。其余 waterfall 当前按协议拒绝，用户问题尚无回答界面。
 - 已消费的投影包括 `title`、`sessionListMetadata`、`modelSelection`、`tokenUsage`、`sessionStats` 和 `permissions`。字段名、可空性、序号及含义均需核对，接口名相同不能证明兼容。
 - `sessionListMetadata.blank` 是空白核实依据，缺失元数据保持 Unknown；不能用标题、Token、缓存缺失或一时没有气泡来推断空白。
 - `modelSelection` 读取 `next`，再回退 `lastUsed`；推理档位来自模型目录，模型不支持的档位应回退其默认档位，无元数据时省略显式档位。
@@ -113,7 +118,7 @@
 
 ## 历史兼容性记录
 
-以下两段保留了原工作区尚未提交的版本升级与回退证据，均为 2026-09-29 的历史记录。其中的操作已经发生于原记录所述任务，不是本次执行指令，版本和包状态也不能视为持续有效。
+以下各段保留历次版本升级与回退的证据：2026-09-29 两段来自原开发计划工作区（其中的操作已经发生于原记录所述任务，不是本次执行指令，版本和包状态也不能视为持续有效），2026-10-01 段为当前基线的建立依据。
 
 后端 runtime 升级至 dsh-v0.2.0-rc.2 的兼容性验证记录（Windows 11 x64，2026-09-29）：
 
@@ -133,6 +138,13 @@
 - 客户端侧验证：launcher CLI 冒烟 ready + clean shutdown（exit 0）；`DSH_E2E_RUNTIME_DIR` 真实 Host E2E 3 通过 / 2 跳过。客户端代码继续零修改（0.1.7-rc.2 为客户端既有开发基线 0.1.7-rc.1 的修复版）。
 - 未验证：GUI 手工冒烟；Native AOT 未重跑；macOS/Linux。0.2.0-rc.2 升级验证记录保留于上，作为后续接入 0.2.0 的协议核对依据。
 
+升级基线重设为 dsh-v0.2.0-rc.2（Windows 11 x64，2026-10-01）：
+
+- 操作：npm 全局 `@deepseek-ai/dsh` 升至 0.2.0-rc.2（新版 npm 的 `--allow-scripts` 需显式列出 `koffi`、`node-pty` 等原生模块包名，否则其安装脚本不执行）；0.2.0 收紧插件 prerelease peer 检查，两个第三方插件被拒载，经用户决策从 npm web profile 移除 `@yuxianglin/dsh-bridge-browser` 与 `dsh-git-rollback`（`dsh plugin allow-version --accept-risk` 豁免路径未采用）；harness checkout master 自 `477b4f4205` 快进至 `639ed01539`（无新分支），`pnpm install && pnpm run build` 重建，junction 入口实测输出 `0.2.0-rc.2`。客户端代码零修改。桌面侧 default profile 仅含 `dsh-base`，无第三方插件，插件门禁不影响本应用。
+- 增量协议核对（2026-09-29 审计之后新增的消费面，逐项对照 0.2.0-rc.2 源码与 `46a7f68b09..639ed01539` diff）：`session/fork`、`session/rename`、`workspace/rename`/`workspace/delete`/`workspace/archiveSession`、`permissionPresets/catalog`、`commands/execute`、`session/create` 的 `agentPreset`，以及 `api-session/added`（含可选 `parentSessionId`）、workspace/follow 的 baseline archived 与增量全量帧、approval 可选 `displayReason`，全部 wire 兼容；差异仅为可忽略的字段增量（`WorkspaceView.createdAt`、catalog `defaultOptions`）。内置 Agent 预设仍为 standard/ptc/minimal/cordis；`workspace/pinSession`/`unpinSession` 仍存在但本端不调用，pinned 帧结构未变，忽略策略不受影响。0.2.0 新挂载 userQuestions/schedule/productAnalytics remote 与 `credentials/record-updated` 等转发事件，均为纯增量。
+- 行为级变化：AUTO 权限预设的工具审批策略由 never 改为 ask（形状不变，客户端经目录自动继承）；`commands/execute` 返回值为 `{commandId, result:{kind,text}}` 嵌套（非本次变更），本端仅判空使用，语义不受影响。
+- 验证：launcher CLI 冒烟（隔离 profile/home）出 `ready` 并 `shutdown-complete`（exit 0）；冒烟中 `desktop-product-telemetry` 激活失败（config 缺 `serviceVersion`）、`product-analytics` 因依赖随之 pending，非致命、仅影响埋点，正式 GUI 启动如出现该警告属预期。未验证：真实 GUI 冒烟、RealBackendE2E 复跑、Native AOT、macOS/Linux。自本段起参考基线指向 `0.2.0-rc.2`，后续升级 diff 自 `639ed01539` 向前，不再对照 0.1.7。
+
 ## 已有功能验证摘要与限制
 
 以下为原开发计划中仍有关联的历史摘要，没有在本次文档整理中重跑。
@@ -145,5 +157,7 @@
 | 2026-09-30 | 权限选择及草稿预选、推理档位过滤实现；最近记录为 171 通过、0 失败、8 跳过，build 0 错误 | 权限真实目录/命令往返与首发送权限应用未做真实 Host E2E；部分弹层点击、当前 AOT、macOS/Linux 未重验 |
 | 2026-09-30 | 会话行悬浮置顶/归档操作条与三点菜单实现；协议与 VM 测试 187 通过、0 失败、8 跳过，build 0 错误 | 置顶/归档未做真实 Host E2E 与 GUI 手工冒烟；AOT 未重验；取消归档入口未实现 |
 | 2026-10-01 | 置顶迁出后端协议（不再消费 workspace/pinSession·unpinSession 与 pinned 帧），改为本端自有置顶（本地配置文件持久化）与侧栏置顶分类（工作区在上、会话在下，同类按更新时间排序，工作区与其中置顶会话并列）；协议与 VM 测试 201 通过、0 失败、8 跳过，build 0 错误 | 置顶分类未做 GUI 手工冒烟；AOT 未重验（含新增 Infrastructure JSON 源生成上下文）；归档链路沿用 09-30 结论 |
+| 2026-10-01 | 后端基线升至 0.2.0-rc.2：checkout master 快进至 639ed01539 并重建，launcher 冒烟 ready 与干净关停；09-29 审计后新增的消费面（分叉/重命名/归档/权限预设/agentPreset 绑定及相关事件帧）逐项核对 0.2.0 源码全部兼容；客户端代码零修改，详见历史兼容性记录 | 真实 GUI、RealBackendE2E 复跑、Native AOT、macOS/Linux 未验证；AUTO 预设审批 ask 的行为变化待 GUI 观察 |
+| 2026-10-02 | settings/credentials RPC 域客户端接入层实现：Core 契约（ISettingsService/ICredentialsService、视图模型、conflict/rejected 异常）、Harness DTO 与错误映射、`settings/document-updated` 与 `credentials/reference-updated` 事件帧、Simulated 内存实现与 App 装配；事件名/形参名对照 0.2.0-rc.2 源码核实（settings-controller、remote-events.ts）；测试 241 通过、0 失败、8 跳过，build 0 错误；Windows x64 AOT 发布通过 | 真实后端 settings/credentials 往返、设置 GUI、AOT 产物启动核对、macOS/Linux 未验证；设置界面尚未接入 ViewModel |
 
 用户问题、附件、设置、偏好持久化和高级原生界面尚未实现。断线专项、长会话性能、输入法/快捷键、Markdown 复制与部分富元素交互仍需验证；这些是当前缺口和证据边界，不表示已安排执行。

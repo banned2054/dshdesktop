@@ -65,7 +65,8 @@ public sealed class RealModelConfigurationTests(ITestOutputHelper output)
             output.WriteLine($"已选型：{selection.Provider}/{selection.Model}");
 
             // 凭据判定交给当前 Host（credentials/describe），客户端不解析凭据文件。
-            var status = await credentials.DescribeAsync(credentialRef).WaitAsync(TimeSpan.FromSeconds(30));
+            var entries = await credentials.DescribeAsync([credentialRef]).WaitAsync(TimeSpan.FromSeconds(30));
+            entries.TryGetValue(credentialRef, out var status);
             Assert.NotNull(status);
             output.WriteLine(status!.Configured
                                  ? $"凭据 {credentialRef}：已配置（来源 {status.Source ?? "未报告"}，可写 {status.Writable}）。"

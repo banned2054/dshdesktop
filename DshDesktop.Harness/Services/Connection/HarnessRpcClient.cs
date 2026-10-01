@@ -80,7 +80,8 @@ public sealed class HarnessRpcClient(HttpClient httpClient)
                                           result.ErrorMessage is null
                                               ? $"调用 {method} 失败。"
                                               : $"{method} 失败：{result.ErrorMessage}",
-                                          result.ErrorDetails);
+                                          result.ErrorDetails,
+                                          result.ErrorMessage);
 
         if (result.Value is null) return default!;
 

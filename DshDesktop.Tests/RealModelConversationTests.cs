@@ -57,7 +57,8 @@ public sealed class RealModelConversationTests(ITestOutputHelper output)
         {
             await hostService.StartAsync().WaitAsync(TimeSpan.FromSeconds(150));
 
-            var status = await credentials.DescribeAsync(credentialRef).WaitAsync(TimeSpan.FromSeconds(30));
+            var entries = await credentials.DescribeAsync([credentialRef]).WaitAsync(TimeSpan.FromSeconds(30));
+            entries.TryGetValue(credentialRef, out var status);
             // 启用后配置不满足必须失败：静默降级会让“测试通过”掩盖没有真实回复的事实。
             Assert.True(status is { Configured: true },
                         $"已启用真实模型验证，但当前 Host 未识别凭据引用 {credentialRef}"

@@ -104,6 +104,12 @@ public sealed class HarnessConnection(Func<CancellationToken, Task<BackendConnec
     /// <summary>后端广播权限预设目录变化（permission-presets/catalog-changed，emit 帧）。</summary>
     public event EventHandler? PermissionCatalogChanged;
 
+    /// <summary>设置文档被更新（settings/document-updated，emit 帧）；外部改动按命名空间回流。</summary>
+    public event EventHandler<SettingsDocumentNotice>? SettingsDocumentUpdated;
+
+    /// <summary>凭据引用被更新（credentials/reference-updated，emit 帧）；载荷为引用名。</summary>
+    public event EventHandler<string>? CredentialReferenceUpdated;
+
     /// <summary>新事件代就绪；旧代的未决瀑布已随代失效，待决列表应清空。</summary>
     public event EventHandler? EventGenerationReset;
 
@@ -506,6 +512,16 @@ public sealed class HarnessConnection(Func<CancellationToken, Task<BackendConnec
                         RaisePermissionCatalogChanged();
                         break;
 
+                    case RemoteEventFrame.Emit { Event: RemoteEventJson.SettingsDocumentUpdatedEvent } emit :
+                        if (RemoteEventJson.TryGetSettingsDocumentUpdate(emit, out var settingsDocument))
+                            RaiseSettingsDocumentUpdated(settingsDocument);
+                        break;
+
+                    case RemoteEventFrame.Emit { Event: RemoteEventJson.CredentialReferenceUpdatedEvent } emit :
+                        if (RemoteEventJson.TryGetCredentialReference(emit, out var credentialReference))
+                            RaiseCredentialReferenceUpdated(credentialReference);
+                        break;
+
                     case RemoteEventFrame.Waterfall { Event: RemoteEventJson.ApprovalRequestEvent } waterfall :
                         // 审批走交互闭环：交给待决列表等待用户裁决，不再自动拒绝。
                         RaiseApprovalRequested(waterfall);
@@ -782,6 +798,30 @@ public sealed class HarnessConnection(Func<CancellationToken, Task<BackendConnec
         catch (Exception)
         {
             // 事件处理器异常不影响连接管理。
+        }
+    }
+
+    private void RaiseSettingsDocumentUpdated(SettingsDocumentNotice notice)
+    {
+        try
+        {
+            SettingsDocumentUpdated?.Invoke(this, notice);
+        }
+        catch (Exception)
+        {
+            // 事件处理器异常不影响事件循环。
+        }
+    }
+
+    private void RaiseCredentialReferenceUpdated(string reference)
+    {
+        try
+        {
+            CredentialReferenceUpdated?.Invoke(this, reference);
+        }
+        catch (Exception)
+        {
+            // 事件处理器异常不影响事件循环。
         }
     }
 

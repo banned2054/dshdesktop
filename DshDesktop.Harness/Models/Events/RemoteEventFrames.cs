@@ -28,6 +28,12 @@ public sealed record ApprovalRequestWire(string ToolName, string? CallId = null,
 /// <summary>api-session/* 事件的归属信息：事件名（如 api-session/activity）与会话 id。</summary>
 public sealed record SessionActivityNotice(string Event, string SessionId);
 
+/// <summary>settings/document-updated 事件的通知：命名空间与新 revision。</summary>
+public sealed record SettingsDocumentNotice(string Ns, long Revision);
+
+/// <summary>credentials/reference-updated 事件的通知：发生变化的凭据引用名。</summary>
+public sealed record CredentialReferenceNotice(string Reference);
+
 public static class RemoteEventJson
 {
     /// <summary>审批瀑布的事件名（interaction/user-approval 的 answerer waterfall）。</summary>
@@ -35,6 +41,12 @@ public static class RemoteEventJson
 
     /// <summary>权限预设目录变化广播（interaction/permission-presets 的 emit；payload-free）。</summary>
     public const string PermissionCatalogChangedEvent = "permission-presets/catalog-changed";
+
+    /// <summary>设置文档更新广播（settings remote 的 emit；位置参数 ns, revision）。</summary>
+    public const string SettingsDocumentUpdatedEvent = "settings/document-updated";
+
+    /// <summary>凭据引用更新广播（credentials remote 的 emit；位置参数 ref）。</summary>
+    public const string CredentialReferenceUpdatedEvent = "credentials/reference-updated";
 
     public static RemoteEventFrame? Parse(JsonElement element)
     {
@@ -123,6 +135,31 @@ public static class RemoteEventJson
         if (summaryId is null) return false;
         sessionId = summaryId;
         return true;
+    }
+
+    /// <summary>解析 settings/document-updated 的 (ns, revision) 位置参数。</summary>
+    public static bool TryGetSettingsDocumentUpdate(RemoteEventFrame.Emit emit,
+                                                    [NotNullWhen(true)] out SettingsDocumentNotice? notice)
+    {
+        notice = null;
+        if (emit.Args.Count < 2                              ||
+            emit.Args[0].ValueKind != JsonValueKind.String   ||
+            emit.Args[1].ValueKind != JsonValueKind.Number   ||
+            !emit.Args[1].TryGetInt64(out var revision))
+            return false;
+
+        notice = new SettingsDocumentNotice(emit.Args[0].GetString() ?? string.Empty, revision);
+        return true;
+    }
+
+    /// <summary>解析 credentials/reference-updated 的 (ref) 位置参数。</summary>
+    public static bool TryGetCredentialReference(RemoteEventFrame.Emit emit,
+                                                 [NotNullWhen(true)] out string? reference)
+    {
+        reference = emit.Args.Count > 0 && emit.Args[0].ValueKind == JsonValueKind.String
+            ? emit.Args[0].GetString()
+            : null;
+        return reference is not null;
     }
 
     private static bool TryGetString(JsonElement element, string name, [NotNullWhen(true)] out string? value)

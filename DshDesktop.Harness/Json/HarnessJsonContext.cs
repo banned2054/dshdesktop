@@ -1,6 +1,7 @@
 using DshDesktop.Harness.Models.Requests;
 using DshDesktop.Harness.Models.Responses;
 using DshDesktop.Harness.Models.Rpc;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace DshDesktop.Harness.Json;
@@ -24,6 +25,12 @@ namespace DshDesktop.Harness.Json;
 [JsonSerializable(typeof(WorkspaceRenameRequest))]
 [JsonSerializable(typeof(WorkspaceDeleteRequest))]
 [JsonSerializable(typeof(CommandExecuteRequest))]
+[JsonSerializable(typeof(SettingsUpdateRequest))]
+[JsonSerializable(typeof(SettingsReplaceRequest))]
+[JsonSerializable(typeof(SettingsMutateRequest))]
+[JsonSerializable(typeof(SettingsOpRequest))]
+[JsonSerializable(typeof(CredentialsSetRequest))]
+[JsonSerializable(typeof(CredentialsUnsetRequest))]
 [JsonSerializable(typeof(string[]))]
 [JsonSerializable(typeof(SessionListValue))]
 [JsonSerializable(typeof(SessionCreateValue))]
@@ -51,6 +58,10 @@ namespace DshDesktop.Harness.Json;
 [JsonSerializable(typeof(CommandExecuteValue))]
 [JsonSerializable(typeof(PermissionCatalogWire))]
 [JsonSerializable(typeof(PermissionPresetOptionWire))]
+[JsonSerializable(typeof(SettingsDescribeValueWire))]
+[JsonSerializable(typeof(SettingsNamespaceViewWire))]
+[JsonSerializable(typeof(SettingsOpenDocumentValue))]
+[JsonSerializable(typeof(JsonElement))]
 [JsonSerializable(typeof(RpcRequestEnvelope))]
 [JsonSerializable(typeof(MuxOpenMessage))]
 [JsonSerializable(typeof(MuxCancelMessage))]
