@@ -58,12 +58,12 @@ public sealed class SettingsProtocolJsonTests
 
         var mutate = RpcEnvelope.BuildArgsRequest("rpc-2", "settings/mutate",
                                                   new SettingsMutateRequest("subagent",
-                                                                            [
-                                                                                new SettingsOpRequest("set",
-                                                                                    ["maxDepth"], Json("3")),
-                                                                                new SettingsOpRequest("unset",
-                                                                                    ["maxActiveSubagents"])
-                                                                            ]),
+                                                  [
+                                                      new SettingsOpRequest("set",
+                                                                            ["maxDepth"], Json("3")),
+                                                      new SettingsOpRequest("unset",
+                                                                            ["maxActiveSubagents"])
+                                                  ]),
                                                   HarnessJsonContext.Default.SettingsMutateRequest);
         using var mutateDocument = JsonDocument.Parse(mutate);
         var       mutateArgs     = mutateDocument.RootElement.GetProperty("payload").GetProperty("args");
@@ -99,19 +99,18 @@ public sealed class SettingsProtocolJsonTests
     [Fact]
     public void DescribeWireMapsToCoreModelWithSecrets()
     {
-        var wire = JsonSerializer.Deserialize(
-            """
-            {"writable":true,"hasDocument":true,"namespaces":[
-              {"ns":"ui-theme","autoGenerate":false,"schema":{"type":"string"},
-               "value":{"preference":"dark","fontSize":14},"base":{"preference":"dark"},
-               "user":{"fontSize":16},"applies":"live","revision":2,"secrets":[]},
-              {"ns":"llm-deepseek","autoGenerate":true,"schema":{"type":"object"},"value":{},
-               "applies":"live","revision":0,"secrets":[{"path":["apiKeyEnv"],"set":true}]},
-              {"ns":"locale","autoGenerate":false,"schema":{"type":"string"},
-               "value":{"preference":"zh"},"applies":"live","revision":1}
-            ]}
-            """,
-            HarnessJsonContext.Default.SettingsDescribeValueWire);
+        var wire = JsonSerializer.Deserialize("""
+                                              {"writable":true,"hasDocument":true,"namespaces":[
+                                                {"ns":"ui-theme","autoGenerate":false,"schema":{"type":"string"},
+                                                 "value":{"preference":"dark","fontSize":14},"base":{"preference":"dark"},
+                                                 "user":{"fontSize":16},"applies":"live","revision":2,"secrets":[]},
+                                                {"ns":"llm-deepseek","autoGenerate":true,"schema":{"type":"object"},"value":{},
+                                                 "applies":"live","revision":0,"secrets":[{"path":["apiKeyEnv"],"set":true}]},
+                                                {"ns":"locale","autoGenerate":false,"schema":{"type":"string"},
+                                                 "value":{"preference":"zh"},"applies":"live","revision":1}
+                                              ]}
+                                              """,
+                                              HarnessJsonContext.Default.SettingsDescribeValueWire);
 
         var describe = HarnessSettingsService.ToDescribeValue(wire!);
         Assert.True(describe.Writable);
@@ -183,8 +182,10 @@ public sealed class SettingsProtocolJsonTests
     [Fact]
     public void SettingsDocumentUpdatedEmitParsesNotice()
     {
-        var emit = (RemoteEventFrame.Emit)RemoteEventJson.Parse(
-                       Json("""{"type":"emit","event":"settings/document-updated","args":["ui-theme",3]}"""))!;
+        var emit =
+            (RemoteEventFrame.Emit)
+            RemoteEventJson.Parse(Json("""{"type":"emit","event":"settings/document-updated","args":["ui-theme",3]}"""))
+            !;
 
         Assert.Equal(RemoteEventJson.SettingsDocumentUpdatedEvent, emit.Event);
         Assert.True(RemoteEventJson.TryGetSettingsDocumentUpdate(emit, out var notice));
@@ -195,8 +196,10 @@ public sealed class SettingsProtocolJsonTests
     [Fact]
     public void CredentialReferenceUpdatedEmitParsesReference()
     {
-        var emit = (RemoteEventFrame.Emit)RemoteEventJson.Parse(
-                       Json("""{"type":"emit","event":"credentials/reference-updated","args":["GLM_API_KEY"]}"""))!;
+        var emit =
+            (RemoteEventFrame.Emit)
+            RemoteEventJson
+               .Parse(Json("""{"type":"emit","event":"credentials/reference-updated","args":["GLM_API_KEY"]}"""))!;
 
         Assert.True(RemoteEventJson.TryGetCredentialReference(emit, out var reference));
         Assert.Equal("GLM_API_KEY", reference);
@@ -205,12 +208,14 @@ public sealed class SettingsProtocolJsonTests
     [Fact]
     public void SettingsEventsWithWrongArityYieldNoNotice()
     {
-        var missingRevision = (RemoteEventFrame.Emit)RemoteEventJson.Parse(
-            Json("""{"type":"emit","event":"settings/document-updated","args":["ui-theme"]}"""))!;
+        var missingRevision =
+            (RemoteEventFrame.Emit)
+            RemoteEventJson.Parse(Json("""{"type":"emit","event":"settings/document-updated","args":["ui-theme"]}"""))!;
         Assert.False(RemoteEventJson.TryGetSettingsDocumentUpdate(missingRevision, out _));
 
-        var emptyReference = (RemoteEventFrame.Emit)RemoteEventJson.Parse(
-            Json("""{"type":"emit","event":"credentials/reference-updated","args":[]}"""))!;
+        var emptyReference =
+            (RemoteEventFrame.Emit)
+            RemoteEventJson.Parse(Json("""{"type":"emit","event":"credentials/reference-updated","args":[]}"""))!;
         Assert.False(RemoteEventJson.TryGetCredentialReference(emptyReference, out _));
     }
 

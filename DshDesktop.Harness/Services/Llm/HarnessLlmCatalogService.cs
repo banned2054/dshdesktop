@@ -31,14 +31,17 @@ public sealed class HarnessLlmCatalogService(HarnessConnection connection) : ILl
 
         var value = await _connection.InvokeAsync("llm/discoverModels",
                                                   new LlmDiscoverModelsRequest(settingsNs,
-                                                      new LlmDiscoveryProbeRequest(request.Provider, request.BaseUrl,
-                                                                                   request.Api, request.ApiKey)),
+                                                                               new LlmDiscoveryProbeRequest(request
+                                                                                           .Provider, request.BaseUrl,
+                                                                                        request.Api, request.ApiKey)),
                                                   HarnessJsonContext.Default.LlmDiscoverModelsRequest,
                                                   HarnessJsonContext.Default.LlmDiscoveredModelWireArray,
-                                                  cancellationToken)
-                                     .ConfigureAwait(false);
-        return [.. value.Select(model => new LlmDiscoveredModel(model.Id, model.Name, model.ContextWindow,
-                                                                model.MaxTokens, model.InputModalities))];
+                                                  cancellationToken).ConfigureAwait(false);
+        return
+        [
+            .. value.Select(model => new LlmDiscoveredModel(model.Id, model.Name, model.ContextWindow,
+                                                            model.MaxTokens, model.InputModalities))
+        ];
     }
 
     private static LlmConfigurableProvider MapProvider(LlmConfigurableProviderWire wire)

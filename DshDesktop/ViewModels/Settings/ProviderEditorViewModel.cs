@@ -6,7 +6,6 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using System.Windows.Input;
 
 namespace DshDesktop.ViewModels.Settings;
 
@@ -29,8 +28,7 @@ public sealed class ProviderEditorViewModel : ObservableObject
     private const string Ns = ModelsSettingsSectionViewModel.PiAiNs;
 
     /// <summary>自定义路由 id 校验：小写字母开头，仅小写字母/数字/连字符（对齐上游）。</summary>
-    private static readonly Regex RouteIdPattern =
-        new(@"^[a-z][a-z0-9]*(-[a-z0-9]+)*$", RegexOptions.CultureInvariant);
+    private static readonly Regex RouteIdPattern = new("^[a-z][a-z0-9]*(-[a-z0-9]+)*$", RegexOptions.CultureInvariant);
 
     /// <summary>API 协议三选一（wire 值对齐 pi-ai 支持协议）。</summary>
     public static readonly IReadOnlyList<(string Value, string Label)> ApiProtocolChoices =
@@ -40,30 +38,30 @@ public sealed class ProviderEditorViewModel : ObservableObject
         ("anthropic-messages", "Anthropic Messages")
     ];
 
-    private readonly ISettingsMutationRunner          _runner;
-    private readonly ILlmCatalogService?              _catalogService;
-    private readonly Action<SettingsNamespaceView>    _onSaved;
-    private readonly string                           _route;
-    private readonly JsonElement                      _original;
-    private          SettingsNamespaceView            _snapshot;
+    private readonly ISettingsMutationRunner       _runner;
+    private readonly ILlmCatalogService?           _catalogService;
+    private readonly Action<SettingsNamespaceView> _onSaved;
+    private readonly string                        _route;
+    private readonly JsonElement                   _original;
 
+    private SettingsNamespaceView    _snapshot;
     private LlmConfigurableProvider? _selectedProvider;
-    private bool _isProviderMenuOpen;
-    private string _routeIdDraft     = string.Empty;
-    private string _displayNameDraft = string.Empty;
-    private string _baseUrlDraft     = string.Empty;
-    private string _apiDraft         = "openai-completions";
-    private string _apiKeyDraft      = string.Empty;
-    private bool _isApiMenuOpen;
-    private bool _isCustomExpanded;
-    private bool _isSaving;
-    private string? _saveError;
 
-    private bool _isDiscovering;
-    private bool _isDiscoverPopupOpen;
+    private bool    _isProviderMenuOpen;
+    private string  _routeIdDraft     = string.Empty;
+    private string  _displayNameDraft = string.Empty;
+    private string  _baseUrlDraft     = string.Empty;
+    private string  _apiDraft         = "openai-completions";
+    private string  _apiKeyDraft      = string.Empty;
+    private bool    _isApiMenuOpen;
+    private bool    _isCustomExpanded;
+    private bool    _isSaving;
+    private string? _saveError;
+    private bool    _isDiscovering;
+    private bool    _isDiscoverPopupOpen;
     private string? _discoverError;
     private string? _discoverNotice;
-    private bool _discoverEmptyVisible;
+    private bool    _discoverEmptyVisible;
 
     public ProviderEditorViewModel(ISettingsMutationRunner runner, ILlmCatalogService? catalogService,
                                    SettingsNamespaceView snapshot, ProviderEditorMode mode, string route,
@@ -79,17 +77,17 @@ public sealed class ProviderEditorViewModel : ObservableObject
         _original       = original;
         _onSaved        = onSaved;
 
-        SaveCommand           = new AsyncRelayCommand(SaveAsync);
-        CancelCommand         = new RelayCommand(() => Cancelled?.Invoke(this, EventArgs.Empty));
-        ShowCatalogTabCommand = new RelayCommand(() => RequestTab(ProviderEditorMode.CreateCatalog));
-        ShowDeclaredTabCommand = new RelayCommand(() => RequestTab(ProviderEditorMode.CreateDeclared));
-        ToggleCustomCommand       = new RelayCommand(() => IsCustomExpanded = !IsCustomExpanded);
+        SaveCommand               = new AsyncRelayCommand(SaveAsync);
+        CancelCommand             = new RelayCommand(() => Cancelled?.Invoke(this, EventArgs.Empty));
+        ShowCatalogTabCommand     = new RelayCommand(() => RequestTab(ProviderEditorMode.CreateCatalog));
+        ShowDeclaredTabCommand    = new RelayCommand(() => RequestTab(ProviderEditorMode.CreateDeclared));
+        ToggleCustomCommand       = new RelayCommand(() => IsCustomExpanded   = !IsCustomExpanded);
         ToggleProviderMenuCommand = new RelayCommand(() => IsProviderMenuOpen = !IsProviderMenuOpen);
-        ToggleApiMenuCommand      = new RelayCommand(() => IsApiMenuOpen = !IsApiMenuOpen);
-        AddModelCommand       = new RelayCommand(AddModel);
-        DiscoverCommand       = new AsyncRelayCommand(DiscoverAsync, () => CanDiscover);
-        AdoptDiscoveredCommand = new RelayCommand(AdoptDiscovered);
-        CancelDiscoverCommand  = new RelayCommand(() => IsDiscoverPopupOpen = false);
+        ToggleApiMenuCommand      = new RelayCommand(() => IsApiMenuOpen      = !IsApiMenuOpen);
+        AddModelCommand           = new RelayCommand(AddModel);
+        DiscoverCommand           = new AsyncRelayCommand(DiscoverAsync, () => CanDiscover);
+        AdoptDiscoveredCommand    = new RelayCommand(AdoptDiscovered);
+        CancelDiscoverCommand     = new RelayCommand(() => IsDiscoverPopupOpen = false);
 
         foreach (var entry in addable) ProviderOptions.Add(new ProviderOptionViewModel(entry, SelectProvider));
         foreach (var (value, label) in ApiProtocolChoices)
@@ -100,12 +98,10 @@ public sealed class ProviderEditorViewModel : ObservableObject
         }
 
         if (original.ValueKind == JsonValueKind.Object) LoadDrafts(original);
-        if (IsEditing && route.Length > 0)
-        {
-            // 编辑态 Provider ID 字段只读展示路由 id（不参与保存 ops 的 diff）。
-            _routeIdDraft = route;
-            OnPropertyChanged(nameof(RouteIdDraft));
-        }
+        if (!IsEditing || route.Length <= 0) return;
+        // 编辑态 Provider ID 字段只读展示路由 id（不参与保存 ops 的 diff）。
+        _routeIdDraft = route;
+        OnPropertyChanged(nameof(RouteIdDraft));
     }
 
     /// <summary>创建入口：目录路由（第三方 tab）或自定义路由（自定义 tab）；已占用路由集合由快照导出。</summary>
@@ -116,8 +112,10 @@ public sealed class ProviderEditorViewModel : ObservableObject
     {
         var editor = new ProviderEditorViewModel(runner, catalogService, snapshot, mode, string.Empty, default,
                                                  addable, onSaved);
-        if (SettingsValues.GetNode(snapshot.Value, ["providers"]) is { ValueKind: JsonValueKind.Object } providers)
-            foreach (var route in providers.EnumerateObject()) editor.TakenRoutes.Add(route.Name);
+        if (SettingsValues.GetNode(snapshot.Value, ["providers"]) is not
+            { ValueKind: JsonValueKind.Object } providers) return editor;
+        foreach (var route in providers.EnumerateObject())
+            editor.TakenRoutes.Add(route.Name);
 
         return editor;
     }
@@ -129,7 +127,7 @@ public sealed class ProviderEditorViewModel : ObservableObject
                                                   Action<SettingsNamespaceView> onSaved)
     {
         var original = SettingsValues.GetNode(snapshot.Value, ["providers", route]) ?? default;
-        var declared = entry?.Declared ?? true;
+        var declared = entry?.Declared                                              ?? true;
         var mode     = declared ? ProviderEditorMode.EditDeclared : ProviderEditorMode.EditCatalog;
         return new ProviderEditorViewModel(runner, catalogService, snapshot, mode, route, original, [], onSaved);
     }
@@ -228,16 +226,14 @@ public sealed class ProviderEditorViewModel : ObservableObject
         get => _apiDraft;
         set
         {
-            if (SetProperty(ref _apiDraft, value))
-            {
-                OnPropertyChanged(nameof(ApiLabel));
-                NotifyDirtyChanged();
-            }
+            if (!SetProperty(ref _apiDraft, value)) return;
+            OnPropertyChanged(nameof(ApiLabel));
+            NotifyDirtyChanged();
         }
     }
 
     public string ApiLabel => ApiProtocolChoices.FirstOrDefault(choice => choice.Value == _apiDraft).Label
-                              ?? _apiDraft;
+                           ?? _apiDraft;
 
     public bool IsApiMenuOpen
     {
@@ -313,11 +309,9 @@ public sealed class ProviderEditorViewModel : ObservableObject
         get => _isSaving;
         private set
         {
-            if (SetProperty(ref _isSaving, value))
-            {
-                OnPropertyChanged(nameof(CanSave));
-                OnPropertyChanged(nameof(SaveButtonText));
-            }
+            if (!SetProperty(ref _isSaving, value)) return;
+            OnPropertyChanged(nameof(CanSave));
+            OnPropertyChanged(nameof(SaveButtonText));
         }
     }
 
@@ -385,21 +379,31 @@ public sealed class ProviderEditorViewModel : ObservableObject
     {
         get
         {
-            if (Mode == ProviderEditorMode.CreateCatalog)
+            switch (Mode)
             {
-                if (SelectedProvider is null) return "请选择提供商。";
-            }
-            else if (Mode == ProviderEditorMode.CreateDeclared)
-            {
-                var routeId = _routeIdDraft.Trim();
-                if (!RouteIdPattern.IsMatch(routeId))
-                    return "Provider ID 必须以小写字母开头，只能包含小写字母、数字与连字符。";
-                if (TakenRoutes.Contains(routeId)) return "该 Provider ID 已被其他提供商使用。";
-                if (!IsValidBaseUrl(_baseUrlDraft)) return "API 地址必填，且需以 http:// 或 https:// 开头。";
-            }
-            else if (IsDeclaredMode && !IsValidBaseUrl(_baseUrlDraft))
-            {
-                return "API 地址必填，且需以 http:// 或 https:// 开头。";
+                case ProviderEditorMode.CreateCatalog :
+                {
+                    if (SelectedProvider is null) return "请选择提供商。";
+                    break;
+                }
+                case ProviderEditorMode.CreateDeclared :
+                {
+                    var routeId = _routeIdDraft.Trim();
+                    if (!RouteIdPattern.IsMatch(routeId))
+                        return "Provider ID 必须以小写字母开头，只能包含小写字母、数字与连字符。";
+                    if (TakenRoutes.Contains(routeId)) return "该 Provider ID 已被其他提供商使用。";
+                    if (!IsValidBaseUrl(_baseUrlDraft)) return "API 地址必填，且需以 http:// 或 https:// 开头。";
+                    break;
+                }
+                default :
+                {
+                    if (IsDeclaredMode && !IsValidBaseUrl(_baseUrlDraft))
+                    {
+                        return "API 地址必填，且需以 http:// 或 https:// 开头。";
+                    }
+
+                    break;
+                }
             }
 
             var identifiers = new HashSet<string>(StringComparer.Ordinal);
@@ -412,7 +416,7 @@ public sealed class ProviderEditorViewModel : ObservableObject
                     return "上下文窗口必须是正整数（可带 K/M 后缀）或留空。";
                 if (HasInvalidTokenCount(entry.MaxTokensDraft))
                     return "最大输出 token 数必须是正整数（可带 K/M 后缀）或留空。";
-                if (!entry.IsTextSelected && !entry.IsImageSelected) return "输入类型至少勾选一项。";
+                if (entry is { IsTextSelected: false, IsImageSelected: false }) return "输入类型至少勾选一项。";
             }
 
             if (Mode == ProviderEditorMode.CreateDeclared && ModelEntries.Count == 0)
@@ -446,7 +450,7 @@ public sealed class ProviderEditorViewModel : ObservableObject
             var current        = SettingsModelArrayBuilder.Build(ModelEntries, "input");
             var originalModels = TryGetOriginalModels();
             return current is { } array
-                ? originalModels is { } baseline ? !JsonElement.DeepEquals(array, baseline) : true
+                ? originalModels is not { } baseline || !JsonElement.DeepEquals(array, baseline)
                 : originalModels is not null;
         }
     }
@@ -467,15 +471,15 @@ public sealed class ProviderEditorViewModel : ObservableObject
     private void LoadDrafts(JsonElement profile)
     {
         _displayNameDraft = SettingsValues.GetString(profile, ["displayName"]) ?? string.Empty;
-        _baseUrlDraft     = SettingsValues.GetString(profile, ["baseURL"]) ?? string.Empty;
-        _apiDraft         = SettingsValues.GetString(profile, ["api"]) is { Length: > 0 } api
+        _baseUrlDraft     = SettingsValues.GetString(profile, ["baseURL"])     ?? string.Empty;
+        _apiDraft = SettingsValues.GetString(profile, ["api"]) is { Length: > 0 } api
             ? api
             : "openai-completions";
         if (SettingsValues.GetNode(profile, ["models"]) is { ValueKind: JsonValueKind.Array } models)
-            foreach (var node in models.EnumerateArray())
+            foreach (var entry in models.EnumerateArray()
+                                        .Select(node => SettingsModelEntryViewModel.FromJson(node, "input")))
             {
-                var entry = SettingsModelEntryViewModel.FromJson(node, "input");
-                entry.DeleteCommand = new RelayCommand(() => RemoveEntry(entry));
+                entry.DeleteCommand   =  new RelayCommand(() => RemoveEntry(entry));
                 entry.PropertyChanged += OnEntryPropertyChanged;
                 ModelEntries.Add(entry);
             }
@@ -514,12 +518,12 @@ public sealed class ProviderEditorViewModel : ObservableObject
     private void AddModel()
     {
         var entry = new SettingsModelEntryViewModel { IsExpanded = true };
-        entry.DeleteCommand = new RelayCommand(() => RemoveEntry(entry));
+        entry.DeleteCommand   =  new RelayCommand(() => RemoveEntry(entry));
         entry.PropertyChanged += OnEntryPropertyChanged;
         ModelEntries.Add(entry);
-        SaveError      = null;
-        DiscoverError  = null;
-        DiscoverNotice = null;
+        SaveError            = null;
+        DiscoverError        = null;
+        DiscoverNotice       = null;
         DiscoverEmptyVisible = false;
         NotifyDirtyChanged();
     }
@@ -550,21 +554,21 @@ public sealed class ProviderEditorViewModel : ObservableObject
     /// <summary>探测参数：目录路由按厂商（可带自定义端点/密钥），declared 路由必须携带端点。</summary>
     private LlmDiscoveryRequest? BuildProbe()
     {
-        string? provider = Mode switch
+        var provider = Mode switch
         {
             ProviderEditorMode.CreateCatalog => SelectedProvider?.Provider,
             ProviderEditorMode.EditCatalog   => _route,
             _                                => null
         };
-        var url    = BaseUrlDraft.Trim();
-        string? baseUrl = url.Length > 0 ? url : null;
-        string? api     = IsDeclaredMode ? ApiDraft : null;
-        var key         = ApiKeyDraft.Trim();
-        string? apiKey  = key.Length > 0 ? key : null;
+        var url     = BaseUrlDraft.Trim();
+        var baseUrl = url.Length > 0 ? url : null;
+        var api     = IsDeclaredMode ? ApiDraft : null;
+        var key     = ApiKeyDraft.Trim();
+        var apiKey  = key.Length > 0 ? key : null;
 
         if (Mode == ProviderEditorMode.CreateCatalog && provider is null) return null;
-        if (IsDeclaredMode && baseUrl is null) return null;
-        if (provider is null && baseUrl is null) return null;
+        if (IsDeclaredMode                           && baseUrl is null) return null;
+        if (provider is null                         && baseUrl is null) return null;
 
         return new LlmDiscoveryRequest(provider, baseUrl, api, apiKey);
     }
@@ -616,19 +620,19 @@ public sealed class ProviderEditorViewModel : ObservableObject
         {
             var entry = new SettingsModelEntryViewModel
             {
-                IdDraft            = option.Model.Id,
-                NameDraft          = option.Model.Name ?? string.Empty,
+                IdDraft   = option.Model.Id,
+                NameDraft = option.Model.Name ?? string.Empty,
                 ContextWindowDraft = option.Model.ContextWindow is { } contextWindow
                     ? SettingsModelEntryViewModel.FormatTokenCount(contextWindow)
                     : string.Empty,
-                MaxTokensDraft  = option.Model.MaxTokens is { } maxTokens
+                MaxTokensDraft = option.Model.MaxTokens is { } maxTokens
                     ? SettingsModelEntryViewModel.FormatTokenCount(maxTokens)
                     : string.Empty,
-                IsTextSelected  = option.Model.InputModalities is null ||
-                                  option.Model.InputModalities.Contains("text"),
+                IsTextSelected = option.Model.InputModalities is null ||
+                                 option.Model.InputModalities.Contains("text"),
                 IsImageSelected = option.Model.InputModalities?.Contains("image") == true
             };
-            entry.DeleteCommand = new RelayCommand(() => RemoveEntry(entry));
+            entry.DeleteCommand   =  new RelayCommand(() => RemoveEntry(entry));
             entry.PropertyChanged += OnEntryPropertyChanged;
             ModelEntries.Add(entry);
         }
@@ -676,27 +680,27 @@ public sealed class ProviderEditorViewModel : ObservableObject
     /// keyReference 输出本次应写入凭据的引用名（沿用已命名值，否则按路由派生）。</summary>
     private List<SettingsMutationOp> BuildSaveOps(out string route, out string keyReference)
     {
-        var ops    = new List<SettingsMutationOp>();
-        var key    = ApiKeyDraft.Trim();
-        var url    = BaseUrlDraft.Trim();
-        route      = EffectiveRoute;
+        var ops = new List<SettingsMutationOp>();
+        var key = ApiKeyDraft.Trim();
+        var url = BaseUrlDraft.Trim();
+        route        = EffectiveRoute;
         keyReference = DeriveKeyRef(route);
 
-        if (Mode == ProviderEditorMode.CreateCatalog)
+        switch (Mode)
         {
-            keyReference = DeriveKeyRef(route);
-            var hasModels = ModelEntries.Count > 0;
-            if (key.Length == 0 && url.Length == 0 && !hasModels)
-                ops.Add(SettingsMutationOp.Set(["providers", route], JsonElementFactory.FromObject(_ => { })));
-            else
-                ops.Add(SettingsMutationOp.Set(["providers", route], WriteCatalogProfile(route, key, url)));
-            return ops;
-        }
-
-        if (Mode == ProviderEditorMode.CreateDeclared)
-        {
-            ops.Add(SettingsMutationOp.Set(["providers", route], WriteDeclaredProfile(route, key)));
-            return ops;
+            case ProviderEditorMode.CreateCatalog :
+            {
+                keyReference = DeriveKeyRef(route);
+                var hasModels = ModelEntries.Count > 0;
+                if (key.Length == 0 && url.Length == 0 && !hasModels)
+                    ops.Add(SettingsMutationOp.Set(["providers", route], JsonElementFactory.FromObject(_ => { })));
+                else
+                    ops.Add(SettingsMutationOp.Set(["providers", route], WriteCatalogProfile(route, key, url)));
+                return ops;
+            }
+            case ProviderEditorMode.CreateDeclared :
+                ops.Add(SettingsMutationOp.Set(["providers", route], WriteDeclaredProfile(route, key)));
+                return ops;
         }
 
         // 编辑：字段级 diff（对齐官方 pathOps；apiKeyEnv 只增改不撤销）。
@@ -704,7 +708,7 @@ public sealed class ProviderEditorViewModel : ObservableObject
         keyReference = namedReference is { Length: > 0 } named ? named : DeriveKeyRef(route);
         if (IsDeclaredMode)
         {
-            var displayName = DisplayNameDraft.Trim();
+            var displayName  = DisplayNameDraft.Trim();
             var originalName = SettingsValues.GetString(_original, ["displayName"]) ?? string.Empty;
             if (displayName != originalName)
                 ops.Add(displayName.Length > 0
@@ -724,25 +728,22 @@ public sealed class ProviderEditorViewModel : ObservableObject
         var current = SettingsModelArrayBuilder.Build(ModelEntries, "input");
         switch (current)
         {
-            case { } array when TryGetOriginalModels() is { } baseline:
+            case { } array when TryGetOriginalModels() is { } baseline :
                 if (!JsonElement.DeepEquals(array, baseline))
                     ops.Add(SettingsMutationOp.Set(["providers", route, "models"], array));
                 break;
-            case { } array:
+            case { } array :
                 ops.Add(SettingsMutationOp.Set(["providers", route, "models"], array));
                 break;
-            default:
+            default :
                 if (TryGetOriginalModels() is not null)
                     ops.Add(SettingsMutationOp.Unset(["providers", route, "models"]));
                 break;
         }
 
-        if (key.Length > 0 && namedReference is not { Length: > 0 })
-        {
-            keyReference = DeriveKeyRef(route);
-            ops.Add(SettingsMutationOp.Set(["providers", route, "apiKeyEnv"],
-                                           JsonElementFactory.FromString(keyReference)));
-        }
+        if (key.Length <= 0 || namedReference is { Length: > 0 }) return ops;
+        keyReference = DeriveKeyRef(route);
+        ops.Add(SettingsMutationOp.Set(["providers", route, "apiKeyEnv"], JsonElementFactory.FromString(keyReference)));
 
         return ops;
     }
@@ -779,7 +780,7 @@ public sealed class ProviderEditorViewModel : ObservableObject
         {
             var displayName = DisplayNameDraft.Trim();
             if (displayName.Length > 0) writer.WriteString("displayName", displayName);
-            if (key.Length > 0) writer.WriteString("apiKeyEnv", DeriveKeyRef(route));
+            if (key.Length         > 0) writer.WriteString("apiKeyEnv", DeriveKeyRef(route));
             writer.WriteString("api", ApiDraft);
             writer.WriteString("baseURL", BaseUrlDraft.Trim());
             WriteModels(writer);
@@ -788,11 +789,9 @@ public sealed class ProviderEditorViewModel : ObservableObject
 
     private void WriteModels(Utf8JsonWriter writer)
     {
-        if (SettingsModelArrayBuilder.Build(ModelEntries, "input") is { } models)
-        {
-            writer.WritePropertyName("models");
-            models.WriteTo(writer);
-        }
+        if (SettingsModelArrayBuilder.Build(ModelEntries, "input") is not { } models) return;
+        writer.WritePropertyName("models");
+        models.WriteTo(writer);
     }
 
     /// <summary>凭据引用名派生（对齐官方）：路由 id 非字母数字字符逐字替换为下划线后大写 + _API_KEY。</summary>
@@ -848,16 +847,11 @@ public sealed class ProviderOptionViewModel : ObservableObject
 }
 
 /// <summary>「获取可用模型」弹层的候选项：默认全选（已存在模型在打开前已被过滤）。</summary>
-public sealed class DiscoveredModelOptionViewModel : ObservableObject
+public sealed class DiscoveredModelOptionViewModel(LlmDiscoveredModel model) : ObservableObject
 {
     private bool _isPicked = true;
 
-    public DiscoveredModelOptionViewModel(LlmDiscoveredModel model)
-    {
-        Model = model;
-    }
-
-    public LlmDiscoveredModel Model { get; }
+    public LlmDiscoveredModel Model { get; } = model;
 
     public string Label => Model.Name is { Length: > 0 } name ? name : Model.Id;
 

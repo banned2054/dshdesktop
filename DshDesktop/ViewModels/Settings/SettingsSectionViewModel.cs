@@ -7,24 +7,17 @@ using System.Windows.Input;
 namespace DshDesktop.ViewModels.Settings;
 
 /// <summary>设置分区：左导航的一项，拥有自己的行/卡投影。导航选中与内容激活标记由面板壳维护。</summary>
-public abstract class SettingsSectionViewModel : ObservableObject
+public abstract class SettingsSectionViewModel(string id, string title, string? intro = null) : ObservableObject
 {
     private bool _isActive;
     private bool _isSelected;
 
-    protected SettingsSectionViewModel(string id, string title, string? intro = null)
-    {
-        Id    = id;
-        Title = title;
-        Intro = intro;
-    }
+    public string Id { get; } = id;
 
-    public string Id { get; }
-
-    public string Title { get; }
+    public string Title { get; } = title;
 
     /// <summary>分区副标题（内容区顶部说明行）；可为空。</summary>
-    public string? Intro { get; }
+    public string? Intro { get; } = intro;
 
     public bool IsSelected
     {
@@ -44,28 +37,25 @@ public abstract class SettingsSectionViewModel : ObservableObject
 }
 
 /// <summary>通用分区的行基类：标题/描述、ns 存在性驱动的可见性、只读降级与行内错误。</summary>
-public abstract class SettingsRowViewModel : ObservableObject
+public abstract class SettingsRowViewModel(
+    string                ns,
+    IReadOnlyList<string> path,
+    string                title,
+    string?               description = null)
+    : ObservableObject
 {
     private string? _errorText;
     private bool    _isLast;
     private bool    _isVisible = true;
     private bool    _canEdit   = true;
 
-    protected SettingsRowViewModel(string ns, IReadOnlyList<string> path, string title, string? description = null)
-    {
-        Ns    = ns;
-        Path  = path;
-        Title = title;
-        Description = description;
-    }
+    public string Ns { get; } = ns;
 
-    public string Ns { get; }
+    public IReadOnlyList<string> Path { get; } = path;
 
-    public IReadOnlyList<string> Path { get; }
+    public string Title { get; } = title;
 
-    public string Title { get; }
-
-    public string? Description { get; }
+    public string? Description { get; } = description;
 
     /// <summary>describe 中存在所属 ns 时该行可见；ns 缺失则整行隐藏。</summary>
     public bool IsVisible
@@ -118,19 +108,13 @@ public abstract class SettingsRowViewModel : ObservableObject
 }
 
 /// <summary>下拉选项条目：固定 value/label，勾选态由所属行随投影刷新。</summary>
-public sealed class SettingsChoiceOptionViewModel : ObservableObject
+public sealed class SettingsChoiceOptionViewModel(string value, string label) : ObservableObject
 {
     private bool _isSelected;
 
-    public SettingsChoiceOptionViewModel(string value, string label)
-    {
-        Value = value;
-        Label = label;
-    }
+    public string Value { get; } = value;
 
-    public string Value { get; }
-
-    public string Label { get; }
+    public string Label { get; } = label;
 
     public bool IsSelected
     {
@@ -144,30 +128,32 @@ public sealed class SettingsChoiceOptionViewModel : ObservableObject
 /// <summary>下拉选择行：按钮 + 弹层选项；选中即写（含 full 权限的风险确认门槛）。</summary>
 public sealed class SettingsChoiceRowViewModel : SettingsRowViewModel
 {
-    private readonly Func<string, string>  _labelResolver;
-    private readonly Func<string, bool>?   _requiresConfirmation;
-    private          string?               _currentValue;
-    private          string?               _pendingConfirmValue;
-    private          bool                  _isAcknowledged;
-    private          bool                  _isConfirmOpen;
-    private          bool                  _isMenuOpen;
+    private readonly Func<string, string> _labelResolver;
+    private readonly Func<string, bool>?  _requiresConfirmation;
+
+    private string? _currentValue;
+    private string? _pendingConfirmValue;
+    private bool    _isAcknowledged;
+    private bool    _isConfirmOpen;
+    private bool    _isMenuOpen;
 
     public SettingsChoiceRowViewModel(
-        string                            ns,
-        string                            field,
-        string                            title,
-        string?                           description,
+        string                                      ns,
+        string                                      field,
+        string                                      title,
+        string?                                     description,
         IReadOnlyList<(string Value, string Label)> options,
-        Func<string, string>?             labelResolver       = null,
-        Func<string, bool>?               requiresConfirmation = null)
+        Func<string, string>?                       labelResolver        = null,
+        Func<string, bool>?                         requiresConfirmation = null)
         : base(ns, [field], title, description)
     {
-        _labelResolver       = labelResolver ?? (value => value);
+        _labelResolver        = labelResolver ?? (value => value);
         _requiresConfirmation = requiresConfirmation;
-        Options              = new ObservableCollection<SettingsChoiceOptionViewModel>(
-            options.Select(option => CreateOption(option.Value, option.Label)));
-        ToggleMenuCommand      = new RelayCommand(() => IsMenuOpen = !IsMenuOpen);
-        CancelConfirmCommand   = new RelayCommand(() => IsConfirmOpen = false);
+        Options =
+            new ObservableCollection<SettingsChoiceOptionViewModel>(options.Select(option => CreateOption(option.Value,
+                                                                                      option.Label)));
+        ToggleMenuCommand       = new RelayCommand(() => IsMenuOpen    = !IsMenuOpen);
+        CancelConfirmCommand    = new RelayCommand(() => IsConfirmOpen = false);
         ConfirmSelectionCommand = new RelayCommand(ConfirmPendingSelection);
     }
 
@@ -301,19 +287,18 @@ public sealed class SettingsSegmentRowViewModel : SettingsRowViewModel
 }
 
 /// <summary>开关行：自绘 ToggleSwitch 即时写；值缺省视为默认值（不回写）。</summary>
-public sealed class SettingsToggleRowViewModel : SettingsRowViewModel
+public sealed class SettingsToggleRowViewModel(
+    string  ns,
+    string  field,
+    string  title,
+    string? description,
+    bool    defaultValue = false)
+    : SettingsRowViewModel(ns, [field], title, description)
 {
-    private readonly bool _defaultValue;
-    private          bool _isChecked;
-    private          bool _isProjecting;
+    private readonly bool _defaultValue = defaultValue;
 
-    public SettingsToggleRowViewModel(string ns, string field, string title, string? description,
-                                      bool defaultValue = false)
-        : base(ns, [field], title, description)
-    {
-        _defaultValue = defaultValue;
-        _isChecked    = defaultValue;
-    }
+    private bool _isChecked = defaultValue;
+    private bool _isProjecting;
 
     public bool IsChecked
     {
@@ -342,14 +327,9 @@ public sealed class SettingsToggleRowViewModel : SettingsRowViewModel
 }
 
 /// <summary>只读展示行（当前版本等）：不参与写入。</summary>
-public sealed class SettingsReadOnlyRowViewModel : SettingsRowViewModel
+public sealed class SettingsReadOnlyRowViewModel(string title, string value) : SettingsRowViewModel("", [], title)
 {
-    public SettingsReadOnlyRowViewModel(string title, string value) : base("", [], title)
-    {
-        Value = value;
-    }
-
-    public string Value { get; }
+    public string Value { get; } = value;
 
     internal override void ApplyView(SettingsNamespaceView view)
     {
@@ -394,7 +374,7 @@ public static class SettingsValues
     /// <summary>读取命名空间值中的 models 数组；缺失或非数组返回 null。</summary>
     public static JsonElement? TryGetModels(JsonElement value)
     {
-        return value.ValueKind == JsonValueKind.Object &&
+        return value.ValueKind == JsonValueKind.Object        &&
                value.TryGetProperty("models", out var models) &&
                models.ValueKind == JsonValueKind.Array
             ? models

@@ -21,7 +21,7 @@ public sealed class SimulatedSettingsService : ISettingsService
         long                              Revision,
         IReadOnlyList<SettingsSecretInfo> Secrets);
 
-    private readonly Lock                 _syncRoot  = new();
+    private readonly Lock                 _syncRoot   = new();
     private readonly List<NamespaceState> _namespaces = BuildSeed();
 
     public event EventHandler<SettingsDocumentUpdate>? DocumentUpdated;
@@ -54,9 +54,9 @@ public sealed class SimulatedSettingsService : ISettingsService
         return Task.FromResult(view);
     }
 
-    public Task<SettingsNamespaceView> MutateAsync(string ns, IReadOnlyList<SettingsMutationOp> ops,
-                                                   long? expectedRevision = null,
-                                                   CancellationToken cancellationToken = default)
+    public Task<SettingsNamespaceView> MutateAsync(
+        string            ns, IReadOnlyList<SettingsMutationOp> ops, long? expectedRevision = null,
+        CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var (view, change) = Write(ns, expectedRevision, state =>
@@ -64,19 +64,20 @@ public sealed class SimulatedSettingsService : ISettingsService
             var user = state.User;
             foreach (var op in ops)
             {
-                if (op.Op == SettingsMutationOp.SetOp)
+                switch (op.Op)
                 {
-                    if (op.Value is not { } value)
-                        throw new InvalidOperationException("set 操作缺少 value。");
-                    user = SetPath(user, op.Path, value);
-                }
-                else if (op.Op == SettingsMutationOp.UnsetOp)
-                {
-                    user = UnsetPath(user, op.Path);
-                }
-                else
-                {
-                    throw new InvalidOperationException($"未知路径操作：{op.Op}");
+                    case SettingsMutationOp.SetOp :
+                    {
+                        if (op.Value is not { } value)
+                            throw new InvalidOperationException("set 操作缺少 value。");
+                        user = SetPath(user, op.Path, value);
+                        break;
+                    }
+                    case SettingsMutationOp.UnsetOp :
+                        user = UnsetPath(user, op.Path);
+                        break;
+                    default :
+                        throw new InvalidOperationException($"未知路径操作：{op.Op}");
                 }
             }
 
@@ -105,7 +106,7 @@ public sealed class SimulatedSettingsService : ISettingsService
             if (expectedRevision is { } expected && expected != state.Revision)
                 throw new SettingsConflictException(ns, expected, state.Revision);
 
-            state = apply(state) with { Revision = state.Revision + 1 };
+            state              = apply(state) with { Revision = state.Revision + 1 };
             _namespaces[index] = state;
             return (ToView(state), new SettingsDocumentUpdate(ns, state.Revision));
         }
@@ -130,15 +131,15 @@ public sealed class SimulatedSettingsService : ISettingsService
         return slots;
     }
 
-    private static void CollectApiKeyEnvPaths(JsonElement node, List<string> path,
-                                              List<SettingsSecretInfo> slots)
+    private static void CollectApiKeyEnvPaths(
+        JsonElement node, List<string> path, List<SettingsSecretInfo> slots)
     {
         if (node.ValueKind != JsonValueKind.Object) return;
 
         foreach (var property in node.EnumerateObject())
         {
             path.Add(property.Name);
-            if (property.Name == "apiKeyEnv" && property.Value.ValueKind == JsonValueKind.String)
+            if (property is { Name: "apiKeyEnv", Value.ValueKind: JsonValueKind.String })
             {
                 var slot = new SettingsSecretInfo([.. path], true);
                 if (!slots.Any(existing => existing.Path.SequenceEqual(slot.Path))) slots.Add(slot);
@@ -156,42 +157,44 @@ public sealed class SimulatedSettingsService : ISettingsService
     {
         return
         [
-            new("locale", Json("""{"type":"string","choices":["en","zh"],"default":"en"}"""),
-                Json("""{"preference":"en"}"""), EmptyObject(), 0, []),
-            new("ui-theme", Json("""{"type":"string","choices":["light","dark","system"],"default":"dark"}"""),
-                Json("""{"preference":"dark","fontSize":14}"""), EmptyObject(), 0, []),
-            new("ui-chat", Json("""{"type":"object"}"""),
-                Json("""{"transcriptView":"standard","performanceUsage":"compact","linkOpening":"new-tab"}"""),
-                EmptyObject(), 0, []),
-            new("ui-conversation", Json("""{"type":"object"}"""),
-                Json("""{"busyEnter":"queue"}"""), EmptyObject(), 0, []),
-            new("ui-settings", Json("""{"type":"object"}"""),
-                Json("""{"enabled":false}"""), EmptyObject(), 0, []),
-            new("permission", Json("""{"type":"string","choices":["default","full-access"],"default":"default"}"""),
-                Json("""{"defaultPreset":"default"}"""), EmptyObject(), 0, []),
-            new("llm-deepseek", Json("""{"type":"object"}"""),
-                Json("""{"baseURL":"https://api.deepseek.com","models":[{"id":"deepseek-flash","name":"DeepSeek-V41-Flash","contextWindow":1000000,"inputModalities":["text","image"],"systemPromptUpdate":"in-history","toolUpdate":"addition-only"},{"id":"deepseek-v4-pro","name":"DeepSeek-V4-Pro","description":"Stronger agentic coding, knowledge, and difficult reasoning; suited to complex or quality-critical tasks at higher cost.","contextWindow":1000000}]}"""),
-                EmptyObject(), 0, [new SettingsSecretInfo(["apiKeyEnv"], true)]),
+            new NamespaceState("locale", Json("""{"type":"string","choices":["en","zh"],"default":"en"}"""),
+                               Json("""{"preference":"en"}"""), EmptyObject(), 0, []),
+            new NamespaceState("ui-theme",
+                               Json("""{"type":"string","choices":["light","dark","system"],"default":"dark"}"""),
+                               Json("""{"preference":"dark","fontSize":14}"""), EmptyObject(), 0, []),
+            new NamespaceState("ui-chat", Json("""{"type":"object"}"""),
+                               Json("""{"transcriptView":"standard","performanceUsage":"compact","linkOpening":"new-tab"}"""),
+                               EmptyObject(), 0, []),
+            new NamespaceState("ui-conversation", Json("""{"type":"object"}"""), Json("""{"busyEnter":"queue"}"""),
+                               EmptyObject(), 0, []),
+            new NamespaceState("ui-settings", Json("""{"type":"object"}"""), Json("""{"enabled":false}"""),
+                               EmptyObject(), 0, []),
+            new NamespaceState("permission",
+                               Json("""{"type":"string","choices":["default","full-access"],"default":"default"}"""),
+                               Json("""{"defaultPreset":"default"}"""), EmptyObject(), 0, []),
+            new NamespaceState("llm-deepseek", Json("""{"type":"object"}"""),
+                               Json("""{"baseURL":"https://api.deepseek.com","models":[{"id":"deepseek-flash","name":"DeepSeek-V41-Flash","contextWindow":1000000,"inputModalities":["text","image"],"systemPromptUpdate":"in-history","toolUpdate":"addition-only"},{"id":"deepseek-v4-pro","name":"DeepSeek-V4-Pro","description":"Stronger agentic coding, knowledge, and difficult reasoning; suited to complex or quality-critical tasks at higher cost.","contextWindow":1000000}]}"""),
+                               EmptyObject(), 0, [new SettingsSecretInfo(["apiKeyEnv"], true)]),
             // 账号登录路由：值恒空（凭据由登录态承载），行可见性由 modelCatalog 的
             // deepseek-account 组驱动，无 apiKeyEnv 槽位故不画圆点。
-            new("llm-deepseek-account", Json("""{"type":"object"}"""),
-                Json("""{}"""), EmptyObject(), 0, []),
+            new NamespaceState("llm-deepseek-account", Json("""{"type":"object"}"""), Json("""{}"""), EmptyObject(), 0,
+                               []),
             // llm-pi-ai 插件命名空间：providers 为声明式路由表；glm 对齐真实 profile patch
             // 的 declared 路由形态（自声明 api/baseURL/models，密钥引用走凭据域）。
-            new("llm-pi-ai", Json("""{"type":"object"}"""),
-                Json("""{"providers":{"glm":{"displayName":"GLM","api":"openai-completions","baseURL":"https://relay.example.com/v1","apiKeyEnv":"GLM_API_KEY","models":[{"id":"glm-4.7","name":"GLM-4.7","contextWindow":200000,"input":["text","image"]},{"id":"glm-4.7-air","name":"GLM-4.7-Air","contextWindow":128000},{"id":"glm-4.7-flash","name":"GLM-4.7-Flash","contextWindow":128000}]}}}"""),
-                EmptyObject(), 0, [new SettingsSecretInfo(["providers", "glm", "apiKeyEnv"], true)]),
-            new("pwsh-sandbox", Json("""{"type":"object"}"""),
-                Json("""{"timeoutMs":120000,"maxOutputBytes":64000}"""), EmptyObject(), 0, []),
-            new("agent-loop", Json("""{"type":"object"}"""),
-                Json("""{"maxParallelToolCalls":10}"""), EmptyObject(), 0, []),
-            new("subagent", Json("""{"type":"object"}"""),
-                Json("""{"maxDepth":1,"maxActiveSubagents":8}"""), EmptyObject(), 0, []),
-            new("web-search-deepseek", Json("""{"type":"object"}"""),
-                Json("""{"apiKeyEnv":"DEEPSEEK_API_KEY","baseURL":"https://api.deepseek.com","maxUses":5}"""),
-                EmptyObject(), 0, [new SettingsSecretInfo(["apiKeyEnv"], false)]),
-            new("session-log-deepseek", Json("""{"type":"object"}"""),
-                Json("""{"enabled":true,"maxBytes":8388608}"""), EmptyObject(), 0, []),
+            new NamespaceState("llm-pi-ai", Json("""{"type":"object"}"""),
+                               Json("""{"providers":{"glm":{"displayName":"GLM","api":"openai-completions","baseURL":"https://relay.example.com/v1","apiKeyEnv":"GLM_API_KEY","models":[{"id":"glm-4.7","name":"GLM-4.7","contextWindow":200000,"input":["text","image"]},{"id":"glm-4.7-air","name":"GLM-4.7-Air","contextWindow":128000},{"id":"glm-4.7-flash","name":"GLM-4.7-Flash","contextWindow":128000}]}}}"""),
+                               EmptyObject(), 0, [new SettingsSecretInfo(["providers", "glm", "apiKeyEnv"], true)]),
+            new NamespaceState("pwsh-sandbox", Json("""{"type":"object"}"""),
+                               Json("""{"timeoutMs":120000,"maxOutputBytes":64000}"""), EmptyObject(), 0, []),
+            new NamespaceState("agent-loop", Json("""{"type":"object"}"""), Json("""{"maxParallelToolCalls":10}"""),
+                               EmptyObject(), 0, []),
+            new NamespaceState("subagent", Json("""{"type":"object"}"""),
+                               Json("""{"maxDepth":1,"maxActiveSubagents":8}"""), EmptyObject(), 0, []),
+            new NamespaceState("web-search-deepseek", Json("""{"type":"object"}"""),
+                               Json("""{"apiKeyEnv":"DEEPSEEK_API_KEY","baseURL":"https://api.deepseek.com","maxUses":5}"""),
+                               EmptyObject(), 0, [new SettingsSecretInfo(["apiKeyEnv"], false)]),
+            new NamespaceState("session-log-deepseek", Json("""{"type":"object"}"""),
+                               Json("""{"enabled":true,"maxBytes":8388608}"""), EmptyObject(), 0, []),
         ];
     }
 
@@ -297,11 +300,9 @@ public sealed class SimulatedSettingsService : ISettingsService
         using (var writer = new Utf8JsonWriter(buffer))
         {
             writer.WriteStartObject();
-            foreach (var property in segment.EnumerateObject())
+            foreach (var property in segment.EnumerateObject()
+                                            .Where(property => !property.NameEquals(path[0]) || path.Count != 1))
             {
-                if (property.NameEquals(path[0]) && path.Count == 1)
-                    continue;
-
                 writer.WritePropertyName(property.Name);
                 if (property.NameEquals(path[0]))
                     UnsetPath(property.Value, path.Skip(1).ToArray()).WriteTo(writer);

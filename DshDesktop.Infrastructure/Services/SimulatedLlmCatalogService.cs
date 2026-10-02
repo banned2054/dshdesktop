@@ -25,31 +25,31 @@ public sealed class SimulatedLlmCatalogService : ILlmCatalogService
     {
         ["anthropic"] =
         [
-            new("claude-sonnet-4-5", "Claude Sonnet 4.5", 200000, 64000, ["text", "image"]),
-            new("claude-opus-4-1", "Claude Opus 4.1", 200000, 32000, ["text", "image"]),
+            new LlmDiscoveredModel("claude-sonnet-4-5", "Claude Sonnet 4.5", 200000, 64000, ["text", "image"]),
+            new LlmDiscoveredModel("claude-opus-4-1", "Claude Opus 4.1", 200000, 32000, ["text", "image"]),
         ],
         ["openai"] =
         [
-            new("gpt-5.1", "GPT-5.1", 400000, 128000, ["text", "image"]),
-            new("gpt-5.1-codex", "GPT-5.1 Codex", 400000, 128000, ["text", "image"]),
+            new LlmDiscoveredModel("gpt-5.1", "GPT-5.1", 400000, 128000, ["text", "image"]),
+            new LlmDiscoveredModel("gpt-5.1-codex", "GPT-5.1 Codex", 400000, 128000, ["text", "image"]),
         ],
         ["google"] =
         [
-            new("gemini-3-pro-preview", "Gemini 3 Pro", 1048576, 65536, ["text", "image"]),
+            new LlmDiscoveredModel("gemini-3-pro-preview", "Gemini 3 Pro", 1048576, 65536, ["text", "image"]),
         ],
         ["deepseek"] =
         [
-            new("deepseek-chat", "DeepSeek Chat", 128000, 8192, ["text"]),
+            new LlmDiscoveredModel("deepseek-chat", "DeepSeek Chat", 128000, 8192, ["text"]),
         ],
         ["mistral"] =
         [
-            new("mistral-large-latest", "Mistral Large", 128000, 8192, ["text"]),
+            new LlmDiscoveredModel("mistral-large-latest", "Mistral Large", 128000, 8192, ["text"]),
         ],
         ["glm"] =
         [
-            new("glm-4.7", "GLM-4.7", 200000, 32768, ["text", "image"]),
-            new("glm-4.7-air", "GLM-4.7-Air", 128000, 32768, ["text"]),
-            new("glm-4.7-flash", "GLM-4.7-Flash", 128000, 32768, ["text"]),
+            new LlmDiscoveredModel("glm-4.7", "GLM-4.7", 200000, 32768, ["text", "image"]),
+            new LlmDiscoveredModel("glm-4.7-air", "GLM-4.7-Air", 128000, 32768, ["text"]),
+            new LlmDiscoveredModel("glm-4.7-flash", "GLM-4.7-Flash", 128000, 32768, ["text"]),
         ],
     };
 
@@ -61,8 +61,8 @@ public sealed class SimulatedLlmCatalogService : ILlmCatalogService
             new("deepseek-account", "DeepSeek Account", "llm-deepseek-account", []),
             new("deepseek-official", "DeepSeek", "llm-deepseek", []),
         ];
-        foreach (var id in BuiltinProviderIds)
-            entries.Add(new LlmConfigurableProvider(id, id, "llm-pi-ai", ["providers", id], false));
+        entries.AddRange(BuiltinProviderIds.Select(id => new LlmConfigurableProvider(id, id, "llm-pi-ai",
+                                                            ["providers", id], false)));
         // declared 自定义路由：目录不认识、由 profile 自声明（与真实 profile patch 同构）。
         entries.Add(new LlmConfigurableProvider("glm", "GLM", "llm-pi-ai", ["providers", "glm"], true));
 
@@ -81,16 +81,20 @@ public sealed class SimulatedLlmCatalogService : ILlmCatalogService
         if (string.IsNullOrWhiteSpace(request.Provider) && string.IsNullOrWhiteSpace(request.BaseUrl))
             throw new InvalidOperationException("模型发现不可用：请先填写提供商或 API 地址。");
 
-        if (request.Provider is { Length: > 0 } provider)
-        {
-            if (CatalogSeeds.TryGetValue(provider, out var models))
-                return Task.FromResult<IReadOnlyList<LlmDiscoveredModel>>(models);
+        if (request.Provider is not { Length: > 0 } provider)
+            return Task.FromResult<IReadOnlyList<LlmDiscoveredModel>>(
+            [
+                new LlmDiscoveredModel("model-1", "Model 1", 128000, 8192, ["text"])
+            ]);
+        if (CatalogSeeds.TryGetValue(provider, out var models))
+            return Task.FromResult<IReadOnlyList<LlmDiscoveredModel>>(models);
 
-            if (string.IsNullOrWhiteSpace(request.BaseUrl))
-                throw new InvalidOperationException("该提供商未提供模型发现，请填写 API 地址后重试。");
-        }
+        if (string.IsNullOrWhiteSpace(request.BaseUrl))
+            throw new InvalidOperationException("该提供商未提供模型发现，请填写 API 地址后重试。");
 
         return Task.FromResult<IReadOnlyList<LlmDiscoveredModel>>(
-            [new LlmDiscoveredModel("model-1", "Model 1", 128000, 8192, ["text"])]);
+        [
+            new LlmDiscoveredModel("model-1", "Model 1", 128000, 8192, ["text"])
+        ]);
     }
 }

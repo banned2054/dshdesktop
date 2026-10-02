@@ -1,7 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
-using Avalonia.Interactivity;
 using Avalonia.Threading;
 using DshDesktop.ViewModels.Settings;
 
@@ -15,7 +14,7 @@ namespace DshDesktop.Presentation.Views.Settings;
 /// </summary>
 public partial class SettingsPanelView : UserControl
 {
-    private const double PanelMargin = 48;
+    private const double PanelMargin    = 48;
     private const double MinClampedSize = 240;
 
     public SettingsPanelView()

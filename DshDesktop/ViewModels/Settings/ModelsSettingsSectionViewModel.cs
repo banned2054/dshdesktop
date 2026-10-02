@@ -28,20 +28,22 @@ public sealed class ModelsSettingsSectionViewModel : SettingsSectionViewModel
     public const string DeepSeekNs = "llm-deepseek";
     public const string PiAiNs     = "llm-pi-ai";
 
-    private static readonly Dictionary<string, SettingsNamespaceView> EmptyNamespaces =
-        new Dictionary<string, SettingsNamespaceView>();
+    private static readonly Dictionary<string, SettingsNamespaceView> EmptyNamespaces = new();
 
     private readonly ISettingsMutationRunner _runner;
+
     private DeepSeekModelCardViewModel? _card;
     private ProviderEditorViewModel?    _editor;
-    private bool                        _editorOpen;
-    private bool                        _canEdit = true;
-    private bool                        _canAdd;
+
+    private bool _editorOpen;
+    private bool _canEdit = true;
+    private bool _canAdd;
 
     // 行投影输入缓存：目录与账户可用性晚于 describe 到达（异步），到达后按缓存重建行。
     private IReadOnlyDictionary<string, SettingsNamespaceView> _lastNamespaces = EmptyNamespaces;
     private IReadOnlyList<LlmConfigurableProvider>?            _lastDirectory;
-    private bool                                               _accountAvailable;
+
+    private bool _accountAvailable;
 
     public ModelsSettingsSectionViewModel(ISettingsMutationRunner runner)
         : base("models", "模型", "填入各提供商的 API 密钥即可使用其模型。")
@@ -77,11 +79,9 @@ public sealed class ModelsSettingsSectionViewModel : SettingsSectionViewModel
         get => _card;
         private set
         {
-            if (SetProperty(ref _card, value))
-            {
-                OnPropertyChanged(nameof(HasCard));
-                OnPropertyChanged(nameof(IsEditingDeepSeek));
-            }
+            if (!SetProperty(ref _card, value)) return;
+            OnPropertyChanged(nameof(HasCard));
+            OnPropertyChanged(nameof(IsEditingDeepSeek));
         }
     }
 
@@ -93,11 +93,9 @@ public sealed class ModelsSettingsSectionViewModel : SettingsSectionViewModel
         get => _editor;
         private set
         {
-            if (SetProperty(ref _editor, value))
-            {
-                OnPropertyChanged(nameof(HasEditor));
-                OnPropertyChanged(nameof(IsEditingProvider));
-            }
+            if (!SetProperty(ref _editor, value)) return;
+            OnPropertyChanged(nameof(HasEditor));
+            OnPropertyChanged(nameof(IsEditingProvider));
         }
     }
 
@@ -108,7 +106,7 @@ public sealed class ModelsSettingsSectionViewModel : SettingsSectionViewModel
     /// <summary>全量投影：重建 DeepSeek 卡与行集合；编辑器丢弃回列表（打开面板/切换分区/外部全量刷新）。
     /// 账户行可见性（accountAvailable）由 <see cref="SetCatalog" /> 随会话目录异步刷新。</summary>
     internal void Project(IReadOnlyDictionary<string, SettingsNamespaceView> namespaces,
-                          IReadOnlyList<LlmConfigurableProvider>? directory)
+                          IReadOnlyList<LlmConfigurableProvider>?            directory)
     {
         _lastNamespaces = namespaces;
         _lastDirectory  = directory;
@@ -138,7 +136,7 @@ public sealed class ModelsSettingsSectionViewModel : SettingsSectionViewModel
     internal void SetCatalog(ModelCatalog? catalog)
     {
         _accountAvailable = catalog?.Groups.Any(group => group.Id == "deepseek-account" && group.Models.Count > 0)
-                            == true;
+                         == true;
         RebuildRows();
     }
 
@@ -146,8 +144,8 @@ public sealed class ModelsSettingsSectionViewModel : SettingsSectionViewModel
     {
         _canEdit = value;
         foreach (var row in Providers) row.CanEdit = value;
-        if (Card is not null) Card.CanEdit = value;
-        CanAdd = CanAdd && value;
+        Card?.CanEdit = value;
+        CanAdd        = CanAdd && value;
     }
 
     private void OnCardEditFinished(object? sender, EventArgs e)
@@ -168,16 +166,16 @@ public sealed class ModelsSettingsSectionViewModel : SettingsSectionViewModel
         if (directory is null && map.TryGetValue(DeepSeekNs, out var deepSeekView))
             AddProviderRow(CreateRow("deepseek-official", DeepSeekNs, [], "DeepSeek", deepSeekView));
 
-        if (directory is { } entries)
+        if (directory != null)
         {
-            foreach (var entry in OrderForDisplay(entries))
+            foreach (var entry in OrderForDisplay(directory))
             {
                 if (entry.Provider == "deepseek-account" && !_accountAvailable) continue;
                 if (!IsConfigured(entry, map)) continue;
 
                 // 账户行显示名官方在渲染层强制覆盖（zh：「DeepSeek 账号」）。
                 var displayName = entry.Provider == "deepseek-account" ? "DeepSeek 账号" : entry.DisplayName;
-                var nsView = map.TryGetValue(entry.SettingsNs, out var view) ? view : null;
+                var nsView      = map.GetValueOrDefault(entry.SettingsNs);
                 AddProviderRow(CreateRow(entry.Provider, entry.SettingsNs, entry.SettingsPath, displayName,
                                          nsView));
             }
@@ -188,10 +186,8 @@ public sealed class ModelsSettingsSectionViewModel : SettingsSectionViewModel
             SettingsValues.GetNode(piAi.Value, ["providers"]) is { ValueKind: JsonValueKind.Object } providers)
         {
             var listed = Providers.Select(row => row.ProviderId).ToHashSet(StringComparer.Ordinal);
-            foreach (var route in providers.EnumerateObject())
+            foreach (var route in providers.EnumerateObject().Where(route => !listed.Contains(route.Name)))
             {
-                if (listed.Contains(route.Name)) continue;
-
                 var displayName = SettingsValues.GetString(route.Value, ["displayName"]) is { Length: > 0 } name
                     ? name
                     : route.Name;
@@ -217,32 +213,30 @@ public sealed class ModelsSettingsSectionViewModel : SettingsSectionViewModel
 
     private static IEnumerable<LlmConfigurableProvider> OrderForDisplay(IReadOnlyList<LlmConfigurableProvider> entries)
     {
-        return entries.Select((entry, index) => (Entry: entry, Index: index))
+        return entries.Select((entry, index) => (Entry : entry, Index : index))
                       .OrderBy(pair => pair.Entry.Provider switch
-                      {
-                          "deepseek-account"  => 0,
-                          "deepseek-official" => 1,
-                          _                   => 2
-                      })
+                       {
+                           "deepseek-account"  => 0,
+                           "deepseek-official" => 1,
+                           _                   => 2
+                       })
                       .ThenBy(pair => pair.Index)
                       .Select(pair => pair.Entry);
     }
 
-    private static bool IsConfigured(LlmConfigurableProvider entry,
+    private static bool IsConfigured(LlmConfigurableProvider                            entry,
                                      IReadOnlyDictionary<string, SettingsNamespaceView> map)
     {
         if (!map.TryGetValue(entry.SettingsNs, out var view)) return false;
-        if (entry.SettingsPath.Count == 0) return true;
-
-        return SettingsValues.HasPath(view.Value, entry.SettingsPath);
+        return entry.SettingsPath.Count == 0 || SettingsValues.HasPath(view.Value, entry.SettingsPath);
     }
 
-    private static ProviderRowViewModel CreateRow(string providerId, string settingsNs,
-                                                  IReadOnlyList<string> settingsPath, string displayName,
+    private static ProviderRowViewModel CreateRow(string                 providerId,   string settingsNs,
+                                                  IReadOnlyList<string>  settingsPath, string displayName,
                                                   SettingsNamespaceView? view)
     {
         var credentialSet = view?.Secrets?.FirstOrDefault(secret => secret.Path.SequenceEqual(
-                                                                           settingsPath.Append("apiKeyEnv")))?.Set;
+                                                           settingsPath.Append("apiKeyEnv")))?.Set;
         return new ProviderRowViewModel(providerId, settingsNs, settingsPath, displayName, credentialSet);
     }
 
@@ -268,7 +262,8 @@ public sealed class ModelsSettingsSectionViewModel : SettingsSectionViewModel
             return;
 
         var entry = _lastDirectory?.FirstOrDefault(candidate =>
-            candidate.SettingsNs == PiAiNs && candidate.Provider == row.ProviderId);
+                                                       candidate.SettingsNs == PiAiNs &&
+                                                       candidate.Provider   == row.ProviderId);
         SwitchEditor(ProviderEditorViewModel.ForEdit(_runner, _catalogService, piAi, row.ProviderId, entry,
                                                      OnEditorSaved));
     }
@@ -294,7 +289,7 @@ public sealed class ModelsSettingsSectionViewModel : SettingsSectionViewModel
     private void SwitchEditor(ProviderEditorViewModel editor)
     {
         editor.TabSwitchRequested += (_, mode) => SwitchAddEditor(mode);
-        editor.Cancelled          += (_, _) =>
+        editor.Cancelled += (_, _) =>
         {
             Editor = null;
             SetEditorOpen(false);
@@ -310,8 +305,8 @@ public sealed class ModelsSettingsSectionViewModel : SettingsSectionViewModel
             !_lastNamespaces.TryGetValue(PiAiNs, out var piAi))
             return [];
 
-        return entries.Where(entry => entry.SettingsNs == PiAiNs                                      &&
-                                      entry.Declared != true                                          &&
+        return entries.Where(entry => entry.SettingsNs == PiAiNs &&
+                                      entry.Declared   != true   &&
                                       (entry.SettingsPath.Count == 0 ||
                                        !SettingsValues.HasPath(piAi.Value, entry.SettingsPath)))
                       .ToList();
@@ -348,8 +343,8 @@ public sealed class ProviderRowViewModel : ObservableObject
 {
     private bool _canEdit;
 
-    public ProviderRowViewModel(string providerId, string settingsNs, IReadOnlyList<string> settingsPath,
-                                string displayName, bool? credentialSet)
+    public ProviderRowViewModel(string providerId,  string settingsNs, IReadOnlyList<string> settingsPath,
+                                string displayName, bool?  credentialSet)
     {
         ProviderId    = providerId;
         SettingsNs    = settingsNs;
@@ -413,11 +408,11 @@ public sealed class DeepSeekModelCardViewModel : ObservableObject
 
     public DeepSeekModelCardViewModel(ISettingsMutationRunner runner, SettingsNamespaceView view)
     {
-        _runner   = runner;
-        _snapshot = view;
-        SaveCommand   = new AsyncRelayCommand(SaveAsync);
-        CancelCommand = new RelayCommand(CancelEdits);
-        AddModelCommand          = new RelayCommand(AddModel);
+        _runner                      = runner;
+        _snapshot                    = view;
+        SaveCommand                  = new AsyncRelayCommand(SaveAsync);
+        CancelCommand                = new RelayCommand(CancelEdits);
+        AddModelCommand              = new RelayCommand(AddModel);
         RestoreDefaultCatalogCommand = new RelayCommand(ToggleRestoreDefaultCatalog);
         ApplySnapshot(view);
     }
@@ -470,11 +465,9 @@ public sealed class DeepSeekModelCardViewModel : ObservableObject
         get => _isSaving;
         private set
         {
-            if (SetProperty(ref _isSaving, value))
-            {
-                OnPropertyChanged(nameof(CanSave));
-                OnPropertyChanged(nameof(SaveButtonText));
-            }
+            if (!SetProperty(ref _isSaving, value)) return;
+            OnPropertyChanged(nameof(CanSave));
+            OnPropertyChanged(nameof(SaveButtonText));
         }
     }
 
@@ -522,16 +515,11 @@ public sealed class DeepSeekModelCardViewModel : ObservableObject
             : DefaultCredentialReference;
 
     /// <summary>模型目录状态：生效值与 base 层同序同值为默认目录，否则视为已自定义。</summary>
-    public bool UsesDefaultCatalog
-    {
-        get
-        {
-            return SettingsValues.TryGetModels(_snapshot.Value) is { } current &&
-                   _snapshot.Base is { } baseSegment                  &&
-                   SettingsValues.TryGetModels(baseSegment) is { } seed &&
-                   JsonElement.DeepEquals(current, seed);
-        }
-    }
+    public bool UsesDefaultCatalog =>
+        SettingsValues.TryGetModels(_snapshot.Value) is { } current &&
+        _snapshot.Base is { } baseSegment                           &&
+        SettingsValues.TryGetModels(baseSegment) is { } seed        &&
+        JsonElement.DeepEquals(current, seed);
 
     public string CatalogStatusText => UsesDefaultCatalog ? "正在使用默认模型目录" : "已自定义模型目录";
 
@@ -559,7 +547,7 @@ public sealed class DeepSeekModelCardViewModel : ObservableObject
                     return "上下文窗口必须是正整数（可带 K/M 后缀）或留空。";
                 if (HasInvalidTokenCount(entry.MaxTokensDraft))
                     return "最大输出 token 数必须是正整数（可带 K/M 后缀）或留空。";
-                if (!entry.IsTextSelected && !entry.IsImageSelected) return "输入类型至少勾选一项。";
+                if (entry is { IsTextSelected: false, IsImageSelected: false }) return "输入类型至少勾选一项。";
             }
 
             return null;
@@ -575,9 +563,9 @@ public sealed class DeepSeekModelCardViewModel : ObservableObject
             if (ApiKeyDraft.Trim().Length > 0 || RestoreDefaultCatalogStaged) return true;
             if (BaseUrlDraft.Trim() != _baselineBaseUrl) return true;
             return SettingsModelArrayBuilder.Build(ModelEntries, "inputModalities") is { } current &&
-                   (_baselineModels.ValueKind != JsonValueKind.Array
-                        ? current.GetArrayLength() > 0
-                        : !JsonElement.DeepEquals(current, _baselineModels));
+                   (_baselineModels.ValueKind     != JsonValueKind.Array
+                       ? current.GetArrayLength() > 0
+                       : !JsonElement.DeepEquals(current, _baselineModels));
         }
     }
 
@@ -589,14 +577,14 @@ public sealed class DeepSeekModelCardViewModel : ObservableObject
         _snapshot         = view;
         _baselineRevision = view.Revision;
         _baselineBaseUrl  = SettingsValues.GetString(view.Value, ["baseURL"]) ?? string.Empty;
-        _baselineModels   = SettingsValues.TryGetModels(view.Value) ?? default;
+        _baselineModels   = SettingsValues.TryGetModels(view.Value)           ?? default;
         _secretSet        = view.Secrets?.FirstOrDefault(secret => secret.Path is ["apiKeyEnv"])?.Set;
 
-        BaseUrlDraft = _baselineBaseUrl;
-        ApiKeyDraft  = string.Empty;
+        BaseUrlDraft                = _baselineBaseUrl;
+        ApiKeyDraft                 = string.Empty;
         RestoreDefaultCatalogStaged = false;
-        SaveError       = null;
-        SaveSuccessText = null;
+        SaveError                   = null;
+        SaveSuccessText             = null;
 
         // 保存/取消重投影时按 ID 保持既有条目的展开状态，避免保存后全部折叠
         // （快照必须在 Clear 之前收集，Clear 后集合已空）。
@@ -605,11 +593,10 @@ public sealed class DeepSeekModelCardViewModel : ObservableObject
                                       .ToHashSet(StringComparer.Ordinal);
         ModelEntries.Clear();
         if (SettingsValues.TryGetModels(view.Value) is { } models)
-            foreach (var node in models.EnumerateArray())
+            foreach (var entry in models.EnumerateArray().Select(node => SettingsModelEntryViewModel.FromJson(node)))
             {
-                var entry = SettingsModelEntryViewModel.FromJson(node);
-                entry.IsExpanded = expandedIds.Contains(entry.IdDraft.Trim());
-                entry.DeleteCommand = new RelayCommand(() => RemoveEntry(entry));
+                entry.IsExpanded      =  expandedIds.Contains(entry.IdDraft.Trim());
+                entry.DeleteCommand   =  new RelayCommand(() => RemoveEntry(entry));
                 entry.PropertyChanged += OnEntryPropertyChanged;
                 ModelEntries.Add(entry);
             }
@@ -646,12 +633,12 @@ public sealed class DeepSeekModelCardViewModel : ObservableObject
         if (!CanSave) return;
 
         var apiKey = ApiKeyDraft.Trim();
-        IsSaving       = true;
-        SaveError      = null;
+        IsSaving        = true;
+        SaveError       = null;
         SaveSuccessText = null;
         try
         {
-            var ops = new List<SettingsMutationOp>();
+            var ops     = new List<SettingsMutationOp>();
             var baseUrl = BaseUrlDraft.Trim();
             if (baseUrl != _baselineBaseUrl)
                 ops.Add(SettingsMutationOp.Set(["baseURL"], JsonElementFactory.FromString(baseUrl)));
@@ -659,9 +646,9 @@ public sealed class DeepSeekModelCardViewModel : ObservableObject
             if (RestoreDefaultCatalogStaged)
                 ops.Add(SettingsMutationOp.Unset(["models"]));
             else if (SettingsModelArrayBuilder.Build(ModelEntries, "inputModalities") is { } current &&
-                     (_baselineModels.ValueKind != JsonValueKind.Array
-                          ? current.GetArrayLength() > 0
-                          : !JsonElement.DeepEquals(current, _baselineModels)))
+                     (_baselineModels.ValueKind     != JsonValueKind.Array
+                         ? current.GetArrayLength() > 0
+                         : !JsonElement.DeepEquals(current, _baselineModels)))
                 ops.Add(SettingsMutationOp.Set(["models"], current));
 
             if (ops.Count > 0)
@@ -705,7 +692,7 @@ public sealed class DeepSeekModelCardViewModel : ObservableObject
         if (!CanEdit) return;
 
         var entry = new SettingsModelEntryViewModel { IsExpanded = true };
-        entry.DeleteCommand = new RelayCommand(() => RemoveEntry(entry));
+        entry.DeleteCommand   =  new RelayCommand(() => RemoveEntry(entry));
         entry.PropertyChanged += OnEntryPropertyChanged;
         ModelEntries.Add(entry);
         SaveError       = null;
@@ -728,8 +715,8 @@ public sealed class DeepSeekModelCardViewModel : ObservableObject
         if (!CanEdit) return;
 
         RestoreDefaultCatalogStaged = !RestoreDefaultCatalogStaged;
-        SaveError       = null;
-        SaveSuccessText = null;
+        SaveError                   = null;
+        SaveSuccessText             = null;
     }
 
     private void OnEntryPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -771,37 +758,37 @@ internal static class SettingsModelArrayBuilder
             foreach (var entry in entries)
             {
                 writer.WriteStartObject();
-                var name         = entry.NameDraft.Trim();
-                var hasContext   = SettingsModelEntryViewModel.TryParsePositiveTokenCount(entry.ContextWindowDraft,
-                                                                                          out var contextWindow);
+                var name = entry.NameDraft.Trim();
+                var hasContext = SettingsModelEntryViewModel.TryParsePositiveTokenCount(entry.ContextWindowDraft,
+                    out var contextWindow);
                 var hasMaxTokens = SettingsModelEntryViewModel.TryParsePositiveTokenCount(entry.MaxTokensDraft,
-                                                                                          out var maxTokens);
+                    out var maxTokens);
                 var wroteModalities = false;
                 if (entry.SourceNode.ValueKind == JsonValueKind.Object)
                     foreach (var property in entry.SourceNode.EnumerateObject())
                     {
                         switch (property.Name)
                         {
-                            case "id":
+                            case "id" :
                                 writer.WriteString("id", entry.IdDraft.Trim());
                                 break;
-                            case "name":
+                            case "name" :
                                 if (name.Length > 0) writer.WriteString("name", name);
                                 break;
-                            case "contextWindow":
+                            case "contextWindow" :
                                 if (hasContext) writer.WriteNumber("contextWindow", contextWindow);
                                 break;
-                            case "maxTokens":
+                            case "maxTokens" :
                                 if (hasMaxTokens) writer.WriteNumber("maxTokens", maxTokens);
                                 break;
-                            case "inputModalities" or "input":
+                            case "inputModalities" or "input" :
                                 WriteModalities(writer, entry, modalityField);
                                 wroteModalities = true;
                                 break;
-                            case "imagePixelBudget" or "imageMaxBytes":
+                            case "imagePixelBudget" or "imageMaxBytes" :
                                 if (entry.IsImageSelected) property.WriteTo(writer);
                                 break;
-                            default:
+                            default :
                                 property.WriteTo(writer);
                                 break;
                         }
@@ -822,8 +809,7 @@ internal static class SettingsModelArrayBuilder
         });
     }
 
-    private static void WriteModalities(System.Text.Json.Utf8JsonWriter writer,
-                                        SettingsModelEntryViewModel entry, string modalityField)
+    private static void WriteModalities(Utf8JsonWriter writer, SettingsModelEntryViewModel entry, string modalityField)
     {
         writer.WriteStartArray(modalityField);
         if (entry.IsTextSelected) writer.WriteStringValue("text");
@@ -843,13 +829,13 @@ internal static class SettingsModelArrayBuilder
 public sealed class SettingsModelEntryViewModel : ObservableObject
 {
     private JsonElement _sourceNode;
-    private string _contextWindowDraft = string.Empty;
-    private string _idDraft            = string.Empty;
-    private string _maxTokensDraft     = string.Empty;
-    private string _nameDraft          = string.Empty;
-    private bool   _isExpanded;
-    private bool   _isTextSelected     = true;
-    private bool   _isImageSelected;
+    private string      _contextWindowDraft = string.Empty;
+    private string      _idDraft            = string.Empty;
+    private string      _maxTokensDraft     = string.Empty;
+    private string      _nameDraft          = string.Empty;
+    private bool        _isExpanded;
+    private bool        _isTextSelected = true;
+    private bool        _isImageSelected;
 
     public SettingsModelEntryViewModel()
     {
@@ -916,8 +902,8 @@ public sealed class SettingsModelEntryViewModel : ObservableObject
             : default;
         return new SettingsModelEntryViewModel
         {
-            _sourceNode        = node.Clone(),
-            IdDraft            = node.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String
+            _sourceNode = node.Clone(),
+            IdDraft = node.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String
                 ? id.GetString() ?? string.Empty
                 : string.Empty,
             NameDraft = node.TryGetProperty("name", out var name) && name.ValueKind == JsonValueKind.String
@@ -937,7 +923,7 @@ public sealed class SettingsModelEntryViewModel : ObservableObject
     private static long? ReadNumber(JsonElement node, string property)
     {
         return node.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.Number
-            && value.TryGetInt64(out var number)
+                                                            && value.TryGetInt64(out var number)
             ? number
             : null;
     }
@@ -963,12 +949,18 @@ public sealed class SettingsModelEntryViewModel : ObservableObject
         long multiplier = 1;
         switch (trimmed[^1])
         {
-            case 'K' or 'k': multiplier = 1_000;     trimmed = trimmed[..^1]; break;
-            case 'M' or 'm': multiplier = 1_000_000; trimmed = trimmed[..^1]; break;
+            case 'K' or 'k' :
+                multiplier = 1_000;
+                trimmed    = trimmed[..^1];
+                break;
+            case 'M' or 'm' :
+                multiplier = 1_000_000;
+                trimmed    = trimmed[..^1];
+                break;
         }
 
         if (!long.TryParse(trimmed, out var number) || number < 0) return false;
-        if (multiplier > 1 && number > long.MaxValue / multiplier) return false;
+        if (multiplier                                        > 1 && number > long.MaxValue / multiplier) return false;
         value = number * multiplier;
         return true;
     }
@@ -980,11 +972,6 @@ public sealed class SettingsModelEntryViewModel : ObservableObject
         return TryParseTokenCount(text, out value) && value > 0;
     }
 
-    private static bool ContainsString(JsonElement array, string value)
-    {
-        foreach (var item in array.EnumerateArray())
-            if (item.ValueKind == JsonValueKind.String && item.GetString() == value)
-                return true;
-        return false;
-    }
+    private static bool ContainsString(JsonElement array, string value) => array.EnumerateArray()
+       .Any(item => item.ValueKind == JsonValueKind.String && item.GetString() == value);
 }

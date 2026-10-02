@@ -14,18 +14,18 @@ namespace DshDesktop.Tests;
 /// </summary>
 public sealed class SettingsPanelViewModelTests
 {
-    private static SettingsPanelViewModel CreatePanel(SimulatedSettingsService?     settings       = null,
-                                                      SimulatedCredentialsService?  credentials    = null,
-                                                      List<string?>?                themeLog       = null,
-                                                      ISettingsService?             service        = null,
-                                                      ISessionService?              sessionService = null,
-                                                      ILlmCatalogService?           catalogService = null)
+    private static SettingsPanelViewModel CreatePanel(SimulatedSettingsService?    settings       = null,
+                                                      SimulatedCredentialsService? credentials    = null,
+                                                      List<string?>?               themeLog       = null,
+                                                      ISettingsService?            service        = null,
+                                                      ISessionService?             sessionService = null,
+                                                      ILlmCatalogService?          catalogService = null)
     {
-        return new SettingsPanelViewModel(service ?? settings ?? new SimulatedSettingsService(),
+        return new SettingsPanelViewModel(service     ?? settings ?? new SimulatedSettingsService(),
                                           credentials ?? new SimulatedCredentialsService(),
                                           preference => themeLog?.Add(preference),
-                                          sessionService: sessionService,
-                                          llmCatalogService: catalogService);
+                                          sessionService : sessionService,
+                                          llmCatalogService : catalogService);
     }
 
     private static async Task WaitUntilAsync(Func<bool> condition, int timeoutMilliseconds = 2000)
@@ -47,8 +47,9 @@ public sealed class SettingsPanelViewModelTests
     }
 
     /// <summary>包装模拟服务并从 describe 结果中过滤指定 ns，模拟后端未提供的命名空间。</summary>
-    private sealed class FilteredSettingsService(ISettingsService inner,
-                                                 params string[] hiddenNamespaces) : ISettingsService
+    private sealed class FilteredSettingsService(
+        ISettingsService inner,
+        params string[]  hiddenNamespaces) : ISettingsService
     {
         public event EventHandler<SettingsDocumentUpdate>? DocumentUpdated
         {
@@ -67,22 +68,22 @@ public sealed class SettingsPanelViewModelTests
             };
         }
 
-        public Task<SettingsNamespaceView> UpdateAsync(string ns, JsonElement patch,
-                                                       long? expectedRevision = null,
+        public Task<SettingsNamespaceView> UpdateAsync(string            ns, JsonElement patch,
+                                                       long?             expectedRevision  = null,
                                                        CancellationToken cancellationToken = default)
         {
             return inner.UpdateAsync(ns, patch, expectedRevision, cancellationToken);
         }
 
-        public Task<SettingsNamespaceView> ReplaceAsync(string ns, JsonElement section,
-                                                        long? expectedRevision = null,
+        public Task<SettingsNamespaceView> ReplaceAsync(string            ns, JsonElement section,
+                                                        long?             expectedRevision  = null,
                                                         CancellationToken cancellationToken = default)
         {
             return inner.ReplaceAsync(ns, section, expectedRevision, cancellationToken);
         }
 
-        public Task<SettingsNamespaceView> MutateAsync(string ns, IReadOnlyList<SettingsMutationOp> ops,
-                                                       long? expectedRevision = null,
+        public Task<SettingsNamespaceView> MutateAsync(string            ns, IReadOnlyList<SettingsMutationOp> ops,
+                                                       long?             expectedRevision  = null,
                                                        CancellationToken cancellationToken = default)
         {
             return inner.MutateAsync(ns, ops, expectedRevision, cancellationToken);
@@ -210,7 +211,7 @@ public sealed class SettingsPanelViewModelTests
                      panel.Plugins.Cards.Select(card => card.Title));
 
         // 网页搜索密钥：凭据查询返回未配置（空凭据服务），圆点为空心灰。
-        var webSearch = panel.Plugins.Cards.Single(card => card.Ns == "web-search-deepseek");
+        var webSearch   = panel.Plugins.Cards.Single(card => card.Ns == "web-search-deepseek");
         var apiKeyField = webSearch.Fields.Single(field => field.Key == "apiKeyEnv");
         Assert.True(apiKeyField.ShowCredentialDot);
         Assert.True(apiKeyField.IsCredentialUnset);
@@ -221,7 +222,7 @@ public sealed class SettingsPanelViewModelTests
     {
         // 行列表：已配置路由按官方排序（DeepSeek → 其余按目录声明序）；账户路由在会话目录
         // 无 deepseek-account 组时隐藏；显式命名 apiKeyEnv 且已配置的行画实心绿点。
-        var panel = CreatePanel(catalogService: new SimulatedLlmCatalogService());
+        var panel = CreatePanel(catalogService : new SimulatedLlmCatalogService());
         await panel.OpenAsync();
 
         Assert.True(panel.IsReady);
@@ -244,13 +245,13 @@ public sealed class SettingsPanelViewModelTests
     public async Task AccountRowRequiresCatalogGroup()
     {
         // 会话目录含非空 deepseek-account 组且命名空间挂载 → 「DeepSeek 账号」行出现（官方覆盖名）。
-        var catalog = new ModelCatalog(
-            new ModelSelection("deepseek", "deepseek-chat"),
-            [new ModelProviderGroup("deepseek-account", "DeepSeek 账号",
-                [new ModelCatalogEntry("deepseek-chat", "DeepSeek Chat")])],
-            []);
-        var panel = CreatePanel(catalogService: new SimulatedLlmCatalogService(),
-                                sessionService: new FixedCatalogSessionService(catalog));
+        var catalog = new ModelCatalog(new ModelSelection("deepseek", "deepseek-chat"),
+        [
+            new ModelProviderGroup("deepseek-account", "DeepSeek 账号",
+                                   [new ModelCatalogEntry("deepseek-chat", "DeepSeek Chat")])
+        ], []);
+        var panel = CreatePanel(catalogService : new SimulatedLlmCatalogService(),
+                                sessionService : new FixedCatalogSessionService(catalog));
         await panel.OpenAsync();
 
         var account = panel.Models.Providers.Single(row => row.ProviderId == "deepseek-account");
@@ -266,9 +267,10 @@ public sealed class SettingsPanelViewModelTests
     public async Task CatalogFailureKeepsRowsFromSettingsFallback()
     {
         // 目录查询失败：面板不进错误态；行从设置文档兜底（DeepSeek 整段路由 + pi-ai 路由）。
-        var panel = CreatePanel(catalogService: new SimulatedLlmCatalogService(),
-                                sessionService: new FixedCatalogSessionService(null,
-                                    failure: new InvalidOperationException("目录查询失败")));
+        var panel = CreatePanel(catalogService : new SimulatedLlmCatalogService(),
+                                sessionService :
+                                new FixedCatalogSessionService(null,
+                                                               failure : new InvalidOperationException("目录查询失败")));
         await panel.OpenAsync();
 
         Assert.True(panel.IsReady);
@@ -293,7 +295,7 @@ public sealed class SettingsPanelViewModelTests
     [Fact]
     public async Task DeepSeekRowEditAndCancelReturnToList()
     {
-        var panel = CreatePanel(catalogService: new SimulatedLlmCatalogService());
+        var panel = CreatePanel(catalogService : new SimulatedLlmCatalogService());
         await panel.OpenAsync();
 
         var row = panel.Models.Providers.Single(candidate => candidate.ProviderId == "deepseek-official");
@@ -318,8 +320,8 @@ public sealed class SettingsPanelViewModelTests
         panel.General.CodeWorkViewRow.IsChecked = true;
 
         var view = DescribeNamespace(settings, "ui-settings");
-        Assert.True(view.User is { } user &&
-                    user.TryGetProperty("enabled", out var flag)                 &&
+        Assert.True(view.User is { } user                        &&
+                    user.TryGetProperty("enabled", out var flag) &&
                     flag.ValueKind == JsonValueKind.True);
         Assert.True(view.Value.GetProperty("enabled").GetBoolean());
         Assert.True(panel.General.CodeWorkViewRow.IsChecked);
@@ -353,7 +355,7 @@ public sealed class SettingsPanelViewModelTests
         var panel    = CreatePanel(settings);
         await panel.OpenAsync();
         var terminal = panel.Plugins.Cards.Single(card => card.Title == "终端");
-        var timeout  = terminal.Fields.Single(field => field.Key == "timeoutMs");
+        var timeout  = terminal.Fields.Single(field => field.Key     == "timeoutMs");
         Assert.Equal("120000", timeout.DraftText);
         Assert.False(terminal.IsDirty);
 
@@ -372,7 +374,7 @@ public sealed class SettingsPanelViewModelTests
         timeout.DraftText = "99000";
         panel.SelectSection(panel.Models);
         panel.SelectSection(panel.Plugins);
-        var terminalAfter = panel.Plugins.Cards.Single(card => card.Title == "终端");
+        var terminalAfter = panel.Plugins.Cards.Single(card => card.Title    == "终端");
         Assert.Equal("30000", terminalAfter.Fields.Single(field => field.Key == "timeoutMs").DraftText);
         Assert.False(terminalAfter.IsDirty);
     }
@@ -384,7 +386,7 @@ public sealed class SettingsPanelViewModelTests
         var panel    = CreatePanel(settings);
         await panel.OpenAsync();
         var terminal = panel.Plugins.Cards.Single(card => card.Title == "终端");
-        var timeout  = terminal.Fields.Single(field => field.Key == "timeoutMs");
+        var timeout  = terminal.Fields.Single(field => field.Key     == "timeoutMs");
         Assert.False(timeout.IsOverridden);
 
         timeout.DraftText = "30000";
@@ -438,8 +440,10 @@ public sealed class SettingsPanelViewModelTests
 
         // 卡片打开期间外部改动推进 revision：保存按打开时的 revision 乐观锁冲突。
         await settings.MutateAsync("llm-deepseek",
-                                   [SettingsMutationOp.Set(["baseURL"],
-                                    JsonElementFactory.FromString("https://elsewhere.example"))]);
+        [
+            SettingsMutationOp.Set(["baseURL"],
+                                   JsonElementFactory.FromString("https://elsewhere.example"))
+        ]);
         card.SaveCommand.Execute(null);
 
         Assert.True(card.HasSaveError);
@@ -533,7 +537,7 @@ public sealed class SettingsPanelViewModelTests
         card.SaveCommand.Execute(null);
 
         saved = DescribeNamespace(settings, "llm-deepseek").Value.GetProperty("models")[1];
-        Assert.Equal(new string?[] { "text", "image" },
+        Assert.Equal(new[] { "text", "image" },
                      saved.GetProperty("inputModalities").EnumerateArray()
                           .Select(value => value.GetString()).ToArray());
     }
@@ -545,7 +549,8 @@ public sealed class SettingsPanelViewModelTests
 
         // 预置一条携带 imageMaxBytes 的目录（上游允许图片模型附带限额）。
         await settings.MutateAsync("llm-deepseek",
-            [SettingsMutationOp.Set(["models"], JsonElementFactory.FromArray(writer =>
+        [
+            SettingsMutationOp.Set(["models"], JsonElementFactory.FromArray(writer =>
             {
                 writer.WriteStartObject();
                 writer.WriteString("id", "deepseek-flash");
@@ -556,7 +561,8 @@ public sealed class SettingsPanelViewModelTests
                 writer.WriteStringValue("image");
                 writer.WriteEndArray();
                 writer.WriteEndObject();
-            }))]);
+            }))
+        ]);
         var panel = CreatePanel(settings);
         await panel.OpenAsync();
 
@@ -568,7 +574,7 @@ public sealed class SettingsPanelViewModelTests
         card.SaveCommand.Execute(null);
 
         var saved = DescribeNamespace(settings, "llm-deepseek").Value.GetProperty("models")[0];
-        Assert.Equal(new string?[] { "text" },
+        Assert.Equal(new[] { "text" },
                      saved.GetProperty("inputModalities").EnumerateArray()
                           .Select(value => value.GetString()).ToArray());
         Assert.False(saved.TryGetProperty("imageMaxBytes", out _));
@@ -616,7 +622,7 @@ public sealed class SettingsPanelViewModelTests
     {
         var themeLog = new List<string?>();
         var settings = new SimulatedSettingsService();
-        var panel    = CreatePanel(settings, themeLog: themeLog);
+        var panel    = CreatePanel(settings, themeLog : themeLog);
         await panel.OpenAsync();
 
         // 打开投影即应用主题（种子 dark），切浅色后回调收到 light 且存储同步。
@@ -632,7 +638,7 @@ public sealed class SettingsPanelViewModelTests
     {
         var settings = new SimulatedSettingsService();
         var filtered = new FilteredSettingsService(settings, "subagent", "ui-conversation");
-        var panel    = CreatePanel(service: filtered);
+        var panel    = CreatePanel(service : filtered);
         await panel.OpenAsync();
 
         Assert.False(panel.General.BusyEnterRow.IsVisible);
@@ -650,8 +656,10 @@ public sealed class SettingsPanelViewModelTests
         Assert.Equal("标准", panel.General.TranscriptViewRow.CurrentLabel);
 
         var view = await settings.MutateAsync("ui-chat",
-                                              [SettingsMutationOp.Set(["transcriptView"],
-                                               JsonElementFactory.FromString("detailed"))]);
+        [
+            SettingsMutationOp.Set(["transcriptView"],
+                                   JsonElementFactory.FromString("detailed"))
+        ]);
         panel.HandleDocumentUpdated(new SettingsDocumentUpdate("ui-chat", view.Revision));
         await WaitUntilAsync(() => panel.General.TranscriptViewRow.CurrentLabel == "详细");
     }
@@ -687,7 +695,7 @@ public sealed class SettingsPanelViewModelTests
     {
         var settings    = new SimulatedSettingsService();
         var credentials = new SimulatedCredentialsService();
-        var panel       = CreatePanel(settings, credentials, catalogService: new SimulatedLlmCatalogService());
+        var panel       = CreatePanel(settings, credentials, catalogService : new SimulatedLlmCatalogService());
         await panel.OpenAsync();
 
         panel.Models.OpenAddCommand.Execute(null);
@@ -712,13 +720,13 @@ public sealed class SettingsPanelViewModelTests
 
         editor.AddModelCommand.Execute(null);
         editor.ModelEntries[0].IdDraft = "acme-large";
-        editor.ApiKeyDraft = "sk-acme";
+        editor.ApiKeyDraft             = "sk-acme";
         Assert.Null(editor.FirstValidationError);
         Assert.True(editor.CanSave);
         editor.SaveCommand.Execute(null);
 
         var profile = DescribeNamespace(settings, "llm-pi-ai").Value.GetProperty("providers")
-                                 .GetProperty("acme-gateway");
+                                                              .GetProperty("acme-gateway");
         Assert.Equal("openai-completions", profile.GetProperty("api").GetString());
         Assert.Equal("https://gateway.example/v1", profile.GetProperty("baseURL").GetString());
         Assert.Equal("ACME_GATEWAY_API_KEY", profile.GetProperty("apiKeyEnv").GetString());
@@ -740,7 +748,7 @@ public sealed class SettingsPanelViewModelTests
     {
         var settings    = new SimulatedSettingsService();
         var credentials = new SimulatedCredentialsService();
-        var panel       = CreatePanel(settings, credentials, catalogService: new SimulatedLlmCatalogService());
+        var panel       = CreatePanel(settings, credentials, catalogService : new SimulatedLlmCatalogService());
         await panel.OpenAsync();
 
         // 第三方 tab：添加下拉仅含未配置的目录厂商（declared 的 glm 不在）。
@@ -756,14 +764,14 @@ public sealed class SettingsPanelViewModelTests
         editor.SaveCommand.Execute(null);
 
         var profile = DescribeNamespace(settings, "llm-pi-ai").Value.GetProperty("providers")
-                                 .GetProperty("mistral");
+                                                              .GetProperty("mistral");
         Assert.Equal("MISTRAL_API_KEY", profile.GetProperty("apiKeyEnv").GetString());
         Assert.False(profile.TryGetProperty("baseURL", out _));
         var statuses = await credentials.DescribeAsync(["MISTRAL_API_KEY"]);
         Assert.True(statuses["MISTRAL_API_KEY"].Configured);
         Assert.True(panel.Models.IsListView);
         Assert.True(panel.Models.Providers.Single(candidate => candidate.ProviderId == "mistral")
-                              .IsCredentialSet);
+                         .IsCredentialSet);
 
         // 无任何字段保存：物化空 profile（收养适配器默认），无显式引用不画圆点。
         panel.Models.OpenAddCommand.Execute(null);
@@ -772,18 +780,18 @@ public sealed class SettingsPanelViewModelTests
         editor.SaveCommand.Execute(null);
 
         var empty = DescribeNamespace(settings, "llm-pi-ai").Value.GetProperty("providers")
-                                .GetProperty("groq");
+                                                            .GetProperty("groq");
         Assert.Equal(JsonValueKind.Object, empty.ValueKind);
         Assert.False(empty.TryGetProperty("apiKeyEnv", out _));
         Assert.False(panel.Models.Providers.Single(candidate => candidate.ProviderId == "groq")
-                            .ShowCredentialDot);
+                          .ShowCredentialDot);
     }
 
     [Fact]
     public async Task EditDeclaredProviderSubmitsFieldLevelDiff()
     {
         var settings = new SimulatedSettingsService();
-        var panel    = CreatePanel(settings, catalogService: new SimulatedLlmCatalogService());
+        var panel    = CreatePanel(settings, catalogService : new SimulatedLlmCatalogService());
         await panel.OpenAsync();
 
         var glmRow = panel.Models.Providers.Single(candidate => candidate.ProviderId == "glm");
@@ -809,7 +817,7 @@ public sealed class SettingsPanelViewModelTests
         Assert.Null(panel.Models.Editor);
         Assert.True(panel.Models.IsListView);
         var profile = DescribeNamespace(settings, "llm-pi-ai").Value.GetProperty("providers")
-                                 .GetProperty("glm");
+                                                              .GetProperty("glm");
         Assert.Equal("https://relay2.example.com/v1", profile.GetProperty("baseURL").GetString());
         Assert.Equal("GLM", profile.GetProperty("displayName").GetString());
         Assert.Equal("GLM_API_KEY", profile.GetProperty("apiKeyEnv").GetString());
@@ -820,7 +828,7 @@ public sealed class SettingsPanelViewModelTests
     public async Task DiscoverFillsDraftEntriesFromCatalogService()
     {
         var settings = new SimulatedSettingsService();
-        var panel    = CreatePanel(settings, catalogService: new SimulatedLlmCatalogService());
+        var panel    = CreatePanel(settings, catalogService : new SimulatedLlmCatalogService());
         await panel.OpenAsync();
 
         panel.Models.OpenAddCommand.Execute(null);
@@ -841,13 +849,13 @@ public sealed class SettingsPanelViewModelTests
         Assert.True(editor.IsDirty);
         // 采纳只改草稿：设置文档中 mistral 路由尚未写入。
         Assert.False(DescribeNamespace(settings, "llm-pi-ai").Value.GetProperty("providers")
-                                .TryGetProperty("mistral", out _));
+                                                             .TryGetProperty("mistral", out _));
     }
 
     [Fact]
     public async Task DiscoverFailureSurfacesInlineError()
     {
-        var panel = CreatePanel(catalogService: new SimulatedLlmCatalogService());
+        var panel = CreatePanel(catalogService : new SimulatedLlmCatalogService());
         await panel.OpenAsync();
 
         // 未知厂商且无端点：模拟服务按上游 DISCOVERY_FAILED 语义拒绝，行内呈现不弹层。

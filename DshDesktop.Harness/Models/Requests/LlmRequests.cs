@@ -7,7 +7,10 @@ public sealed record LlmDiscoverModelsRequest(string SettingsNs, LlmDiscoveryPro
 
 /// <summary>模型探测参数；wire 字段 baseURL 为小写驼峰特例，需显式命名。</summary>
 public sealed record LlmDiscoveryProbeRequest(
-    [property: JsonPropertyName("provider")] string? Provider,
-    [property: JsonPropertyName("baseURL")] string?  BaseUrl,
-    [property: JsonPropertyName("api")] string?      Api,
-    [property: JsonPropertyName("apiKey")] string?   ApiKey);
+    [property : JsonPropertyName("provider")]
+    string? Provider,
+    [property : JsonPropertyName("baseURL")]
+    string? BaseUrl,
+    [property : JsonPropertyName("api")] string? Api,
+    [property : JsonPropertyName("apiKey")]
+    string? ApiKey);

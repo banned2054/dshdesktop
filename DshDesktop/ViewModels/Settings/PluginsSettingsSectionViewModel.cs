@@ -9,17 +9,10 @@ using System.Text.Json;
 namespace DshDesktop.ViewModels.Settings;
 
 /// <summary>内置插件分区：终端 / Agent 循环 / 子代理 / 网页搜索配置卡（暂存式保存）。</summary>
-public sealed class PluginsSettingsSectionViewModel : SettingsSectionViewModel
+public sealed class PluginsSettingsSectionViewModel(ISettingsMutationRunner runner)
+    : SettingsSectionViewModel("plugins", "内置插件", "配置内置插件的行为")
 {
     private const string DefaultCredentialReference = "DEEPSEEK_API_KEY";
-
-    private readonly ISettingsMutationRunner _runner;
-
-    public PluginsSettingsSectionViewModel(ISettingsMutationRunner runner)
-        : base("plugins", "内置插件", "配置内置插件的行为")
-    {
-        _runner = runner;
-    }
 
     public ObservableCollection<PluginCardViewModel> Cards { get; } = [];
 
@@ -32,15 +25,17 @@ public sealed class PluginsSettingsSectionViewModel : SettingsSectionViewModel
         Cards.Clear();
         AddTerminalCard(namespaces);
         AddSimpleCard(namespaces, "agent-loop", "Agent 循环", "Agent 每轮执行时可并行运行的工具调用数量。",
-                      [new PluginFieldViewModel("maxParallelToolCalls", "并行工具调用数",
-                                                PluginFieldKind.PositiveInteger)]);
+        [
+            new PluginFieldViewModel("maxParallelToolCalls", "并行工具调用数",
+                                     PluginFieldKind.PositiveInteger)
+        ]);
         AddSimpleCard(namespaces, "subagent", "子代理", "限制子代理任务的嵌套深度与并发数量。",
-                      [
-                          new PluginFieldViewModel("maxDepth", "最大深度", PluginFieldKind.NonNegativeInteger,
-                                                   "限制子代理可以嵌套的层数"),
-                          new PluginFieldViewModel("maxActiveSubagents", "最大并发子代理",
-                                                   PluginFieldKind.PositiveInteger)
-                      ]);
+        [
+            new PluginFieldViewModel("maxDepth", "最大深度", PluginFieldKind.NonNegativeInteger,
+                                     "限制子代理可以嵌套的层数"),
+            new PluginFieldViewModel("maxActiveSubagents", "最大并发子代理",
+                                     PluginFieldKind.PositiveInteger)
+        ]);
         AddWebSearchCard(namespaces, credentialStatuses);
         OnPropertyChanged(nameof(HasCards));
     }
@@ -73,12 +68,12 @@ public sealed class PluginsSettingsSectionViewModel : SettingsSectionViewModel
     private void AddTerminalCard(IReadOnlyDictionary<string, SettingsNamespaceView> namespaces)
     {
         // Windows 优先 pwsh-sandbox；不存在时回退 bash-sandbox，均无则不渲染该卡。
-        var view = namespaces.TryGetValue("pwsh-sandbox", out var pwsh) ? pwsh
-            : namespaces.TryGetValue("bash-sandbox", out var bash) ? bash
-            : null;
+        var view = namespaces.TryGetValue("pwsh-sandbox", out var pwsh)
+            ? pwsh
+            : namespaces.GetValueOrDefault("bash-sandbox");
         if (view is null) return;
 
-        var card = new PluginCardViewModel(_runner, view.Ns, "终端", "限制内置终端命令的执行时长与输出量。");
+        var card = new PluginCardViewModel(runner, view.Ns, "终端", "限制内置终端命令的执行时长与输出量。");
         card.AddField(new PluginFieldViewModel("timeoutMs", "命令超时（毫秒）", PluginFieldKind.PositiveInteger));
         card.AddField(new PluginFieldViewModel("maxOutputBytes", "单流输出上限（字节）",
                                                PluginFieldKind.PositiveInteger));
@@ -91,7 +86,7 @@ public sealed class PluginsSettingsSectionViewModel : SettingsSectionViewModel
     {
         if (!namespaces.TryGetValue(ns, out var view)) return;
 
-        var card = new PluginCardViewModel(_runner, ns, title, description);
+        var card = new PluginCardViewModel(runner, ns, title, description);
         foreach (var field in fields) card.AddField(field);
         card.ApplyView(view);
         Cards.Add(card);
@@ -105,11 +100,11 @@ public sealed class PluginsSettingsSectionViewModel : SettingsSectionViewModel
         var reference = SettingsValues.GetString(view.Value, ["apiKeyEnv"]) is { Length: > 0 } declared
             ? declared
             : DefaultCredentialReference;
-        var card = new PluginCardViewModel(_runner, view.Ns, "网页搜索", "为内置网页搜索工具配置访问参数。");
+        var card = new PluginCardViewModel(runner, view.Ns, "网页搜索", "为内置网页搜索工具配置访问参数。");
         card.AddField(new PluginFieldViewModel("apiKeyEnv", "API 密钥", PluginFieldKind.Password)
-                      {
-                          CredentialReference = reference
-                      });
+        {
+            CredentialReference = reference
+        });
         card.AddField(new PluginFieldViewModel("baseURL", "接口地址", PluginFieldKind.Text));
         card.AddField(new PluginFieldViewModel("maxUses", "单次请求最多搜索次数", PluginFieldKind.PositiveInteger));
         card.ApplyView(view);
@@ -125,18 +120,19 @@ public sealed class PluginCardViewModel : ObservableObject
 {
     private readonly ISettingsMutationRunner _runner;
     private          SettingsNamespaceView?  _snapshot;
-    private          long                    _baselineRevision;
-    private          bool                    _canEdit = true;
-    private          bool                    _isSaving;
-    private          string?                 _saveError;
-    private          string?                 _saveSuccessText;
+
+    private long    _baselineRevision;
+    private bool    _canEdit = true;
+    private bool    _isSaving;
+    private string? _saveError;
+    private string? _saveSuccessText;
 
     public PluginCardViewModel(ISettingsMutationRunner runner, string ns, string title, string description)
     {
-        _runner = runner;
-        Ns         = ns;
-        Title      = title;
-        Description = description;
+        _runner       = runner;
+        Ns            = ns;
+        Title         = title;
+        Description   = description;
         SaveCommand   = new AsyncRelayCommand(SaveAsync);
         CancelCommand = new RelayCommand(CancelEdits);
     }
@@ -158,11 +154,9 @@ public sealed class PluginCardViewModel : ObservableObject
         get => _canEdit;
         internal set
         {
-            if (SetProperty(ref _canEdit, value))
-            {
-                OnPropertyChanged(nameof(CanSave));
-                foreach (var item in Fields) item.SetCanEdit(value);
-            }
+            if (!SetProperty(ref _canEdit, value)) return;
+            OnPropertyChanged(nameof(CanSave));
+            foreach (var item in Fields) item.SetCanEdit(value);
         }
     }
 
@@ -171,11 +165,9 @@ public sealed class PluginCardViewModel : ObservableObject
         get => _isSaving;
         private set
         {
-            if (SetProperty(ref _isSaving, value))
-            {
-                OnPropertyChanged(nameof(CanSave));
-                OnPropertyChanged(nameof(SaveButtonText));
-            }
+            if (!SetProperty(ref _isSaving, value)) return;
+            OnPropertyChanged(nameof(CanSave));
+            OnPropertyChanged(nameof(SaveButtonText));
         }
     }
 
@@ -243,8 +235,8 @@ public sealed class PluginCardViewModel : ObservableObject
 
         var credentialField = Fields.FirstOrDefault(field => field.Kind == PluginFieldKind.Password && field.IsDirty);
         var credentialValue = credentialField?.DraftText.Trim() ?? string.Empty;
-        IsSaving       = true;
-        SaveError      = null;
+        IsSaving        = true;
+        SaveError       = null;
         SaveSuccessText = null;
         try
         {
@@ -331,21 +323,22 @@ public enum PluginFieldKind
 public sealed class PluginFieldViewModel : ObservableObject
 {
     private readonly long _minValue;
-    private          bool _canEdit = true;
-    private          bool _credentialConfigured;
-    private          bool _credentialDotVisible;
-    private          string _draftText = string.Empty;
-    private          bool _isOverridden;
-    private          bool _isRestoreStaged;
-    private          string _baselineText = string.Empty;
+
+    private bool   _canEdit = true;
+    private bool   _credentialConfigured;
+    private bool   _credentialDotVisible;
+    private string _draftText = string.Empty;
+    private bool   _isOverridden;
+    private bool   _isRestoreStaged;
+    private string _baselineText = string.Empty;
 
     public PluginFieldViewModel(string key, string label, PluginFieldKind kind, string? fieldDescription = null)
     {
-        Key = key;
-        Label = label;
-        Kind = kind;
-        FieldDescription = fieldDescription;
-        _minValue = kind == PluginFieldKind.NonNegativeInteger ? 0 : 1;
+        Key                   = key;
+        Label                 = label;
+        Kind                  = kind;
+        FieldDescription      = fieldDescription;
+        _minValue             = kind == PluginFieldKind.NonNegativeInteger ? 0 : 1;
         RestoreDefaultCommand = new RelayCommand(ToggleRestoreStaged);
     }
 
@@ -428,9 +421,9 @@ public sealed class PluginFieldViewModel : ObservableObject
         get
         {
             if (IsRestoreStaged) return true;
-            return Kind == PluginFieldKind.Password
+            return Kind                   == PluginFieldKind.Password
                 ? DraftText.Trim().Length > 0
-                : DraftText.Trim() != _baselineText;
+                : DraftText.Trim()        != _baselineText;
         }
     }
 
@@ -470,12 +463,9 @@ public sealed class PluginFieldViewModel : ObservableObject
             _ => string.Empty
         };
         _isRestoreStaged = false;
-        if (Kind == PluginFieldKind.Password)
-            DraftText = string.Empty;
-        else
-            DraftText = _baselineText;
+        DraftText        = Kind == PluginFieldKind.Password ? string.Empty : _baselineText;
         IsOverridden = Kind != PluginFieldKind.Password &&
-                       userSegment is { } user &&
+                       userSegment is { } user          &&
                        SettingsValues.HasPath(user, [Key]);
         OnPropertyChanged(nameof(IsOverridden));
         OnPropertyChanged(nameof(IsRestoreStaged));
@@ -486,14 +476,14 @@ public sealed class PluginFieldViewModel : ObservableObject
     internal void UpdateOverrideMark(JsonElement? userSegment)
     {
         IsOverridden = Kind != PluginFieldKind.Password &&
-                       userSegment is { } user &&
+                       userSegment is { } user          &&
                        SettingsValues.HasPath(user, [Key]);
         OnPropertyChanged(nameof(CanRestoreDefault));
     }
 
     internal void ApplyCredentialStatus(bool configured)
     {
-        _credentialConfigured  = configured;
+        _credentialConfigured = configured;
         _credentialDotVisible = true;
         OnPropertyChanged(nameof(ShowCredentialDot));
         OnPropertyChanged(nameof(IsCredentialSet));
@@ -520,7 +510,7 @@ public sealed class PluginFieldViewModel : ObservableObject
             PluginFieldKind.Text => SettingsMutationOp.Set([Key], JsonElementFactory.FromString(normalized)),
             PluginFieldKind.PositiveInteger or PluginFieldKind.NonNegativeInteger
                 when long.TryParse(normalized, NumberStyles.Integer, CultureInfo.InvariantCulture, out var number)
-                    => SettingsMutationOp.Set([Key], JsonElementFactory.FromInt64(number)),
+                => SettingsMutationOp.Set([Key], JsonElementFactory.FromInt64(number)),
             _ => null
         };
     }
@@ -532,12 +522,12 @@ public sealed class PluginFieldViewModel : ObservableObject
         if (IsRestoreStaged)
         {
             IsRestoreStaged = false;
-            DraftText      = _baselineText;
+            DraftText       = _baselineText;
         }
         else
         {
             IsRestoreStaged = true;
-            DraftText      = string.Empty;
+            DraftText       = string.Empty;
         }
     }
 }

@@ -6,17 +6,12 @@ public static class TokenFormat
     /// <summary>紧凑计数：517 / 12.2K / 517K / 1.2M。</summary>
     public static string Compact(long value)
     {
-        if (value < 1_000)
+        return value switch
         {
-            return value.ToString();
-        }
-
-        if (value < 1_000_000)
-        {
-            return $"{Scaled(value / 1_000.0)}K";
-        }
-
-        return $"{Scaled(value / 1_000_000.0)}M";
+            < 1_000     => value.ToString(),
+            < 1_000_000 => $"{Scaled(value / 1_000.0)}K",
+            _           => $"{Scaled(value / 1_000_000.0)}M"
+        };
     }
 
     /// <summary>

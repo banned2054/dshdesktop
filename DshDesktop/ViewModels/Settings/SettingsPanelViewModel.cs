@@ -1,7 +1,6 @@
 using DshDesktop.Core.Exceptions;
 using DshDesktop.Core.Models;
 using DshDesktop.Core.Services;
-using DshDesktop.Utils;
 using System.Text.Json;
 
 namespace DshDesktop.ViewModels.Settings;
@@ -19,54 +18,60 @@ public sealed class SettingsPanelViewModel : ObservableObject, ISettingsMutation
     /// <summary>外部改动防抖窗口：写入回流与真实外部更新合并为一次重投影。</summary>
     private const int ExternalRefreshDelayMilliseconds = 300;
 
-    private readonly Action<string?>          _applyThemePreference;
-    private readonly ICredentialsService?     _credentialsService;
-    private readonly ILlmCatalogService?      _llmCatalogService;
-    private readonly Lock                     _stateSync = new();
-    private readonly ISettingsService         _settingsService;
-    private readonly ISessionService?         _sessionService;
-    private readonly Action<Action>           _postToUi;
+    private readonly Action<string?>      _applyThemePreference;
+    private readonly ICredentialsService? _credentialsService;
+    private readonly ILlmCatalogService?  _llmCatalogService;
+    private readonly Lock                 _stateSync = new();
+    private readonly ISettingsService     _settingsService;
+    private readonly ISessionService?     _sessionService;
+    private readonly Action<Action>       _postToUi;
+
     private readonly Dictionary<string, NamespaceWriteQueue> _queues = [];
 
     private CancellationTokenSource? _refreshDebounce;
     private SettingsDescribeValue?   _describe;
+
     private IReadOnlyDictionary<string, CredentialStatus> _credentialStatuses =
         new Dictionary<string, CredentialStatus>();
-    private IReadOnlyList<LlmConfigurableProvider>? _providerDirectory;
-    private Dictionary<string, long>      _revisions = [];
-    private bool                          _hasError;
-    private bool                          _isLoading = true;
-    private bool                          _isReadOnly;
-    private bool                          _isOpen;
-    private string                        _errorText = string.Empty;
-    private string?                       _openDocumentError;
-    private SettingsSectionViewModel?     _activeSection;
 
-    public SettingsPanelViewModel(ISettingsService settingsService, ICredentialsService? credentialsService,
-                                  Action<string?> applyThemePreference, Action<Action>? postToUi = null,
-                                  ISessionService? sessionService = null,
+    private IReadOnlyList<LlmConfigurableProvider>? _providerDirectory;
+
+    private Dictionary<string, long> _revisions = [];
+
+    private bool    _hasError;
+    private bool    _isLoading = true;
+    private bool    _isReadOnly;
+    private bool    _isOpen;
+    private string  _errorText = string.Empty;
+    private string? _openDocumentError;
+
+    private SettingsSectionViewModel? _activeSection;
+
+    public SettingsPanelViewModel(ISettingsService    settingsService,      ICredentialsService? credentialsService,
+                                  Action<string?>     applyThemePreference, Action<Action>?      postToUi = null,
+                                  ISessionService?    sessionService    = null,
                                   ILlmCatalogService? llmCatalogService = null)
     {
-        _settingsService     = settingsService;
-        _credentialsService = credentialsService;
-        _sessionService     = sessionService;
-        _llmCatalogService  = llmCatalogService;
+        _settingsService      = settingsService;
+        _credentialsService   = credentialsService;
+        _sessionService       = sessionService;
+        _llmCatalogService    = llmCatalogService;
         _applyThemePreference = applyThemePreference;
-        _postToUi            = postToUi ?? (action => action());
-        General              = new GeneralSettingsSectionViewModel();
-        Models               = new ModelsSettingsSectionViewModel(this);
+        _postToUi             = postToUi ?? (action => action());
+        General               = new GeneralSettingsSectionViewModel();
+        Models                = new ModelsSettingsSectionViewModel(this);
         Models.SetCatalogService(llmCatalogService);
-        Plugins              = new PluginsSettingsSectionViewModel(this);
-        Sections             = [General, Models, Plugins];
+        Plugins  = new PluginsSettingsSectionViewModel(this);
+        Sections = [General, Models, Plugins];
         foreach (var row in General.Rows) row.WriteSink = WriteRowAsync;
 
         foreach (var section in Sections) section.SelectCommand = new RelayCommand(() => SelectSection(section));
 
-        _activeSection    = General;
-        General.IsSelected = true;
-        General.IsActive  = true;
-        CloseCommand              = new RelayCommand(RequestClose);
-        RetryCommand              = new AsyncRelayCommand(() => LoadAsync(CancellationToken.None));
+        _activeSection              = General;
+        General.IsSelected          = true;
+        General.IsActive            = true;
+        CloseCommand                = new RelayCommand(RequestClose);
+        RetryCommand                = new AsyncRelayCommand(() => LoadAsync(CancellationToken.None));
         OpenSettingsDocumentCommand = new AsyncRelayCommand(OpenSettingsDocumentAsync);
     }
 
@@ -108,11 +113,9 @@ public sealed class SettingsPanelViewModel : ObservableObject, ISettingsMutation
         get => _isLoading;
         private set
         {
-            if (SetProperty(ref _isLoading, value))
-            {
-                OnPropertyChanged(nameof(IsReady));
-                OnPropertyChanged(nameof(ShowReadOnlyBanner));
-            }
+            if (!SetProperty(ref _isLoading, value)) return;
+            OnPropertyChanged(nameof(IsReady));
+            OnPropertyChanged(nameof(ShowReadOnlyBanner));
         }
     }
 
@@ -121,11 +124,9 @@ public sealed class SettingsPanelViewModel : ObservableObject, ISettingsMutation
         get => _hasError;
         private set
         {
-            if (SetProperty(ref _hasError, value))
-            {
-                OnPropertyChanged(nameof(IsReady));
-                OnPropertyChanged(nameof(ShowReadOnlyBanner));
-            }
+            if (!SetProperty(ref _hasError, value)) return;
+            OnPropertyChanged(nameof(IsReady));
+            OnPropertyChanged(nameof(ShowReadOnlyBanner));
         }
     }
 
@@ -186,7 +187,7 @@ public sealed class SettingsPanelViewModel : ObservableObject, ISettingsMutation
         CancelDebounce();
         var cancellation = new CancellationTokenSource();
         _refreshDebounce = cancellation;
-        _ = DelayedExternalRefreshAsync(cancellation.Token);
+        _                = DelayedExternalRefreshAsync(cancellation.Token);
     }
 
     /// <summary>凭据引用更新转发（由宿主编组调用）：重查面板内全部引用并刷新圆点。</summary>
@@ -201,7 +202,7 @@ public sealed class SettingsPanelViewModel : ObservableObject, ISettingsMutation
         if (ReferenceEquals(ActiveSection, section)) return;
 
         ActiveSection = section;
-        ProjectFromSnapshot(preserveCardDrafts: false);
+        ProjectFromSnapshot(preserveCardDrafts : false);
     }
 
     private async Task LoadAsync(CancellationToken cancellationToken)
@@ -218,7 +219,7 @@ public sealed class SettingsPanelViewModel : ObservableObject, ISettingsMutation
             {
                 AcceptDescribe(describe);
                 IsReadOnly = !describe.Writable;
-                ProjectFromSnapshot(preserveCardDrafts: false);
+                ProjectFromSnapshot(preserveCardDrafts : false);
                 ApplyThemeFromSnapshot();
                 IsLoading = false;
             });
@@ -264,7 +265,7 @@ public sealed class SettingsPanelViewModel : ObservableObject, ISettingsMutation
         {
             var describe = await _settingsService.DescribeAsync();
             AcceptDescribe(describe);
-            _postToUi(() => ProjectFromSnapshot(preserveCardDrafts: true));
+            _postToUi(() => ProjectFromSnapshot(preserveCardDrafts : true));
             _ = RefreshCredentialStatusesAsync();
         }
         catch (Exception)
@@ -317,7 +318,7 @@ public sealed class SettingsPanelViewModel : ObservableObject, ISettingsMutation
                 _describe = _describe with
                 {
                     Namespaces = _describe.Namespaces.Select(candidate => candidate.Ns == view.Ns ? view : candidate)
-                                           .ToArray()
+                                          .ToArray()
                 };
         }
     }
@@ -334,6 +335,7 @@ public sealed class SettingsPanelViewModel : ObservableObject, ISettingsMutation
 
         var map     = describe.Namespaces.ToDictionary(view => view.Ns);
         var canEdit = !IsReadOnly;
+
         foreach (var row in General.Rows) row.CanEdit = canEdit;
 
         General.Project(map);
@@ -426,13 +428,11 @@ public sealed class SettingsPanelViewModel : ObservableObject, ISettingsMutation
 
         var references = new List<string>();
         if (describe is not null)
-            foreach (var view in describe.Namespaces)
-            {
-                if (view.Ns != "web-search-deepseek") continue;
-
-                var reference = SettingsValues.GetString(view.Value, ["apiKeyEnv"]);
-                references.Add(reference is { Length: > 0 } ? reference : "DEEPSEEK_API_KEY");
-            }
+            references.AddRange(from view in describe.Namespaces
+                                where view.Ns == "web-search-deepseek"
+                                select SettingsValues.GetString(view.Value, ["apiKeyEnv"])
+                                into reference
+                                select reference is { Length: > 0 } ? reference : "DEEPSEEK_API_KEY");
 
         return references.Distinct().ToList();
     }
@@ -461,7 +461,7 @@ public sealed class SettingsPanelViewModel : ObservableObject, ISettingsMutation
     {
         if (!_queues.TryGetValue(row.Ns, out var queue))
         {
-            queue = new NamespaceWriteQueue();
+            queue           = new NamespaceWriteQueue();
             _queues[row.Ns] = queue;
         }
 
@@ -473,9 +473,9 @@ public sealed class SettingsPanelViewModel : ObservableObject, ISettingsMutation
     {
         var message = exception switch
         {
-            SettingsConflictException => "这些设置已被其他地方改动，已恢复为最新值。",
+            SettingsConflictException          => "这些设置已被其他地方改动，已恢复为最新值。",
             SettingsRejectedException rejected => rejected.Message,
-            _ => "无法保存设置"
+            _                                  => "无法保存设置"
         };
         try
         {
@@ -483,7 +483,7 @@ public sealed class SettingsPanelViewModel : ObservableObject, ISettingsMutation
             AcceptDescribe(describe);
             _postToUi(() =>
             {
-                ProjectFromSnapshot(preserveCardDrafts: true);
+                ProjectFromSnapshot(preserveCardDrafts : true);
                 row.ErrorText = message;
             });
         }
@@ -493,16 +493,14 @@ public sealed class SettingsPanelViewModel : ObservableObject, ISettingsMutation
         }
     }
 
-    Task<SettingsNamespaceView> ISettingsMutationRunner.MutateAsync(string ns,
-                                                                    IReadOnlyList<SettingsMutationOp> ops,
-                                                                    long expectedRevision)
+    Task<SettingsNamespaceView> ISettingsMutationRunner.MutateAsync(
+        string ns, IReadOnlyList<SettingsMutationOp> ops, long expectedRevision)
     {
         return RunCardMutationAsync(ns, ops, expectedRevision);
     }
 
-    private async Task<SettingsNamespaceView> RunCardMutationAsync(string ns,
-                                                                   IReadOnlyList<SettingsMutationOp> ops,
-                                                                   long expectedRevision)
+    private async Task<SettingsNamespaceView> RunCardMutationAsync(
+        string ns, IReadOnlyList<SettingsMutationOp> ops, long expectedRevision)
     {
         var view = await _settingsService.MutateAsync(ns, ops, expectedRevision);
         AcceptNamespaceView(view);
@@ -523,7 +521,7 @@ public sealed class SettingsPanelViewModel : ObservableObject, ISettingsMutation
 
         public async Task ExecuteAsync()
         {
-            var ns = Row.Ns;
+            var   ns = Row.Ns;
             long? revision;
             lock (panel._stateSync)
             {
@@ -532,8 +530,7 @@ public sealed class SettingsPanelViewModel : ObservableObject, ISettingsMutation
 
             try
             {
-                var view = await panel._settingsService.MutateAsync(ns,
-                                                                    [SettingsMutationOp.Set(Row.Path, value)],
+                var view = await panel._settingsService.MutateAsync(ns, [SettingsMutationOp.Set(Row.Path, value)],
                                                                     revision);
                 panel.AcceptNamespaceView(view);
                 panel._postToUi(() =>
@@ -556,9 +553,9 @@ public sealed class SettingsPanelViewModel : ObservableObject, ISettingsMutation
     /// </summary>
     private sealed class NamespaceWriteQueue
     {
-        private readonly Lock            _sync = new();
+        private readonly Lock                  _sync    = new();
         private readonly List<PendingRowWrite> _pending = [];
-        private          bool            _isPumping;
+        private          bool                  _isPumping;
 
         public void Enqueue(PendingRowWrite write)
         {

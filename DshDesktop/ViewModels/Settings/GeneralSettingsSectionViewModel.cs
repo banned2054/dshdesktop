@@ -10,25 +10,24 @@ public sealed class GeneralSettingsSectionViewModel : SettingsSectionViewModel
     public GeneralSettingsSectionViewModel() : base("general", "通用设置")
     {
         AppearanceRow = new SettingsSegmentRowViewModel("ui-theme", "preference", "外观", "选择应用的界面主题");
-        TranscriptViewRow = new SettingsChoiceRowViewModel(
-            "ui-chat", "transcriptView", "工作步骤展示", "会话中每轮工作的详细程度",
-            [("compact", "简洁"), ("standard", "标准"), ("detailed", "详细"), ("verbose", "完全展开")],
-            ResolveTranscriptLabel);
-        PerformanceUsageRow = new SettingsChoiceRowViewModel(
-            "ui-chat", "performanceUsage", "性能与用量", "性能与 token 用量的展示粒度",
-            [("compact", "简洁"), ("detailed", "详细")], ResolveChoiceLabel);
-        BusyEnterRow = new SettingsChoiceRowViewModel(
-            "ui-conversation", "busyEnter", "繁忙时的发送行为", "Agent 运行中按 Enter 的行为",
-            [("queue", "排队发送"), ("steer", "插话发送")], ResolveChoiceLabel);
-        PermissionRow = new SettingsChoiceRowViewModel(
-            "permission", "defaultPreset", "权限", "选择新会话的默认权限模式", [],
-            ResolvePermissionLabel,
-            // 选中含 "full" 的预设（full-access/fullAccess）须经风险确认卡二次确认。
-            value => value.Contains("full", StringComparison.OrdinalIgnoreCase));
-        CodeWorkViewRow = new SettingsToggleRowViewModel("ui-settings", "enabled", "显示代码工作视图",
-                                                        "开启后，显示轨迹与本轮代码差异", true);
-        SessionLogRow = new SettingsToggleRowViewModel("session-log-deepseek", "enabled",
-                                                       "在使用官方模型 API 时上传会话日志",
+        TranscriptViewRow = new SettingsChoiceRowViewModel("ui-chat", "transcriptView", "工作步骤展示", "会话中每轮工作的详细程度",
+        [
+            ("compact", "简洁"), ("standard", "标准"), ("detailed", "详细"), ("verbose", "完全展开")
+        ], ResolveTranscriptLabel);
+        PerformanceUsageRow = new SettingsChoiceRowViewModel("ui-chat", "performanceUsage", "性能与用量",
+                                                             "性能与 token 用量的展示粒度",
+                                                             [("compact", "简洁"), ("detailed", "详细")],
+                                                             ResolveChoiceLabel);
+        BusyEnterRow = new SettingsChoiceRowViewModel("ui-conversation", "busyEnter", "繁忙时的发送行为",
+                                                      "Agent 运行中按 Enter 的行为", [("queue", "排队发送"), ("steer", "插话发送")],
+                                                      ResolveChoiceLabel);
+        // 选中含 "full" 的预设（full-access/fullAccess）须经风险确认卡二次确认。
+        PermissionRow = new SettingsChoiceRowViewModel("permission", "defaultPreset", "权限", "选择新会话的默认权限模式", [],
+                                                       ResolvePermissionLabel,
+                                                       value =>
+                                                           value.Contains("full", StringComparison.OrdinalIgnoreCase));
+        CodeWorkViewRow = new SettingsToggleRowViewModel("ui-settings", "enabled", "显示代码工作视图", "开启后，显示轨迹与本轮代码差异", true);
+        SessionLogRow = new SettingsToggleRowViewModel("session-log-deepseek", "enabled", "在使用官方模型 API 时上传会话日志",
                                                        "帮助改进 DeepSeek 模型", true);
         VersionRow = new SettingsReadOnlyRowViewModel("当前版本", ResolveInformationalVersion());
         Rows =
@@ -79,8 +78,8 @@ public sealed class GeneralSettingsSectionViewModel : SettingsSectionViewModel
         foreach (var row in Rows) row.IsLast = ReferenceEquals(row, last);
     }
 
-    private static void ProjectRow(SettingsRowViewModel row, string ns,
-                                   IReadOnlyDictionary<string, SettingsNamespaceView> namespaces)
+    private static void ProjectRow(
+        SettingsRowViewModel row, string ns, IReadOnlyDictionary<string, SettingsNamespaceView> namespaces)
     {
         if (namespaces.TryGetValue(ns, out var view))
         {
@@ -101,8 +100,7 @@ public sealed class GeneralSettingsSectionViewModel : SettingsSectionViewModel
             return;
         }
 
-        var options = new List<(string Value, string Label)>();
-        foreach (var choice in choices) options.Add((choice, ResolvePermissionLabel(choice)));
+        var options = choices.Select(choice => (choice, ResolvePermissionLabel(choice))).ToList();
 
         PermissionRow.SetOptions(options);
         PermissionRow.IsVisible = true;
@@ -112,8 +110,8 @@ public sealed class GeneralSettingsSectionViewModel : SettingsSectionViewModel
     /// <summary>schema 根部的 choices 数组（字符串项）；缺失或为空返回 null（该行隐藏）。</summary>
     private static IReadOnlyList<string>? ReadSchemaChoices(JsonElement schema)
     {
-        if (schema.ValueKind != JsonValueKind.Object ||
-            !schema.TryGetProperty("choices", out var choices)                    ||
+        if (schema.ValueKind != JsonValueKind.Object           ||
+            !schema.TryGetProperty("choices", out var choices) ||
             choices.ValueKind != JsonValueKind.Array)
             return null;
 
@@ -130,12 +128,12 @@ public sealed class GeneralSettingsSectionViewModel : SettingsSectionViewModel
     {
         return value switch
         {
-            "compact" => "简洁",
-            "standard" => "标准",
-            "detailed" => "详细",
-            "verbose" => "完全展开",
+            "compact"              => "简洁",
+            "standard"             => "标准",
+            "detailed"             => "详细",
+            "verbose"              => "完全展开",
             "normal" or "expanded" => "详细",
-            _ => value
+            _                      => value
         };
     }
 
@@ -143,11 +141,11 @@ public sealed class GeneralSettingsSectionViewModel : SettingsSectionViewModel
     {
         return value switch
         {
-            "compact" => "简洁",
+            "compact"  => "简洁",
             "detailed" => "详细",
-            "queue" => "排队发送",
-            "steer" => "插话发送",
-            _ => value
+            "queue"    => "排队发送",
+            "steer"    => "插话发送",
+            _          => value
         };
     }
 
@@ -155,11 +153,11 @@ public sealed class GeneralSettingsSectionViewModel : SettingsSectionViewModel
     {
         return value switch
         {
-            "default" => "默认",
-            "read-only" => "仅可查看",
-            "workspace-write" => "工作区内修改",
+            "default"                     => "默认",
+            "read-only"                   => "仅可查看",
+            "workspace-write"             => "工作区内修改",
             "full-access" or "fullAccess" => "完全权限",
-            _ => value
+            _                             => value
         };
     }
 

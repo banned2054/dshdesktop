@@ -20,8 +20,8 @@ public sealed record LlmDiscoveryRequest(
 
 /// <summary>llm/discoverModels 返回条目（host 已按 id 去重，保留端点顺序）。</summary>
 public sealed record LlmDiscoveredModel(
-    string                      Id,
-    string?                     Name            = null,
-    long?                       ContextWindow   = null,
-    long?                       MaxTokens       = null,
-    IReadOnlyList<string>?      InputModalities = null);
+    string                 Id,
+    string?                Name            = null,
+    long?                  ContextWindow   = null,
+    long?                  MaxTokens       = null,
+    IReadOnlyList<string>? InputModalities = null);
