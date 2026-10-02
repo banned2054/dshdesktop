@@ -248,7 +248,9 @@
                                     AutomationProperties.Name="发送首条消息"
                                     ToolTip.Tip="发送">
                                 <Viewbox Width="16" Height="16">
-                                    <Path Data="{StaticResource Icon.ArrowUp}"
+                                    <!-- 同 ComposerView：Path 须显式撑满 24 viewBox 才不偏离圆心。 -->
+                                    <Path Width="24" Height="24"
+                                          Data="{StaticResource Icon.ArrowUp}"
                                           Stroke="{Binding $parent[Button].Foreground}"
                                           StrokeThickness="2" />
                                 </Viewbox>

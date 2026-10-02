@@ -71,7 +71,10 @@
                                 IsVisible="{Binding !Composer.IsSessionRunning}"
                                 ToolTip.Tip="发送">
                             <Viewbox Width="16" Height="16">
-                                <Path Data="{StaticResource Icon.ArrowUp}"
+                                <!-- Path 显式撑满 24 viewBox：无尺寸时期望尺寸取几何 bounds，
+                                     Viewbox 按它缩放会使几何偏离槽中心（图标不在圆心）。 -->
+                                <Path Width="24" Height="24"
+                                      Data="{StaticResource Icon.ArrowUp}"
                                       Stroke="{Binding $parent[Button].Foreground}"
                                       StrokeThickness="2" />
                             </Viewbox>
