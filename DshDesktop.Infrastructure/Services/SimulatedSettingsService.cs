@@ -113,8 +113,43 @@ public sealed class SimulatedSettingsService : ISettingsService
 
     private SettingsNamespaceView ToView(NamespaceState state)
     {
-        return new SettingsNamespaceView(state.Ns, false, state.Schema, DeepMerge(state.Base, state.User),
-                                         "live", state.Revision, state.Base, state.User, state.Secrets);
+        var value = DeepMerge(state.Base, state.User);
+        return new SettingsNamespaceView(state.Ns, false, state.Schema, value,
+                                         "live", state.Revision, state.Base, state.User,
+                                         CollectSecrets(state.Secrets, value));
+    }
+
+    /// <summary>凭据槽位：种子槽位 ∪ 生效值中的 apiKeyEnv 叶子。真实后端按 schema 的
+    /// credential-ref 路径派生并与凭据域联查；模拟环境以「引用名出现在值中即视为槽位已设置」
+    /// 近似（同路径种子槽位优先，保留其显式 set 状态）。</summary>
+    private static IReadOnlyList<SettingsSecretInfo> CollectSecrets(
+        IReadOnlyList<SettingsSecretInfo> seeded, JsonElement value)
+    {
+        List<SettingsSecretInfo> slots = [.. seeded];
+        CollectApiKeyEnvPaths(value, [], slots);
+        return slots;
+    }
+
+    private static void CollectApiKeyEnvPaths(JsonElement node, List<string> path,
+                                              List<SettingsSecretInfo> slots)
+    {
+        if (node.ValueKind != JsonValueKind.Object) return;
+
+        foreach (var property in node.EnumerateObject())
+        {
+            path.Add(property.Name);
+            if (property.Name == "apiKeyEnv" && property.Value.ValueKind == JsonValueKind.String)
+            {
+                var slot = new SettingsSecretInfo([.. path], true);
+                if (!slots.Any(existing => existing.Path.SequenceEqual(slot.Path))) slots.Add(slot);
+            }
+            else
+            {
+                CollectApiKeyEnvPaths(property.Value, path, slots);
+            }
+
+            path.RemoveAt(path.Count - 1);
+        }
     }
 
     private static List<NamespaceState> BuildSeed()
@@ -135,8 +170,17 @@ public sealed class SimulatedSettingsService : ISettingsService
             new("permission", Json("""{"type":"string","choices":["default","full-access"],"default":"default"}"""),
                 Json("""{"defaultPreset":"default"}"""), EmptyObject(), 0, []),
             new("llm-deepseek", Json("""{"type":"object"}"""),
-                Json("""{"baseURL":"https://api.deepseek.com","models":[{"id":"deepseek-chat","name":"DeepSeek Chat","contextWindow":128000,"maxTokens":8192}]}"""),
+                Json("""{"baseURL":"https://api.deepseek.com","models":[{"id":"deepseek-flash","name":"DeepSeek-V41-Flash","contextWindow":1000000,"inputModalities":["text","image"],"systemPromptUpdate":"in-history","toolUpdate":"addition-only"},{"id":"deepseek-v4-pro","name":"DeepSeek-V4-Pro","description":"Stronger agentic coding, knowledge, and difficult reasoning; suited to complex or quality-critical tasks at higher cost.","contextWindow":1000000}]}"""),
                 EmptyObject(), 0, [new SettingsSecretInfo(["apiKeyEnv"], true)]),
+            // 账号登录路由：值恒空（凭据由登录态承载），行可见性由 modelCatalog 的
+            // deepseek-account 组驱动，无 apiKeyEnv 槽位故不画圆点。
+            new("llm-deepseek-account", Json("""{"type":"object"}"""),
+                Json("""{}"""), EmptyObject(), 0, []),
+            // llm-pi-ai 插件命名空间：providers 为声明式路由表；glm 对齐真实 profile patch
+            // 的 declared 路由形态（自声明 api/baseURL/models，密钥引用走凭据域）。
+            new("llm-pi-ai", Json("""{"type":"object"}"""),
+                Json("""{"providers":{"glm":{"displayName":"GLM","api":"openai-completions","baseURL":"https://relay.example.com/v1","apiKeyEnv":"GLM_API_KEY","models":[{"id":"glm-4.7","name":"GLM-4.7","contextWindow":200000,"input":["text","image"]},{"id":"glm-4.7-air","name":"GLM-4.7-Air","contextWindow":128000},{"id":"glm-4.7-flash","name":"GLM-4.7-Flash","contextWindow":128000}]}}}"""),
+                EmptyObject(), 0, [new SettingsSecretInfo(["providers", "glm", "apiKeyEnv"], true)]),
             new("pwsh-sandbox", Json("""{"type":"object"}"""),
                 Json("""{"timeoutMs":120000,"maxOutputBytes":64000}"""), EmptyObject(), 0, []),
             new("agent-loop", Json("""{"type":"object"}"""),
