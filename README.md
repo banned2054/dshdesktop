@@ -49,13 +49,13 @@ Windows is the current development and validation platform. macOS and Linux are 
 - Model selection with reasoning levels filtered by model capabilities, plus token usage, cache-hit rate, and generation-speed statistics.
 - Session permission presets and local draft preselection, with confirmation for full-access or automatic modes and backend projections confirming the active session value.
 - Tool approval prompts with allow-once and reject actions.
-- A settings entry at the right of the sidebar status bar: opens the DSH settings document (materialized by the backend, then launched in the system editor).
+- A settings entry at the right of the sidebar status bar opens a native settings panel (theme preference persists to the backend settings document). The Models section lists configured providers as rounded row cards (credential dot + edit) and adds providers via "+ Add model provider": built-in catalog vendors (API key only, optional custom API URL/model catalog) or custom API routes (provider ID, display name, API URL, protocol, and model catalog required); "Fetch available models" probes the backend model-discovery RPC and merges picks into the draft. The DeepSeek first-party editor (API key, API URL, model catalog with K/M token shorthand) opens from its row. The settings-document open entry is also available in the panel header.
 - Explicit Harness host startup, authentication, shutdown, and child-process cleanup.
 - Compiled XAML bindings, source-generated JSON serialization, and previous Windows x64 Native AOT publishing verification. Recent changes have not all been republished with AOT.
 
 ## 🗺️ Current Limitations
 
-- User-question prompts, attachments, the settings panel, and preference persistence are not implemented (a settings-document open entry exists; the panel UI and preference persistence are still missing). Drafts are retained only within the running application.
+- User-question prompts and attachments are not implemented. Settings cover general preferences, the Models provider management described above, and built-in plugin cards; provider deletion, agent-preset management, and per-field overrides beyond those exposed are not implemented. Drafts are retained only within the running application.
 - Workspace support covers registration, selection, session grouping, renaming, and deletion; session pin, archive, fork, and rename plus workspace pinning are wired up, while unarchive entry and archived filtering are not yet implemented; there is no custom agent-preset catalog.
 - Terminal, file and diff previews, and plugin-management interfaces are not implemented.
 - Reconnect behavior, long-session performance, shortcuts, input methods, and some popup and rich-text interactions still need further GUI or real-backend validation.

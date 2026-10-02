@@ -47,6 +47,8 @@
 | `settings/replace` | `{ns,section,expectedRevision?}`，整段替换该 ns 用户段 | section 为完整替换内容，用户段旧覆盖字段随替换消失；基线层继续在生效值中透出 |
 | `settings/mutate` | `{ns,ops,expectedRevision?}`，path 寻址按序编辑用户段 | ops 为 `{op:'set',path,value}` / `{op:'unset',path}`；ops 解析于服务端现存储段（用户段） |
 | `settings/openSettingsDocument` | `{}`，物化 patch 文档并调系统编辑器 | 返回 `{opened:true}`；形参 signal 为中止信号，本端映射 CancellationToken |
+| `llm/listConfigurableProviders` | `{}`，可配置提供方目录（设置面板模型分区行列表与添加下拉） | 返回条目 `{provider,displayName,settingsNs,settingsPath[],declared?,error?}`；DeepSeek 两条路由 settingsPath=[] 整节、pi-ai 路由恒 `['providers',route]`；declared 表示目录外自声明路由（拥有 displayName/api 字段） |
+| `llm/discoverModels` | `{settingsNs,request:{provider?,baseURL?,api?,apiKey?}}`，探测提供方可用模型（「获取可用模型」按钮） | 返回 `{id,name?,contextWindow?,maxTokens?,inputModalities?}[]`（host 按 id 去重保端点顺序）；apiKey 仅本次使用不存储；无发现注册/参数均空/端点拒绝报 `llm/model-discovery-rejected`（message 原样展示）；`llm/listProviders`（活跃路由 `{id,name}[]`）后端存在但本端未消费——活跃性由设置文档 providers 投影得出 |
 | `credentials/set` | `{ref,value}`，写入凭据值（不可读取回） | ref 语法 `^[A-Za-z_][A-Za-z0-9_]*$`、value 非空；`credential/rejected` 的 message 为 seam 原文，须原样展示 |
 | `credentials/unset` | `{ref}`，移除凭据值 | 同上 |
 | `GET api/changes.summary` | `?sessionId&seq`，读取一轮改动的文件摘要（认证 GET 路由，非 RPC 信封，返回裸 JSON） | 返回 `turn/files/total/added/deleted`；Host 保留 `cwd` 与 snapshot id 不下发；`maxFiles` 截断后 `total` 仍为全量计数；404=内容已不可用（会话销毁或 Host 重启），本端归一为 null 不重试；其余 4xx 为永久性错误按终态异常抛出不重试 |
@@ -55,7 +57,7 @@
 | `permissionPresets/catalog` | `{}`，权限预设目录 | `options[].value/name/description`、`defaultPreset` 及目录变更广播；0.2.0 另返回 `defaultOptions`（本端忽略），AUTO 预设审批策略为 ask（原 never） |
 | `commands/execute` | `{agentId,line:"/permission <preset>",submittedAttachments:[]}`，切换权限 | args 为扁平命名参数；无命令时值缺失；RPC 成功不等于预设已生效，须等待投影 |
 
-消费入口：[会话服务](../DshDesktop.Harness/Services/Sessions/HarnessSessionService.cs)、[工作区服务](../DshDesktop.Harness/Services/Workspaces/HarnessWorkspaceService.cs)、[权限服务](../DshDesktop.Harness/Services/Permissions/HarnessPermissionPresetService.cs)、[设置服务](../DshDesktop.Harness/Services/Settings/HarnessSettingsService.cs)、[凭据服务](../DshDesktop.Harness/Services/Settings/HarnessCredentialService.cs)、[文件改动服务](../DshDesktop.Harness/Services/Changes/HarnessWorkspaceChangesService.cs)、[连接与回执](../DshDesktop.Harness/Services/Connection/HarnessConnection.cs)。
+消费入口：[会话服务](../DshDesktop.Harness/Services/Sessions/HarnessSessionService.cs)、[工作区服务](../DshDesktop.Harness/Services/Workspaces/HarnessWorkspaceService.cs)、[权限服务](../DshDesktop.Harness/Services/Permissions/HarnessPermissionPresetService.cs)、[设置服务](../DshDesktop.Harness/Services/Settings/HarnessSettingsService.cs)、[凭据服务](../DshDesktop.Harness/Services/Settings/HarnessCredentialService.cs)、[llm 目录服务](../DshDesktop.Harness/Services/Llm/HarnessLlmCatalogService.cs)、[文件改动服务](../DshDesktop.Harness/Services/Changes/HarnessWorkspaceChangesService.cs)、[连接与回执](../DshDesktop.Harness/Services/Connection/HarnessConnection.cs)。
 
 `agentPresets/list`、用户问题交互、附件与插件管理不能从后端存在相应能力推定为本端已支持；`workspace/unarchiveSession` 与归档筛选/恢复界面当前未接入（本端归档后行隐藏，恢复入口待后续）。
 
@@ -95,6 +97,8 @@
 | 会话重命名 | 会话菜单「重命名」（官方 order 200）打开输入弹窗（预填当前标题并全选，Enter 确认、Esc/取消/浅失焦关闭）；确认直调 `session/rename`，成功后就地落服务端规范化标题（本地先落投影），列表刷新同值回流幂等对齐；失败留在弹窗内可重试。对齐官方：未变更标题不阻止确认（确认当前自动标题即「钉住」），本地也无重名冲突检查 | `session/rename` 的错误码（`title-invalid/not-found`）与改名持久化事件回流；上游菜单形态变化不自动同步 |
 | 历史 Unknown 空白核实 | 本端调度只读 projections 查询，限并发、合并在途、退避；失败保留可见，已参与会话不被迟到空白结论隐藏 | 上游目录元数据、缓存格式或只读查询语义变化时复查是否仍需补充逻辑 |
 | 时间线和过程折叠 | 本端把消息、思考和工具活动组织为轮次过程，保留最终回复；历史未读全时不提前折叠 | 记录格式、source、轮次与子调用表示变化；上游新增聚合投影时评估复用 |
+| 设置面板模型目录展示 | 模型分区在 DeepSeek 卡后只读展示当前生效模型目录（`session/modelCatalog`，与对话模型菜单同源），按提供方分组含 DeepSeek 与插件提供方（如 `llm-pi-ai/glm`），不做编辑与写入 | 打开面板时查询一次，失败视为无数据；插件提供方（如 `llm-pi-ai`）在 settings 文档中有自身命名空间（ns=插件 entry id，`providers.<route>` 可经 settings/mutate 写入，持久化目标即 profile 的 cordis.patch.yml），面板 v1 展示层未消费该 ns，取数走 session/modelCatalog |
+| 设置面板提供商管理 | 模型分区按官方形态呈现已配置提供方行列表（圆角行卡 + 凭据圆点 + 编辑）、「+ 添加模型提供商」双 tab（第三方目录厂商 / 自定义模型 API）与路由编辑卡。行集合 = llm/listConfigurableProviders 目录 ⊕ 设置文档兜底（目录缺失/失败时 DeepSeek 与 pi-ai 路由仍呈现）；deepseek-account 行仅在 session/modelCatalog 有非空账户组时出现，显示名覆盖「DeepSeek 账号」。凭据圆点取视图 Secrets 中 `[…,apiKeyEnv]` 槽位（无显式命名引用不画点，对齐官方「named apiKeyEnv 才画」规则；官方对未命名路由另有派生 `<ROUTE>_API_KEY` 圆点，本端仅在写入时派生引用名，状态圆点未消费派生引用）。第三方厂商保存 = 最小 profile（apiKeyEnv/baseURL/models 按需，全空时物化 `{}` 收养默认）；自定义路由保存 = 完整 profile（api/baseURL/models≥1 必填）；编辑 = 字段级 diff（未建模字段不动）；密钥一律另走 credentials/set（引用名沿用已命名值否则按路由派生）。模型发现结果仅填草稿行（勾选弹层采纳），不直接写配置 | `llm/listConfigurableProviders`、`llm/discoverModels` 与 `settings/mutate('llm-pi-ai',…)` 的 `['providers',route]` 路径语义；上游 pi-ai 内置厂商目录变化自然经 RPC 透出；路由 id 正则（`^[a-z][a-z0-9]*(-[a-z0-9]+)*$`）与 api 协议枚举（openai-completions/openai-responses/anthropic-messages）为本端镜像，上游收窄时需同步 |
 
 主要消费方：[MainWindowViewModel](../DshDesktop/ViewModels/MainWindowViewModel.cs)、[ComposerViewModel](../DshDesktop/ViewModels/ComposerViewModel.cs)、[PermissionSelectorViewModel](../DshDesktop/ViewModels/PermissionSelectorViewModel.cs)、[SidebarViewModel](../DshDesktop/ViewModels/SidebarViewModel.cs)、[SessionBlankVerifier](../DshDesktop.Harness/Services/Sessions/SessionBlankVerifier.cs)。
 
