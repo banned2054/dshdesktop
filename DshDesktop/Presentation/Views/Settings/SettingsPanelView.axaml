@@ -379,21 +379,6 @@
                                                     </Grid>
                                                 </Border>
                                             </DataTemplate>
-
-                                            <DataTemplate x:DataType="vm:SettingsReadOnlyRowViewModel">
-                                                <Border Classes="settings-row" Classes.last="{Binding IsLast}"
-                                                        IsVisible="{Binding IsVisible}">
-                                                    <Grid ColumnDefinitions="*,Auto" MinHeight="56">
-                                                        <TextBlock Grid.Column="0" Text="{Binding Title}"
-                                                                   Margin="0,0,48,0" FontSize="14"
-                                                                   VerticalAlignment="Center"
-                                                                   Foreground="{DynamicResource PopupForegroundBrush}" />
-                                                        <TextBlock Grid.Column="1" Text="{Binding Value}" FontSize="13"
-                                                                   VerticalAlignment="Center"
-                                                                   Foreground="{DynamicResource PopupMutedForegroundBrush}" />
-                                                    </Grid>
-                                                </Border>
-                                            </DataTemplate>
                                         </ItemsControl.DataTemplates>
                                     </ItemsControl>
                                 </StackPanel>

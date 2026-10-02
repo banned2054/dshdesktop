@@ -178,7 +178,7 @@ public sealed class SettingsPanelViewModelTests
     }
 
     [Fact]
-    public async Task OpenProjectsSectionsRowsAndVersion()
+    public async Task OpenProjectsSectionsRows()
     {
         var panel = CreatePanel();
         await panel.OpenAsync();
@@ -199,7 +199,6 @@ public sealed class SettingsPanelViewModelTests
         Assert.Equal("默认", general.PermissionRow.CurrentLabel);
         Assert.False(general.CodeWorkViewRow.IsChecked);
         Assert.True(general.SessionLogRow.IsChecked);
-        Assert.NotEmpty(general.VersionRow.Value);
 
         // 模型卡与插件卡。
         Assert.True(panel.Models.HasCard);

@@ -326,16 +326,6 @@ public sealed class SettingsToggleRowViewModel(
     }
 }
 
-/// <summary>只读展示行（当前版本等）：不参与写入。</summary>
-public sealed class SettingsReadOnlyRowViewModel(string title, string value) : SettingsRowViewModel("", [], title)
-{
-    public string Value { get; } = value;
-
-    internal override void ApplyView(SettingsNamespaceView view)
-    {
-    }
-}
-
 /// <summary>命名空间视图中的标量读取辅助：按路径逐层取值，类型不符返回 null。</summary>
 public static class SettingsValues
 {

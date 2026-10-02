@@ -12,6 +12,9 @@ public sealed record DesktopBackendConfiguration
 
     public NodeHostOptions? Options { get; init; }
 
+    /// <summary>真实后端的 DSH 包版本（node_modules/@deepseek-ai/dsh 的 package.json）；读取失败为 null。</summary>
+    public string? BackendVersion { get; init; }
+
     /// <summary>创建会话后自动选用的模型（provider/model）；来自 DSH_DESKTOP_MODEL。</summary>
     public (string Provider, string Model)? PreferredModel { get; init; }
 
@@ -73,8 +76,31 @@ public sealed record DesktopBackendConfiguration
         {
             UseRealBackend = true,
             Options        = options,
+            BackendVersion = TryResolveBackendVersion(runtimeDir),
             PreferredModel = ParsePreferredModel(Environment.GetEnvironmentVariable("DSH_DESKTOP_MODEL")),
         };
+    }
+
+    /// <summary>读 runtime 目录内 dsh 包版本；文件缺失或解析失败返回 null（调用方回退处理）。</summary>
+    internal static string? TryResolveBackendVersion(string runtimeDir)
+    {
+        try
+        {
+            var manifestPath = Path.Combine(runtimeDir, "node_modules", "@deepseek-ai", "dsh", "package.json");
+            if (!File.Exists(manifestPath)) return null;
+
+            using var document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(manifestPath));
+            var version = document.RootElement.TryGetProperty("version", out var value) &&
+                          value.ValueKind == System.Text.Json.JsonValueKind.String
+                ? value.GetString()
+                : null;
+            return string.IsNullOrWhiteSpace(version) ? null : version.Trim();
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or
+                                                                       System.Text.Json.JsonException)
+        {
+            return null;
+        }
     }
 
     /// <summary>正式 dsh 的共享 home：优先 DSH_HOME，其次 ~/.dsh；不存在目录时返回占位路径。</summary>

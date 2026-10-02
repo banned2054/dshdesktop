@@ -1,10 +1,9 @@
 using DshDesktop.Core.Models;
-using System.Reflection;
 using System.Text.Json;
 
 namespace DshDesktop.ViewModels.Settings;
 
-/// <summary>通用设置分区：外观/展示行为/权限/开关等即时写行与版本只读行。</summary>
+/// <summary>通用设置分区：外观/展示行为/权限/开关等即时写行。</summary>
 public sealed class GeneralSettingsSectionViewModel : SettingsSectionViewModel
 {
     public GeneralSettingsSectionViewModel() : base("general", "通用设置")
@@ -29,11 +28,10 @@ public sealed class GeneralSettingsSectionViewModel : SettingsSectionViewModel
         CodeWorkViewRow = new SettingsToggleRowViewModel("ui-settings", "enabled", "显示代码工作视图", "开启后，显示轨迹与本轮代码差异", true);
         SessionLogRow = new SettingsToggleRowViewModel("session-log-deepseek", "enabled", "在使用官方模型 API 时上传会话日志",
                                                        "帮助改进 DeepSeek 模型", true);
-        VersionRow = new SettingsReadOnlyRowViewModel("当前版本", ResolveInformationalVersion());
         Rows =
         [
             AppearanceRow, TranscriptViewRow, PerformanceUsageRow, BusyEnterRow, PermissionRow, CodeWorkViewRow,
-            SessionLogRow, VersionRow
+            SessionLogRow
         ];
     }
 
@@ -51,8 +49,6 @@ public sealed class GeneralSettingsSectionViewModel : SettingsSectionViewModel
 
     public SettingsToggleRowViewModel SessionLogRow { get; }
 
-    public SettingsReadOnlyRowViewModel VersionRow { get; }
-
     public IReadOnlyList<SettingsRowViewModel> Rows { get; }
 
     /// <summary>按 describe 快照投影：ns 缺失隐藏对应行；权限行候选取自 schema.choices。</summary>
@@ -65,7 +61,6 @@ public sealed class GeneralSettingsSectionViewModel : SettingsSectionViewModel
         ProjectPermissionRow(namespaces);
         ProjectRow(CodeWorkViewRow, "ui-settings", namespaces);
         ProjectRow(SessionLogRow, "session-log-deepseek", namespaces);
-        VersionRow.IsVisible = true;
 
         // 错误随重投影清除；末行分隔线按可见行序计算（隐藏行不参与）。
         SettingsRowViewModel? last = null;
@@ -159,16 +154,5 @@ public sealed class GeneralSettingsSectionViewModel : SettingsSectionViewModel
             "full-access" or "fullAccess" => "完全权限",
             _                             => value
         };
-    }
-
-    /// <summary>程序集 InformationalVersion（缺失回退 Version）；根程序集元数据在 AOT 下保留。</summary>
-    private static string ResolveInformationalVersion()
-    {
-        var assembly = typeof(GeneralSettingsSectionViewModel).Assembly;
-        var informational = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()
-                                   ?.InformationalVersion;
-        if (!string.IsNullOrWhiteSpace(informational)) return informational;
-
-        return assembly.GetName().Version?.ToString() ?? "未知";
     }
 }

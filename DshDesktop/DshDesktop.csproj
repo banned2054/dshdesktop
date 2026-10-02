@@ -20,6 +20,7 @@
 	<ItemGroup>
 		<!-- 应用图标：ico 供 exe/窗口图标，png 供侧栏头部等界面内显示。 -->
 		<AvaloniaResource Include="Assets\**" />
+		<InternalsVisibleTo Include="DshDesktop.Tests" />
 	</ItemGroup>
 
 	<ItemGroup>
