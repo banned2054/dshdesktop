@@ -35,7 +35,10 @@ public sealed class ModelsSettingsSectionViewModel : SettingsSectionViewModel
     private DeepSeekModelCardViewModel? _card;
     private ProviderEditorViewModel?    _editor;
 
-    private bool _editorOpen;
+    /// <summary>行内展开的行（providerId）；官方语义：编辑卡渲染在行头下方，一次一卡。</summary>
+    private string? _editingRowId;
+
+    private bool _addOpen;
     private bool _canEdit = true;
     private bool _canAdd;
 
@@ -64,46 +67,31 @@ public sealed class ModelsSettingsSectionViewModel : SettingsSectionViewModel
         private set => SetProperty(ref _canAdd, value);
     }
 
-    /// <summary>内容区视图：列表（行卡 + 添加入口）或编辑器（添加卡 / DeepSeek 编辑卡）。</summary>
-    public bool IsListView => !_editorOpen;
+    /// <summary>添加卡展开态（列表底部「+ 添加」按钮位展开，官方同构）；
+    /// 与行编辑互斥，一次一卡。</summary>
+    public bool IsAddOpen
+    {
+        get => _addOpen;
+        private set => SetProperty(ref _addOpen, value);
+    }
 
-    public bool IsEditorOpen => _editorOpen;
-
-    public bool IsEditingDeepSeek => _editorOpen && Card is not null;
-
-    public bool IsEditingProvider => _editorOpen && Editor is not null;
-
-    /// <summary>DeepSeek 官方编辑器；ns 不存在时为 null。常驻投影，编辑态由 IsEditingDeepSeek 驱动。</summary>
+    /// <summary>DeepSeek 官方编辑器；ns 不存在时为 null。常驻投影，展开时挂到 deepseek 行。</summary>
     public DeepSeekModelCardViewModel? Card
     {
         get => _card;
-        private set
-        {
-            if (!SetProperty(ref _card, value)) return;
-            OnPropertyChanged(nameof(HasCard));
-            OnPropertyChanged(nameof(IsEditingDeepSeek));
-        }
+        private set => SetProperty(ref _card, value);
     }
 
-    public bool HasCard => Card is not null;
-
-    /// <summary>pi-ai 路由的添加/编辑卡；仅编辑态非空（视图切换即丢弃）。</summary>
+    /// <summary>pi-ai 路由的添加/编辑卡；展开时挂到对应行或列表底部添加位。</summary>
     public ProviderEditorViewModel? Editor
     {
         get => _editor;
-        private set
-        {
-            if (!SetProperty(ref _editor, value)) return;
-            OnPropertyChanged(nameof(HasEditor));
-            OnPropertyChanged(nameof(IsEditingProvider));
-        }
+        private set => SetProperty(ref _editor, value);
     }
-
-    public bool HasEditor => Editor is not null;
 
     public RelayCommand OpenAddCommand { get; }
 
-    /// <summary>全量投影：重建 DeepSeek 卡与行集合；编辑器丢弃回列表（打开面板/切换分区/外部全量刷新）。
+    /// <summary>全量投影：重建 DeepSeek 卡与行集合；展开态（行编辑/添加卡）丢弃（打开面板/切换分区/外部全量刷新）。
     /// 账户行可见性（accountAvailable）由 <see cref="SetCatalog" /> 随会话目录异步刷新。</summary>
     internal void Project(IReadOnlyDictionary<string, SettingsNamespaceView> namespaces,
                           IReadOnlyList<LlmConfigurableProvider>?            directory)
@@ -118,8 +106,9 @@ public sealed class ModelsSettingsSectionViewModel : SettingsSectionViewModel
             Card.CanEdit      =  _canEdit;
         }
 
-        Editor = null;
-        SetEditorOpen(false);
+        Editor        = null;
+        _editingRowId = null;
+        IsAddOpen     = false;
         RebuildRows();
     }
 
@@ -150,7 +139,8 @@ public sealed class ModelsSettingsSectionViewModel : SettingsSectionViewModel
 
     private void OnCardEditFinished(object? sender, EventArgs e)
     {
-        SetEditorOpen(false);
+        _editingRowId = null;
+        SyncRowEditors();
     }
 
     /// <summary>行集合：目录条目中已配置者（整段路由=ns 挂载；pi-ai 路由=profile 存在）按官方排序
@@ -196,6 +186,7 @@ public sealed class ModelsSettingsSectionViewModel : SettingsSectionViewModel
         }
 
         CanAdd = map.ContainsKey(PiAiNs);
+        SyncRowEditors();
         OnPropertyChanged(nameof(HasProviders));
     }
 
@@ -251,9 +242,14 @@ public sealed class ModelsSettingsSectionViewModel : SettingsSectionViewModel
     {
         if (!_canEdit || !row.CanEdit) return;
 
+        // 官方语义：同一点击收起已展开的行；一次一卡——打开任一卡先收起另一卡。
+        if (CloseExpandedRow(row)) return;
+
         if (row.SettingsNs == DeepSeekNs)
         {
-            SetEditorOpen(true);
+            CloseAddCard();
+            _editingRowId = row.ProviderId;
+            SyncRowEditors();
             return;
         }
 
@@ -264,17 +260,37 @@ public sealed class ModelsSettingsSectionViewModel : SettingsSectionViewModel
         var entry = _lastDirectory?.FirstOrDefault(candidate =>
                                                        candidate.SettingsNs == PiAiNs &&
                                                        candidate.Provider   == row.ProviderId);
-        SwitchEditor(ProviderEditorViewModel.ForEdit(_runner, _catalogService, piAi, row.ProviderId, entry,
+        CloseAddCard();
+        _editingRowId = row.ProviderId;
+        AttachEditor(ProviderEditorViewModel.ForEdit(_runner, _catalogService, piAi, row.ProviderId, entry,
                                                      OnEditorSaved));
+        SyncRowEditors();
     }
 
-    /// <summary>编辑器完成回调：携带写后视图刷新行缓存并回列表。</summary>
+    /// <summary>该行已展开时收起它（编辑卡随行折叠丢弃草稿）；返回是否已收起。</summary>
+    private bool CloseExpandedRow(ProviderRowViewModel row)
+    {
+        if (_addOpen || row.ProviderId != _editingRowId) return false;
+
+        _editingRowId = null;
+        Editor        = null;
+        SyncRowEditors();
+        return true;
+    }
+
+    private void CloseAddCard()
+    {
+        Editor    = null;
+        IsAddOpen = false;
+    }
+
+    /// <summary>编辑器保存完成回调：携带写后视图刷新行缓存并收起展开位。</summary>
     private void OnEditorSaved(SettingsNamespaceView view)
     {
         _lastNamespaces = ReplaceNamespace(_lastNamespaces, view);
+        _editingRowId   = null;
+        CloseAddCard();
         RebuildRows();
-        Editor = null;
-        SetEditorOpen(false);
     }
 
     /// <summary>添加卡目录/自定义 tab 切换：丢弃当前表单重建目标模式的编辑器。</summary>
@@ -282,20 +298,38 @@ public sealed class ModelsSettingsSectionViewModel : SettingsSectionViewModel
     {
         if (!_lastNamespaces.TryGetValue(PiAiNs, out var piAi)) return;
 
-        SwitchEditor(ProviderEditorViewModel.ForCreate(_runner, _catalogService, piAi, mode,
+        _editingRowId = null;
+        AttachEditor(ProviderEditorViewModel.ForCreate(_runner, _catalogService, piAi, mode,
                                                        CollectAddable(), OnEditorSaved));
+        IsAddOpen = true;
+        SyncRowEditors();
     }
 
-    private void SwitchEditor(ProviderEditorViewModel editor)
+    private void AttachEditor(ProviderEditorViewModel editor)
     {
         editor.TabSwitchRequested += (_, mode) => SwitchAddEditor(mode);
-        editor.Cancelled += (_, _) =>
-        {
-            Editor = null;
-            SetEditorOpen(false);
-        };
+        editor.Cancelled += OnEditorCancelled;
         Editor = editor;
-        SetEditorOpen(true);
+    }
+
+    /// <summary>取消（添加卡与行编辑卡共用）：一次只有一张卡，统一收起。</summary>
+    private void OnEditorCancelled(object? sender, EventArgs e)
+    {
+        _editingRowId = null;
+        CloseAddCard();
+        SyncRowEditors();
+    }
+
+    /// <summary>把当前展开态同步到行（行内编辑卡挂接 + 行头状态）；行集合重建后调用恢复。</summary>
+    private void SyncRowEditors()
+    {
+        foreach (var row in Providers)
+        {
+            var editing = !_addOpen && row.ProviderId == _editingRowId;
+            row.IsEditing    = editing;
+            row.DeepSeekCard = editing && row.SettingsNs == DeepSeekNs ? Card : null;
+            row.ProviderCard = editing && row.SettingsNs == PiAiNs     ? Editor : null;
+        }
     }
 
     /// <summary>添加下拉候选：目录中 llm-pi-ai 命名空间挂载、未配置且非 declared 的条目。</summary>
@@ -319,16 +353,6 @@ public sealed class ModelsSettingsSectionViewModel : SettingsSectionViewModel
         return map;
     }
 
-    private void SetEditorOpen(bool value)
-    {
-        if (!SetProperty(ref _editorOpen, value)) return;
-
-        OnPropertyChanged(nameof(IsListView));
-        OnPropertyChanged(nameof(IsEditorOpen));
-        OnPropertyChanged(nameof(IsEditingDeepSeek));
-        OnPropertyChanged(nameof(IsEditingProvider));
-    }
-
     /// <summary>目录服务由面板壳注入（测试环境可为 null，此时「获取可用模型」不可用）。</summary>
     private ILlmCatalogService? _catalogService;
 
@@ -338,10 +362,14 @@ public sealed class ModelsSettingsSectionViewModel : SettingsSectionViewModel
     }
 }
 
-/// <summary>模型分区的一行提供方：圆角行卡（名称 + 凭据圆点 + 编辑按钮）。</summary>
+/// <summary>模型分区的一行提供方：圆角行卡（名称 + 凭据圆点 + 编辑按钮）；
+/// 编辑时行内展开对应编辑卡（官方同构，列表不整页切换）。</summary>
 public sealed class ProviderRowViewModel : ObservableObject
 {
-    private bool _canEdit;
+    private bool                          _canEdit;
+    private bool                          _isEditing;
+    private DeepSeekModelCardViewModel?   _deepSeekCard;
+    private ProviderEditorViewModel?      _providerCard;
 
     public ProviderRowViewModel(string providerId,  string settingsNs, IReadOnlyList<string> settingsPath,
                                 string displayName, bool?  credentialSet)
@@ -379,6 +407,37 @@ public sealed class ProviderRowViewModel : ObservableObject
 
     /// <summary>行编辑请求（由分区订阅编排编辑器打开）。</summary>
     public event EventHandler? EditRequested;
+
+    /// <summary>该行编辑卡展开态（由分区同步；一次只有一行展开）。</summary>
+    public bool IsEditing
+    {
+        get => _isEditing;
+        internal set => SetProperty(ref _isEditing, value);
+    }
+
+    /// <summary>deepseek 行展开的编辑卡（= 分区常驻投影 Card）。</summary>
+    public DeepSeekModelCardViewModel? DeepSeekCard
+    {
+        get => _deepSeekCard;
+        internal set
+        {
+            if (SetProperty(ref _deepSeekCard, value)) OnPropertyChanged(nameof(HasDeepSeekCard));
+        }
+    }
+
+    public bool HasDeepSeekCard => DeepSeekCard is not null;
+
+    /// <summary>pi-ai 路由行展开的编辑卡。</summary>
+    public ProviderEditorViewModel? ProviderCard
+    {
+        get => _providerCard;
+        internal set
+        {
+            if (SetProperty(ref _providerCard, value)) OnPropertyChanged(nameof(HasProviderCard));
+        }
+    }
+
+    public bool HasProviderCard => ProviderCard is not null;
 
     public bool CanEdit
     {
@@ -532,7 +591,8 @@ public sealed class DeepSeekModelCardViewModel : ObservableObject
         }
     }
 
-    /// <summary>校验错误（首个）：ID 必填且去重、数字字段为正整数（可带 K/M 后缀）或空、输入类型至少一项。</summary>
+    /// <summary>校验错误（首个）：ID 必填且去重、数字字段为正整数（可带 K/M 后缀）或空。
+    /// 输入类型无「至少一项」校验（官方同构：空选择 = 写空数组继承缺省）。</summary>
     public string? FirstValidationError
     {
         get
@@ -547,7 +607,6 @@ public sealed class DeepSeekModelCardViewModel : ObservableObject
                     return "上下文窗口必须是正整数（可带 K/M 后缀）或留空。";
                 if (HasInvalidTokenCount(entry.MaxTokensDraft))
                     return "最大输出 token 数必须是正整数（可带 K/M 后缀）或留空。";
-                if (entry is { IsTextSelected: false, IsImageSelected: false }) return "输入类型至少勾选一项。";
             }
 
             return null;
@@ -896,8 +955,11 @@ public sealed class SettingsModelEntryViewModel : ObservableObject
 
     internal static SettingsModelEntryViewModel FromJson(JsonElement node, string modalityField = "inputModalities")
     {
+        // 空数组视同未声明（官方 ModelInputTypes 同构：absent or empty 继承缺省勾 text），
+        // 否则合并层把「无 input」规范成空数组后打开编辑即报「至少勾选一项」。
         var modalities = node.TryGetProperty(modalityField, out var input) &&
-                         input.ValueKind == JsonValueKind.Array
+                         input.ValueKind == JsonValueKind.Array &&
+                         input.GetArrayLength() > 0
             ? input
             : default;
         return new SettingsModelEntryViewModel

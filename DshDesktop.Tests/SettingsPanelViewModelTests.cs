@@ -201,7 +201,7 @@ public sealed class SettingsPanelViewModelTests
         Assert.True(general.SessionLogRow.IsChecked);
 
         // 模型卡与插件卡。
-        Assert.True(panel.Models.HasCard);
+        Assert.NotNull(panel.Models.Card);
         Assert.Equal("DeepSeek", panel.Models.Card!.Title);
         Assert.True(panel.Models.Card.IsCredentialSet);
         Assert.Equal("https://api.deepseek.com", panel.Models.Card.BaseUrlDraft);
@@ -225,7 +225,6 @@ public sealed class SettingsPanelViewModelTests
         await panel.OpenAsync();
 
         Assert.True(panel.IsReady);
-        Assert.True(panel.Models.IsListView);
         var rows = panel.Models.Providers;
         Assert.Equal(["deepseek-official", "glm"], rows.Select(row => row.ProviderId).ToArray());
         Assert.Equal(["DeepSeek", "GLM"], rows.Select(row => row.DisplayName).ToArray());
@@ -235,9 +234,10 @@ public sealed class SettingsPanelViewModelTests
         Assert.Empty(rows[0].SettingsPath);
         Assert.Equal(["providers", "glm"], rows[1].SettingsPath);
         Assert.Equal("llm-pi-ai", rows[1].SettingsNs);
-        // llm-pi-ai 命名空间挂载 → 可添加；编辑态默认关闭。
+        // llm-pi-ai 命名空间挂载 → 可添加；展开态默认关闭（无行编辑、无添加卡）。
         Assert.True(panel.Models.CanAdd);
-        Assert.False(panel.Models.IsEditorOpen);
+        Assert.False(panel.Models.IsAddOpen);
+        Assert.All(rows, row => Assert.False(row.IsEditing));
     }
 
     [Fact]
@@ -292,20 +292,78 @@ public sealed class SettingsPanelViewModelTests
     }
 
     [Fact]
-    public async Task DeepSeekRowEditAndCancelReturnToList()
+    public async Task DeepSeekRowEditExpandsInlineAndCancelCollapses()
     {
         var panel = CreatePanel(catalogService : new SimulatedLlmCatalogService());
         await panel.OpenAsync();
 
         var row = panel.Models.Providers.Single(candidate => candidate.ProviderId == "deepseek-official");
         row.EditCommand.Execute(null);
-        Assert.True(panel.Models.IsEditingDeepSeek);
-        Assert.False(panel.Models.IsListView);
-        Assert.True(panel.Models.HasCard);
+        Assert.True(row.IsEditing);
+        Assert.True(row.HasDeepSeekCard);
+        Assert.Same(panel.Models.Card, row.DeepSeekCard);
 
         panel.Models.Card!.CancelCommand.Execute(null);
-        Assert.True(panel.Models.IsListView);
-        Assert.False(panel.Models.IsEditingDeepSeek);
+        Assert.False(row.IsEditing);
+        Assert.Null(row.DeepSeekCard);
+    }
+
+    [Fact]
+    public async Task ProviderRowEditExpandsInlineOneRowAtATime()
+    {
+        var panel = CreatePanel(catalogService : new SimulatedLlmCatalogService());
+        await panel.OpenAsync();
+
+        // 点 pi-ai 路由行的编辑：仅该行行内展开（官方同构），DeepSeek 行保持折叠。
+        var glm = panel.Models.Providers.Single(candidate => candidate.ProviderId == "glm");
+        var deepSeek = panel.Models.Providers.Single(candidate => candidate.ProviderId == "deepseek-official");
+        glm.EditCommand.Execute(null);
+        Assert.True(glm.IsEditing);
+        Assert.True(glm.HasProviderCard);
+        Assert.False(deepSeek.IsEditing);
+        Assert.Null(deepSeek.DeepSeekCard);
+
+        // 取消收起后改编辑 DeepSeek 行：仅 DeepSeek 行展开，互不叠显。
+        glm.ProviderCard!.CancelCommand.Execute(null);
+        Assert.False(glm.IsEditing);
+
+        deepSeek.EditCommand.Execute(null);
+        Assert.True(deepSeek.IsEditing);
+        Assert.True(deepSeek.HasDeepSeekCard);
+        Assert.Null(glm.ProviderCard);
+
+        deepSeek.DeepSeekCard!.CancelCommand.Execute(null);
+        Assert.False(deepSeek.IsEditing);
+        Assert.Null(deepSeek.DeepSeekCard);
+    }
+
+    [Fact]
+    public async Task EditingRowToggleCollapsesAndAddCardIsExclusive()
+    {
+        var panel = CreatePanel(catalogService : new SimulatedLlmCatalogService());
+        await panel.OpenAsync();
+
+        // 再点同一行的编辑：收起（官方 toggle 语义）。
+        var glm = panel.Models.Providers.Single(candidate => candidate.ProviderId == "glm");
+        glm.EditCommand.Execute(null);
+        Assert.True(glm.IsEditing);
+        glm.EditCommand.Execute(null);
+        Assert.False(glm.IsEditing);
+        Assert.Null(panel.Models.Editor);
+
+        // 行编辑展开时打开添加卡：行编辑收起，一次一卡。
+        glm.EditCommand.Execute(null);
+        Assert.True(glm.IsEditing);
+        panel.Models.OpenAddCommand.Execute(null);
+        Assert.False(glm.IsEditing);
+        Assert.True(panel.Models.IsAddOpen);
+        Assert.NotNull(panel.Models.Editor);
+
+        // 添加卡取消：收起且不展开任何行。
+        panel.Models.Editor!.CancelCommand.Execute(null);
+        Assert.False(panel.Models.IsAddOpen);
+        Assert.Null(panel.Models.Editor);
+        Assert.All(panel.Models.Providers, row => Assert.False(row.IsEditing));
     }
 
     [Fact]
@@ -699,11 +757,15 @@ public sealed class SettingsPanelViewModelTests
 
         panel.Models.OpenAddCommand.Execute(null);
         var editor = panel.Models.Editor!;
-        Assert.True(panel.Models.IsEditingProvider);
+        Assert.True(panel.Models.IsAddOpen);
         Assert.True(editor.IsAddMode);
         editor.ShowDeclaredTabCommand.Execute(null);
         editor = panel.Models.Editor!;
         Assert.False(editor.IsCatalogTabSelected);
+        // 自定义创建 tab：字段直出无折叠头（官方同构，添加流程不走折叠）。
+        Assert.True(editor.IsDeclaredCreateMode);
+        Assert.False(editor.ShowsCustomHeader);
+        Assert.True(editor.ShowsCatalogBlock);
 
         // 校验链：id 正则 → id 占用 → 地址必填 → ≥1 模型。
         editor.RouteIdDraft = "Acme";
@@ -734,9 +796,9 @@ public sealed class SettingsPanelViewModelTests
         Assert.False(profile.GetProperty("models")[0].TryGetProperty("input", out _));
         var statuses = await credentials.DescribeAsync(["ACME_GATEWAY_API_KEY"]);
         Assert.True(statuses["ACME_GATEWAY_API_KEY"].Configured);
-        // 保存成功回列表，新行出现（目录无此路由 → 显示名回退路由 id）。
+        // 保存成功收起添加卡，新行出现（目录无此路由 → 显示名回退路由 id）。
         Assert.Null(panel.Models.Editor);
-        Assert.True(panel.Models.IsListView);
+        Assert.False(panel.Models.IsAddOpen);
         var row = panel.Models.Providers.Single(candidate => candidate.ProviderId == "acme-gateway");
         Assert.Equal("acme-gateway", row.DisplayName);
         Assert.True(row.ShowCredentialDot);
@@ -768,7 +830,7 @@ public sealed class SettingsPanelViewModelTests
         Assert.False(profile.TryGetProperty("baseURL", out _));
         var statuses = await credentials.DescribeAsync(["MISTRAL_API_KEY"]);
         Assert.True(statuses["MISTRAL_API_KEY"].Configured);
-        Assert.True(panel.Models.IsListView);
+        Assert.False(panel.Models.IsAddOpen);
         Assert.True(panel.Models.Providers.Single(candidate => candidate.ProviderId == "mistral")
                          .IsCredentialSet);
 
@@ -798,6 +860,18 @@ public sealed class SettingsPanelViewModelTests
         var editor = panel.Models.Editor!;
         Assert.False(editor.IsAddMode);
         Assert.True(editor.IsDeclaredMode);
+        // 编辑态默认折叠自定义设置（官方 details 同构）：仅密钥常显，折叠区收起。
+        Assert.True(editor.ShowsCustomHeader);
+        Assert.True(editor.IsCustomExpanded is false);
+        Assert.False(editor.ShowsCatalogBlock);
+        // 密钥占位双态：glm 已配置 → 提示可替换。
+        Assert.Equal("已配置——输入新值可替换", editor.ApiKeyPlaceholder);
+        var notified = new List<string>();
+        editor.PropertyChanged += (_, e) => notified.Add(e.PropertyName);
+        editor.ToggleCustomCommand.Execute(null);
+        Assert.True(editor.ShowsCatalogBlock);
+        // 计算属性须随展开态发通知，否则绑定不重算、折叠区展开后仍不可见。
+        Assert.Contains("ShowsCatalogBlock", notified);
         // 编辑态预填：显示名/协议/模型条目来自 profile，Provider ID 只读展示路由 id。
         Assert.Equal("GLM", editor.DisplayNameDraft);
         Assert.Equal("openai-completions", editor.ApiDraft);
@@ -814,13 +888,35 @@ public sealed class SettingsPanelViewModelTests
         editor.SaveCommand.Execute(null);
 
         Assert.Null(panel.Models.Editor);
-        Assert.True(panel.Models.IsListView);
+        Assert.All(panel.Models.Providers, candidate => Assert.False(candidate.IsEditing));
         var profile = DescribeNamespace(settings, "llm-pi-ai").Value.GetProperty("providers")
                                                               .GetProperty("glm");
         Assert.Equal("https://relay2.example.com/v1", profile.GetProperty("baseURL").GetString());
         Assert.Equal("GLM", profile.GetProperty("displayName").GetString());
         Assert.Equal("GLM_API_KEY", profile.GetProperty("apiKeyEnv").GetString());
         Assert.Equal(3, profile.GetProperty("models").GetArrayLength());
+    }
+
+    [Fact]
+    public void EmptyInputArrayFallsBackToTextAndDoesNotBlockSave()
+    {
+        // 合并层会把「无 input」规范成空数组（生效解析值）。官方 ModelInputTypes 视空数组为
+        // 未声明（缺省勾 text），本端不得打开编辑即报「输入类型至少勾选一项」锁死保存。
+        var json = JsonDocument.Parse("""
+            {"providers":{"glm":{"displayName":"智谱","apiKeyEnv":"GLM_API_KEY","api":"openai-completions",
+              "baseURL":"https://api.iruidong.com/v1",
+              "models":[{"id":"glm-5.3","name":"glm-5.3","input":[]},
+                        {"id":"glm-5.3-flash","name":"glm-5.3-flash","input":["text","image"]}]}}}
+            """);
+        var view = new SettingsNamespaceView("llm-pi-ai", false, default, json.RootElement.Clone(), "profile", 1,
+                                             Secrets:
+                                             [new SettingsSecretInfo(["providers", "glm", "apiKeyEnv"], true)]);
+        var editor = ProviderEditorViewModel.ForEdit(null!, null, view, "glm", null, _ => { });
+
+        var glm53 = editor.ModelEntries.Single(entry => entry.IdDraft == "glm-5.3");
+        Assert.True(glm53.IsTextSelected);
+        Assert.False(glm53.IsImageSelected);
+        Assert.Null(editor.FirstValidationError);
     }
 
     [Fact]
@@ -864,5 +960,44 @@ public sealed class SettingsPanelViewModelTests
         editor.DiscoverCommand.Execute(null);
         Assert.False(editor.IsDiscoverPopupOpen);
         Assert.True(editor.HasDiscoverError);
+    }
+
+    [Fact]
+    public async Task DeclaredEditProbeCarriesRouteSoStoredCredentialApplies()
+    {
+        // 官方编辑卡探测恒带路由 id：后端可从适配器 registry 应答（含已存凭据），
+        // 编辑已配置供应商无需重输密钥；裸端点探测会被后端要求密钥。
+        var catalog = new RecordingCatalogService();
+        var panel   = CreatePanel(catalogService : catalog);
+        await panel.OpenAsync();
+
+        var glm = panel.Models.Providers.Single(row => row.ProviderId == "glm");
+        glm.EditCommand.Execute(null);
+        var editor = panel.Models.Editor!;
+        Assert.True(editor.CanDiscover);
+
+        editor.DiscoverCommand.Execute(null);
+        Assert.Equal("glm", catalog.LastRequest!.Provider);
+    }
+
+    /// <summary>目录服务 Fake：记录发现请求参数（目录最小化为两条行路由）。</summary>
+    private sealed class RecordingCatalogService : ILlmCatalogService
+    {
+        public LlmDiscoveryRequest? LastRequest { get; private set; }
+
+        public Task<IReadOnlyList<LlmConfigurableProvider>> GetConfigurableProvidersAsync(
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<LlmConfigurableProvider>>(
+            [
+                new("deepseek-official", "DeepSeek", "llm-deepseek", []),
+                new("glm", "GLM", "llm-pi-ai", ["providers", "glm"], true)
+            ]);
+
+        public Task<IReadOnlyList<LlmDiscoveredModel>> DiscoverModelsAsync(
+            string settingsNs, LlmDiscoveryRequest request, CancellationToken cancellationToken = default)
+        {
+            LastRequest = request;
+            return Task.FromResult<IReadOnlyList<LlmDiscoveredModel>>([]);
+        }
     }
 }

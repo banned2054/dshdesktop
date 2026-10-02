@@ -53,6 +53,7 @@ public sealed class ProviderEditorViewModel : ObservableObject
     private string  _baseUrlDraft     = string.Empty;
     private string  _apiDraft         = "openai-completions";
     private string  _apiKeyDraft      = string.Empty;
+    private bool?   _apiKeySet;
     private bool    _isApiMenuOpen;
     private bool    _isCustomExpanded;
     private bool    _isSaving;
@@ -102,6 +103,11 @@ public sealed class ProviderEditorViewModel : ObservableObject
         // 编辑态 Provider ID 字段只读展示路由 id（不参与保存 ops 的 diff）。
         _routeIdDraft = route;
         OnPropertyChanged(nameof(RouteIdDraft));
+
+        // 密钥占位双态（官方同构）：凭据槽位已配置提示可替换，否则提示输入。
+        var keyPath = new[] { "providers", route, "apiKeyEnv" };
+        _apiKeySet = snapshot.Secrets?.FirstOrDefault(secret => secret.Path.SequenceEqual(keyPath))?.Set;
+        OnPropertyChanged(nameof(ApiKeyPlaceholder));
     }
 
     /// <summary>创建入口：目录路由（第三方 tab）或自定义路由（自定义 tab）；已占用路由集合由快照导出。</summary>
@@ -141,6 +147,12 @@ public sealed class ProviderEditorViewModel : ObservableObject
     public bool IsDeclaredMode => Mode is ProviderEditorMode.CreateDeclared or ProviderEditorMode.EditDeclared;
 
     public bool IsCatalogTabSelected => Mode == ProviderEditorMode.CreateCatalog;
+
+    /// <summary>自定义路由编辑态（已保存路由的行内编辑，官方 details 折叠同构）。</summary>
+    public bool IsEditDeclaredMode => Mode == ProviderEditorMode.EditDeclared;
+
+    /// <summary>自定义路由创建态（添加卡自定义 tab：字段直出，不走折叠）。</summary>
+    public bool IsDeclaredCreateMode => Mode == ProviderEditorMode.CreateDeclared;
 
     /// <summary>提供商下拉可编辑性：仅目录创建；编辑态为只读展示。</summary>
     public bool IsProviderEditable => Mode == ProviderEditorMode.CreateCatalog;
@@ -250,20 +262,29 @@ public sealed class ProviderEditorViewModel : ObservableObject
         }
     }
 
-    /// <summary>密钥框占位：目录路由留空走环境认证。</summary>
-    public string ApiKeyPlaceholder => IsCatalogMode ? "输入 API 密钥，或留空使用环境认证" : "输入 API 密钥";
+    /// <summary>密钥框占位双态（官方同构）：已配置提示可替换；目录路由未配置提示可留空走环境认证。</summary>
+    public string ApiKeyPlaceholder => _apiKeySet == true
+        ? "已配置——输入新值可替换"
+        : IsCatalogMode ? "输入 API 密钥，或留空使用环境认证" : "输入 API 密钥";
 
-    /// <summary>自定义设置折叠区展开态（仅目录模式渲染头部）。</summary>
+    /// <summary>自定义设置折叠区展开态。编辑卡（目录/declared）默认收起（官方 details 同构，
+    /// 折叠区外仅 API 密钥）；创建态不渲染折叠头。变更须连带通知 ShowsCatalogBlock
+    /// （计算属性，绑定不会自行重算，否则展开后折叠区仍不可见）。</summary>
     public bool IsCustomExpanded
     {
         get => _isCustomExpanded;
-        set => SetProperty(ref _isCustomExpanded, value);
+        set
+        {
+            if (!SetProperty(ref _isCustomExpanded, value)) return;
+            OnPropertyChanged(nameof(ShowsCatalogBlock));
+        }
     }
 
-    /// <summary>目录模式显示折叠头部；declared 模式直接展开目录区块。</summary>
-    public bool ShowsCustomHeader => IsCatalogMode;
+    /// <summary>折叠头「自定义设置」：全部编辑卡 + 目录创建（自定义创建 tab 直出无头）。</summary>
+    public bool ShowsCustomHeader => IsCatalogMode || IsEditDeclaredMode;
 
-    public bool ShowsCatalogBlock => IsDeclaredMode || (IsCatalogMode && _isCustomExpanded);
+    /// <summary>折叠区可见：创建自定义 tab 恒显（直出），其余模式随展开态。</summary>
+    public bool ShowsCatalogBlock => IsDeclaredCreateMode || _isCustomExpanded;
 
     /// <summary>目录状态：草稿存在模型条目（或原始 profile 已带 models）为已自定义，否则继承适配器默认。</summary>
     public string CatalogStatusText
@@ -374,7 +395,7 @@ public sealed class ProviderEditorViewModel : ObservableObject
     }
 
     /// <summary>校验错误（首个）：目录创建需选提供商；自定义创建校验 id 正则/占用/地址/≥1 模型；
-    /// 全模式校验模型条目（ID 必填去重、token 数、输入类型）。</summary>
+    /// 全模式校验模型条目（ID 必填去重、token 数；输入类型无「至少一项」——官方空选择=写空数组继承）。</summary>
     public string? FirstValidationError
     {
         get
@@ -416,7 +437,6 @@ public sealed class ProviderEditorViewModel : ObservableObject
                     return "上下文窗口必须是正整数（可带 K/M 后缀）或留空。";
                 if (HasInvalidTokenCount(entry.MaxTokensDraft))
                     return "最大输出 token 数必须是正整数（可带 K/M 后缀）或留空。";
-                if (entry is { IsTextSelected: false, IsImageSelected: false }) return "输入类型至少勾选一项。";
             }
 
             if (Mode == ProviderEditorMode.CreateDeclared && ModelEntries.Count == 0)
@@ -551,13 +571,15 @@ public sealed class ProviderEditorViewModel : ObservableObject
                trimmed.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>探测参数：目录路由按厂商（可带自定义端点/密钥），declared 路由必须携带端点。</summary>
+    /// <summary>探测参数：编辑卡恒带路由 id（官方同构——命名路由让适配器可从自身 registry 应答，
+    /// 含已存凭据，编辑已配置供应商无需重输密钥）；declared 路由必须携带端点。</summary>
     private LlmDiscoveryRequest? BuildProbe()
     {
         var provider = Mode switch
         {
             ProviderEditorMode.CreateCatalog => SelectedProvider?.Provider,
             ProviderEditorMode.EditCatalog   => _route,
+            ProviderEditorMode.EditDeclared  => _route,
             _                                => null
         };
         var url     = BaseUrlDraft.Trim();
