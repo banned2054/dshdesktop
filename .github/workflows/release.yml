@@ -1,0 +1,119 @@
+name: Build release
+
+on:
+    workflow_dispatch:
+    release:
+        types: [published]
+
+permissions:
+    contents: read
+
+concurrency:
+    group: release-${{ github.event.release.tag_name || github.ref }}
+    cancel-in-progress: false
+
+jobs:
+    windows:
+        runs-on: windows-2022
+        timeout-minutes: 90
+        defaults:
+            run:
+                shell: pwsh
+        steps:
+            - uses: actions/checkout@v7
+              with:
+                  ref: ${{ github.event.release.tag_name || github.ref }}
+                  persist-credentials: false
+
+            - name: Read pinned versions
+              id: versions
+              env:
+                  RELEASE_TAG: ${{ github.event.release.tag_name }}
+              run: node tools/release.mjs metadata
+
+            - name: Checkout pinned DSH source
+              uses: actions/checkout@v7
+              with:
+                  repository: deepseek-ai/deepseek-harness
+                  ref: ${{ steps.versions.outputs.commit }}
+                  fetch-depth: 0
+                  path: upstream-dsh
+                  persist-credentials: false
+
+            - name: Verify source and read upstream toolchain
+              id: toolchain
+              run: node tools/release.mjs source upstream-dsh
+
+            - uses: actions/setup-node@v7
+              with:
+                  node-version: ${{ steps.toolchain.outputs.node }}
+
+            - uses: pnpm/action-setup@v6
+              with:
+                  version: ${{ steps.toolchain.outputs.pnpm }}
+                  run_install: false
+
+            - uses: actions/setup-dotnet@v6
+              with:
+                  dotnet-version: 10.0.x
+
+            - name: Test client and release tooling
+              run: |
+                  node --test tools/release.test.mjs
+                  if ($LASTEXITCODE -ne 0) { throw 'Release tooling tests failed' }
+                  dotnet test DshDesktop.Tests/DshDesktop.Tests.csproj -c Release --logger "trx;LogFileName=tests.trx"
+                  if ($LASTEXITCODE -ne 0) { throw 'Client tests failed' }
+
+            - name: Build pinned DSH
+              working-directory: upstream-dsh
+              env:
+                  # Do not install repository Git hooks or download unused Electron binaries.
+                  LEFTHOOK: "0"
+                  ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+              run: |
+                  pnpm install --frozen-lockfile
+                  if ($LASTEXITCODE -ne 0) { throw 'DSH dependency installation failed' }
+                  pnpm run build
+                  if ($LASTEXITCODE -ne 0) { throw 'DSH build failed' }
+
+            - name: Build portable Windows package
+              run: ./tools/build-release.ps1 -UpstreamDir upstream-dsh -OutputRoot "$env:RUNNER_TEMP/dsh-release"
+
+            - name: Upload package
+              uses: actions/upload-artifact@v7
+              with:
+                  name: dsh-desktop-${{ steps.versions.outputs.version }}-win-x64
+                  path: |
+                      ${{ runner.temp }}/dsh-release/*.zip
+                      ${{ runner.temp }}/dsh-release/*.sha256
+                  if-no-files-found: error
+                  retention-days: 14
+
+            - name: Upload test results
+              if: always()
+              uses: actions/upload-artifact@v7
+              with:
+                  name: windows-test-results
+                  path: DshDesktop.Tests/TestResults/*.trx
+                  if-no-files-found: warn
+
+    attach-assets:
+        if: github.event_name == 'release'
+        needs: windows
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        permissions:
+            contents: write
+        steps:
+            - uses: actions/download-artifact@v8
+              with:
+                  pattern: dsh-desktop-*-win-x64
+                  path: release-assets
+                  merge-multiple: true
+
+            - name: Attach assets to published release
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  GH_REPO: ${{ github.repository }}
+                  RELEASE_TAG: ${{ github.event.release.tag_name }}
+              run: gh release upload "$RELEASE_TAG" release-assets/*.zip release-assets/*.sha256 --clobber

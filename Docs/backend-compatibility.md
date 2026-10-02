@@ -8,6 +8,7 @@
 
 - 当前基线为 `dsh-v0.2.0-rc.2`，commit `639ed01539`：2026-10-01 本机 checkout master 自 `0.1.7-rc.2`（`477b4f4205`）快进至该 commit 并重建，junction CLI 实测 `0.2.0-rc.2`，launcher 冒烟出 `ready` 且干净关停（见「历史兼容性记录」2026-10-01 段）。后续升级核对自该基线向前 diff，不再对照 0.1.7。
 - 本机参考路径 `C:/Code/JavaScript/deepseek-harness` 只用于分析。应用使用 `DSH_DESKTOP_RUNTIME_DIR` 指定的已构建 runtime，不硬编码该源码路径。
+- 发布构建的 DSH 版本、上游标签与完整 commit 固定在根目录 [backend-version.json](../backend-version.json)。[发布流程](releasing.md) 会验证源码和包版本，将生产依赖与上游校验锁准备的解释器/Office 资产打入 Windows x64 ZIP；`Run.cmd` 设置包内 runtime、Node 和 primary-runtime 路径。About 仍显示实际 runtime 包版本。该流程尚未在 GitHub runner 上完成全量打包验证，不能视为新增的真实后端/GUI 验收记录。
 - checkout 和包版本核对不证明当前运行链路已通过验收。更换 runtime 时须分别记录源码版本、构建产物和验证结果。
 
 ## Host、传输与数据边界

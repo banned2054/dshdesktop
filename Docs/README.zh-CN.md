@@ -88,7 +88,7 @@ $env:DSH_DESKTOP_RUNTIME_DIR = "C:\path\to\deepseek-harness-runtime"
 dotnet run --project DshDesktop
 ```
 
-真实后端开发环境目前要求可以从 `PATH` 找到 Node.js，并复用 `DSH_HOME` 或 `~/.dsh` 中的 Harness 数据。Runtime 获取和面向最终用户的分发流程尚未自动化。
+真实后端开发环境目前要求可以从 `PATH` 找到 Node.js，并复用 `DSH_HOME` 或 `~/.dsh` 中的 Harness 数据。[发布流程](../.github/workflows/release.yml) 可构建包含固定 DSH runtime 和解释器的 Windows x64 Native AOT 便携 ZIP，完整解压后运行 `Run.cmd`。该流程尚未在 GitHub runner 上验证；暂不提供安装器和自动更新，详见 [发布构建说明](releasing.md)。
 
 ## 🖥️ 平台状态
 
