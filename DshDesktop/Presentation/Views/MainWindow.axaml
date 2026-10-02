@@ -61,5 +61,11 @@
         <Grid Grid.Row="0" Grid.RowSpan="2" IsVisible="{Binding IsSettingsOpen}">
             <settings:SettingsPanelView DataContext="{Binding Settings}" />
         </Grid>
+
+        <!-- 关于面板覆盖层：同设置面板的窗口级覆盖层（不用 Popup，理由同上）；开合与
+             版本值都在根 VM，无 DataContext 切换。遮罩/Esc 关闭见 AboutPanelView code-behind。 -->
+        <Grid Grid.Row="0" Grid.RowSpan="2" IsVisible="{Binding IsAboutOpen}">
+            <views:AboutPanelView />
+        </Grid>
     </Grid>
 </Window>

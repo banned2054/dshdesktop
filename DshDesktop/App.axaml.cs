@@ -99,7 +99,12 @@ public partial class App : Application
                                                             : preference == "dark"
                                                                 ? ThemeVariant.Dark
                                                                 : null,
-                                                    llmCatalogService);
+                                                    llmCatalogService,
+                                                    // 关于面板的 DSH 版本：真实模式读 runtime 目录
+                                                    // dsh 包版本，模拟模式如实标注。
+                                                    configuration is { UseRealBackend: true }
+                                                        ? configuration.BackendVersion ?? "未知"
+                                                        : "模拟后端");
             var mainWindow = new MainWindow(viewModel);
             if (configuration.ConfigurationError is { Length: > 0 } error)
             {

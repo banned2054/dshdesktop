@@ -5,6 +5,7 @@ using DshDesktop.Services.Conversations;
 using DshDesktop.ViewModels.Settings;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Reflection;
 using System.Text.Json;
 
 namespace DshDesktop.ViewModels;
@@ -100,8 +101,9 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     private List<ConversationEntry> _timelineEntries = [];
 
     private long _windowStartSeq = 1;
-
     private bool _isSettingsOpen;
+    private bool _isHelpMenuOpen;
+    private bool _isAboutOpen;
 
     /// <summary>
     ///     保持旧测试与宿主构造调用的兼容性。未提供审批服务时，界面没有审批来源，
@@ -131,7 +133,8 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         ISettingsService?         settingsService         = null,
         ICredentialsService?      credentialService       = null,
         Action<string?>?          applyThemePreference    = null,
-        ILlmCatalogService?       llmCatalogService       = null)
+        ILlmCatalogService?       llmCatalogService       = null,
+        string?                   backendVersion          = null)
     {
         _sessionService          = sessionService;
         _backendHostService      = backendHostService;
@@ -142,7 +145,9 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         _credentialsService      = credentialService       ?? EmptyCredentialsService.Instance;
         _llmCatalogService       = llmCatalogService;
         IsSimulationMode         = isSimulatedMode;
-        _postToUi                = postToUi ?? (action => action());
+        // 关于面板的 DSH 后端版本（宿主组装层读取 runtime 目录注入）；缺失如实显示未知。
+        DshVersion = backendVersion ?? "未知";
+        _postToUi  = postToUi       ?? (action => action());
         // 草稿/发送/取消与模型选择已迁入 Composer；失败仍走窗口级 ErrorText（null 表示清除）。
         // 发送被接受时 root 立即把会话标记为已开始（不等后端帧回流）。草稿页的本地预选
         // 模型经回调记入草稿（不发 RPC），首发送创建会话后再应用。
@@ -162,12 +167,10 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
                                        session => SelectedSession                = session,
                                        RequestNewSessionAsync, text => ErrorText = text ?? string.Empty, _postToUi,
                                        RenameWorkspaceAsync, DeleteWorkspaceAsync);
-        LoadOlderCommand = new AsyncRelayCommand(LoadOlderAsync, CanLoadOlder);
-        SelectWorkspaceCommand =
-            new RelayCommand<WorkspaceOptionViewModel>(SelectDraftWorkspace);
-        SelectPresetCommand =
-            new RelayCommand<AgentPresetOptionViewModel>(SelectDraftPreset);
-        AgentPresetOptions = AgentPresetOptionViewModel.CreateBuiltIns(SelectPresetCommand);
+        LoadOlderCommand       = new AsyncRelayCommand(LoadOlderAsync, CanLoadOlder);
+        SelectWorkspaceCommand = new RelayCommand<WorkspaceOptionViewModel>(SelectDraftWorkspace);
+        SelectPresetCommand    = new RelayCommand<AgentPresetOptionViewModel>(SelectDraftPreset);
+        AgentPresetOptions     = AgentPresetOptionViewModel.CreateBuiltIns(SelectPresetCommand);
         RefreshPresetSelectionMarks();
         SendDraftCommand           = new AsyncRelayCommand(SendDraftAsync, () => CanSendDraft);
         ToggleWorkspaceMenuCommand = new RelayCommand(ToggleWorkspaceMenu);
@@ -177,6 +180,14 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         RejectApprovalCommand =
             new RelayCommand<PendingApprovalViewModel>(approval => _ = RespondApprovalAsync(approval, false));
         OpenSettingsCommand = new AsyncRelayCommand(OpenSettingsAsync);
+        // 标题栏帮助菜单与关于面板：版本号集中在关于面板显示（设置页已不显示版本）。
+        ToggleHelpMenuCommand = new RelayCommand(() => IsHelpMenuOpen = !IsHelpMenuOpen);
+        ShowAboutCommand = new RelayCommand(() =>
+        {
+            IsHelpMenuOpen = false;
+            IsAboutOpen    = true;
+        });
+        CloseAboutCommand = new RelayCommand(() => IsAboutOpen = false);
         // 设置面板子视图模型：服务事件由 root 订阅并经 _postToUi 编组转发（见 OnSettings*），
         // 面板开合由 root 的 IsSettingsOpen 承担，关闭请求由面板回调 root。
         // 会话服务供模型分区展示账户路由可见性（与 composer 模型菜单同源），
@@ -252,6 +263,46 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     {
         get => _isSettingsOpen;
         private set => SetProperty(ref _isSettingsOpen, value);
+    }
+
+    /// <summary>标题栏「帮助」下拉菜单展开态（Popup 双向绑定）。</summary>
+    public bool IsHelpMenuOpen
+    {
+        get => _isHelpMenuOpen;
+        set => SetProperty(ref _isHelpMenuOpen, value);
+    }
+
+    /// <summary>关于面板是否打开（全窗口覆盖层的可见性）。</summary>
+    public bool IsAboutOpen
+    {
+        get => _isAboutOpen;
+        private set => SetProperty(ref _isAboutOpen, value);
+    }
+
+    /// <summary>关于面板显示的 DSH 后端版本（宿主注入；模拟模式为「模拟后端」）。</summary>
+    public string DshVersion { get; }
+
+    /// <summary>本项目版本：csproj 的 Version 生成的程序集 InformationalVersion（AOT 下保留）。</summary>
+    public string AppVersion { get; } = ResolveAppVersion();
+
+    /// <summary>切换标题栏「帮助」下拉菜单展开态。</summary>
+    public RelayCommand ToggleHelpMenuCommand { get; }
+
+    /// <summary>打开关于面板（标题栏帮助菜单项）；先收起菜单再开面板。</summary>
+    public RelayCommand ShowAboutCommand { get; }
+
+    /// <summary>关闭关于面板（关闭按钮 / Esc / 遮罩点击共用）。</summary>
+    public RelayCommand CloseAboutCommand { get; }
+
+    /// <summary>程序集 InformationalVersion（缺失回退 Version）；根程序集元数据在 AOT 下保留。</summary>
+    private static string ResolveAppVersion()
+    {
+        var assembly = typeof(MainWindowViewModel).Assembly;
+        var informational = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+                                   ?.InformationalVersion;
+        if (!string.IsNullOrWhiteSpace(informational)) return informational;
+
+        return assembly.GetName().Version?.ToString() ?? "未知";
     }
 
     /// <summary>新对话草稿页的工作区选项（含显式「不使用工作区」项）；随工作区投影刷新。</summary>

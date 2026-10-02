@@ -1,6 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
 	<PropertyGroup>
 		<RootNamespace>DshDesktop</RootNamespace>
+		<!-- 本项目自身版本（关于面板显示；DSH 后端版本运行时从 runtime 目录读取，与此独立）。
+		     IncludeSourceRevisionInInformationalVersion=false：.NET 10 SDK 在 git 仓库内默认把
+		     commit SHA 追加为 InformationalVersion 构建元数据（0.1.0+sha），关于面板只想要纯版本号。 -->
+		<Version>0.1.0</Version>
+		<IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
 		<OutputType>WinExe</OutputType>
 		<TargetFramework>net10.0</TargetFramework>
 		<Nullable>enable</Nullable>

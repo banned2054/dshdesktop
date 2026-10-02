@@ -1,0 +1,56 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:DshDesktop.ViewModels"
+             x:Class="DshDesktop.Presentation.Views.AboutPanelView"
+             x:DataType="vm:MainWindowViewModel"
+             mc:Ignorable="d"
+             Focusable="True"
+             d:DesignWidth="360" d:DesignHeight="220">
+    <!-- 关于面板（标题栏帮助菜单入口）：窗口级小覆盖层，显示本项目版本与所连接
+         DSH 后端版本。遮罩点击 / Esc / 右上角 X 关闭；开合由 root VM 的 IsAboutOpen
+         承担，版本值同样来自 root VM（AppVersion / DshVersion），无独立子 VM。 -->
+    <Grid>
+        <Border Classes="settings-mask" PointerPressed="OnMaskPointerPressed" />
+
+        <Border x:Name="PanelRoot" Classes="settings-panel" Width="340"
+                Padding="28,24,28,24" Focusable="True"
+                HorizontalAlignment="Center" VerticalAlignment="Center">
+            <Grid RowDefinitions="Auto,Auto,Auto">
+                <!-- 标题行：应用名 + 右上角关闭。 -->
+                <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
+                    <TextBlock Grid.Column="0" Text="DSH Desktop" FontSize="18" FontWeight="SemiBold"
+                               Foreground="{DynamicResource PopupForegroundBrush}"
+                               VerticalAlignment="Center" />
+                    <Button Grid.Column="1" Classes="settings-close-icon"
+                            Command="{Binding CloseAboutCommand}"
+                            AutomationProperties.Name="关闭关于面板"
+                            ToolTip.Tip="关闭">
+                        <Path Width="16" Height="16" Stretch="None"
+                              Data="{StaticResource Icon.CloseOutline}"
+                              Stroke="{Binding $parent[Button].Foreground}"
+                              StrokeThickness="1.4" StrokeLineCap="Round"
+                              HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Button>
+                </Grid>
+
+                <!-- 版本行：本项目（csproj Version）与 DSH 后端（runtime 目录 dsh 包）各一行。 -->
+                <StackPanel Grid.Row="1" Margin="0,18,0,0" Spacing="8">
+                    <Grid ColumnDefinitions="Auto,*">
+                        <TextBlock Grid.Column="0" Text="版本" FontSize="13" Width="92"
+                                   Foreground="{DynamicResource PopupMutedForegroundBrush}" />
+                        <TextBlock Grid.Column="1" Text="{Binding AppVersion}" FontSize="13"
+                                   Foreground="{DynamicResource PopupForegroundBrush}" />
+                    </Grid>
+                    <Grid ColumnDefinitions="Auto,*">
+                        <TextBlock Grid.Column="0" Text="DSH" FontSize="13" Width="92"
+                                   Foreground="{DynamicResource PopupMutedForegroundBrush}" />
+                        <TextBlock Grid.Column="1" Text="{Binding DshVersion}" FontSize="13"
+                                   Foreground="{DynamicResource PopupForegroundBrush}" />
+                    </Grid>
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

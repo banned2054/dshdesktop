@@ -3,7 +3,9 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:chrome="using:Avalonia.Controls.Chrome"
+             xmlns:vm="using:DshDesktop.ViewModels"
              x:Class="DshDesktop.Presentation.Views.WindowTitleBarView"
+             x:DataType="vm:MainWindowViewModel"
              mc:Ignorable="d"
              d:DesignHeight="32" d:DesignWidth="1000">
     <!-- 全窗口标题栏：跨整个窗口宽度，不属于 Sidebar 或 Conversation。客户区经
@@ -39,9 +41,30 @@
                           IsVisible="False" />
                 </Panel>
             </Button>
-            <!-- 将来的全局 toolbar / menu（File/Edit/View/Help 等）落位于此；
-                 目前留空作为拖动区域（整条 TitleBar 角色已覆盖拖动）。 -->
-            <Panel Grid.Column="1" />
+            <!-- 全局 toolbar 菜单落位区：首个菜单为「帮助」，入口在标题栏、内容随菜单项
+                 以窗口级覆盖层展开。ElementRole=User 保证菜单按钮不被标题栏拖动吞掉点击。 -->
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"
+                        Margin="12,0,0,0">
+                <Button x:Name="HelpMenuButton"
+                        Classes="titlebar-menu"
+                        chrome:WindowDecorationProperties.ElementRole="User"
+                        Command="{Binding ToggleHelpMenuCommand}"
+                        Content="帮助"
+                        AutomationProperties.Name="帮助" />
+                <Popup PlacementTarget="{Binding #HelpMenuButton}"
+                       Placement="BottomEdgeAlignedLeft"
+                       VerticalOffset="2"
+                       IsOpen="{Binding IsHelpMenuOpen, Mode=TwoWay}"
+                       IsLightDismissEnabled="True">
+                    <Border Classes="popup-surface">
+                        <Button Classes="popup-item"
+                                Padding="12,8"
+                                Command="{Binding ShowAboutCommand}"
+                                Content="关于 DSH Desktop"
+                                AutomationProperties.Name="关于 DSH Desktop" />
+                    </Border>
+                </Popup>
+            </StackPanel>
             <!-- caption 按钮留白：宽度与装饰主题的三枚按钮一致，overlay 绘制于其上方。 -->
             <Panel Grid.Column="2" Width="{DynamicResource TitleBarCaptionAreaWidth}" />
         </Grid>
