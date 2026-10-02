@@ -2,6 +2,14 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <!-- 会话时间线样式：消息气泡、思考折叠体、历史分页与轻量切换按钮。 -->
 
+    <!-- 会话内容列共享上限：消息时间线与输入区同列——列盒最大 816（内容 760 + 左右
+         各 28 呼吸位），窗口更宽时整列在会话区水平居中。各处容器保持「Border 水平
+         Padding 28 + 本上限」同构，保证列缘对齐；依赖 Avalonia 布局对 Stretch +
+         MaxWidth 的处理（ArrangeCore 中与 Center 同分支，截断后自动居中）。 -->
+    <Styles.Resources>
+        <x:Double x:Key="ConversationColumnMaxWidth">816</x:Double>
+    </Styles.Resources>
+
     <Style Selector="Border.message-bubble">
         <Setter Property="MaxWidth" Value="760" />
         <Setter Property="Padding" Value="14,11" />

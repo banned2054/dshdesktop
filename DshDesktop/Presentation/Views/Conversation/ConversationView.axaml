@@ -19,8 +19,10 @@
                       HorizontalScrollBarVisibility="Disabled"
                       IsVisible="{Binding !ShowNewConversationPage}">
             <!-- 留白属于被滚动内容的一部分：挂在 ScrollViewer 上时 presenter 的 Padding
-                 不计入 extent，滚到底也会截掉一段（气泡底部不可达）。 -->
-            <Border x:Name="MessagesContent" Padding="28,22">
+                 不计入 extent，滚到底也会截掉一段（气泡底部不可达）。
+                 MaxWidth 与底部输入区同列：窗口更宽时整列水平居中（见 Conversation 样式）。 -->
+            <Border x:Name="MessagesContent" Padding="28,22"
+                    MaxWidth="{StaticResource ConversationColumnMaxWidth}">
                 <StackPanel Spacing="8">
                     <!-- 历史分页按钮随内容滚动，位于时间线顶端；点击加载一页更早消息。 -->
                     <Button Classes="load-older"
@@ -88,7 +90,12 @@
              普通会话布局。 -->
         <conversation:NewConversationView Grid.Row="1" />
 
-        <conversation:ComposerView Grid.Row="2" Margin="28,14,28,16"
-                                   IsVisible="{Binding !ShowNewConversationPage}" />
+        <!-- 输入区与消息时间线同列同缘（水平 Padding 28 + 共享 MaxWidth），窗口更宽时
+             与时间线一起水平居中。 -->
+        <Border Grid.Row="2" Padding="28,14,28,16"
+                MaxWidth="{StaticResource ConversationColumnMaxWidth}"
+                IsVisible="{Binding !ShowNewConversationPage}">
+            <conversation:ComposerView />
+        </Border>
     </Grid>
 </UserControl>

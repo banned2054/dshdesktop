@@ -18,8 +18,11 @@
     <Panel IsVisible="{Binding ShowNewConversationPage}">
         <Grid RowDefinitions="*,Auto,Auto">
             <!-- 下拉按钮行：当前项目与当前模式并排展示于输入框上方；未选择时文案即
-                 明确的选择状态（模式始终有内置默认「标准模式」）。 -->
-            <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="10" Margin="28,0,28,10">
+                 明确的选择状态（模式始终有内置默认「标准模式」）。与输入区同列同缘
+                 （Padding 28 + 共享 MaxWidth），窗口更宽时随列水平居中。 -->
+            <Border Grid.Row="1" Padding="28,0,28,10"
+                    MaxWidth="{StaticResource ConversationColumnMaxWidth}">
+            <StackPanel Orientation="Horizontal" Spacing="10">
                 <Button x:Name="WorkspacePickerButton"
                         Classes="workspace-picker"
                         Command="{Binding ToggleWorkspaceMenuCommand}"
@@ -71,6 +74,7 @@
                     </Grid>
                 </Button>
             </StackPanel>
+            </Border>
             <!-- TopEdgeAlignedLeft：钉在按钮上方且左缘对齐（同 ModelPickerView 的 Top 惯例）。
                  不能用 Bottom 系列：按钮贴窗口底部，下方是输入区，定位器会在放不下时
                  自动翻到上方；一旦搜索过滤让面板变短、下方放得下，就会跳回下方。 -->
@@ -207,8 +211,11 @@
                 </Border>
             </Popup>
             <!-- 输入卡片：与底部输入区同款面板、同宽同位置；错误提示、模型预选与发送同基线。
-                 「不使用工作区」必须经下拉显式选择，发送按钮才可用。 -->
-            <StackPanel Grid.Row="2" Spacing="6" Margin="28,0,28,16">
+                 「不使用工作区」必须经下拉显式选择，发送按钮才可用。
+                 列几何与普通会话页一致（Padding 28 + 共享 MaxWidth，超宽窗口随列居中）。 -->
+            <Border Grid.Row="2" Padding="28,0,28,16"
+                    MaxWidth="{StaticResource ConversationColumnMaxWidth}">
+            <StackPanel Spacing="6">
                 <Border x:Name="ComposerSurface" Classes="composer-panel">
                     <StackPanel Spacing="8">
                         <TextBlock Text="{Binding ErrorText}"
@@ -269,6 +276,7 @@
                                Classes="composer-stat" />
                 </Grid>
             </StackPanel>
+            </Border>
         </Grid>
     </Panel>
 </UserControl>
