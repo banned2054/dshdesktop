@@ -74,6 +74,7 @@
 - 使用取消与明确的状态转换处理启动、断线、关闭、任务取消和异常；避免遗留后台进程。
 - 开放需要审批或用户回答的工具能力前，必须完成对应交互闭环。
 - 动态 Web 插件界面不能自动转换为 Avalonia 控件；支持范围须显式确定。
+- 核对上游 DSH 官方实现（协议、设置、GUI 行为等）时，读官方源码仓库 `C:/Code/javascript/deepseek-harness`；不要扫本仓库内的 `.backend-runtime` junction、`node_modules`、`Assets/Backend` 或 `.backend-app`。
 
 ## Native AOT 与跨平台
 
