@@ -2,6 +2,7 @@ using DshDesktop.Core.Models;
 using DshDesktop.Core.Services;
 using DshDesktop.Harness.Exceptions;
 using DshDesktop.Services.Conversations;
+using DshDesktop.ViewModels.Settings;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Text.Json;
@@ -28,6 +29,8 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     private readonly IPermissionPresetService _permissionPresetService;
     private readonly ISessionService          _sessionService;
     private readonly ISettingsService         _settingsService;
+    private readonly ICredentialsService      _credentialsService;
+    private readonly ILlmCatalogService?      _llmCatalogService;
     private readonly IToolApprovalService     _toolApprovalService;
     private readonly IWorkspaceService        _workspaceService;
 
@@ -98,6 +101,8 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
 
     private long _windowStartSeq = 1;
 
+    private bool _isSettingsOpen;
+
     /// <summary>
     ///     保持旧测试与宿主构造调用的兼容性。未提供审批服务时，界面没有审批来源，
     ///     但纯会话测试不应因此必须组装基础设施实现；未提供置顶服务时界面同样没有
@@ -123,7 +128,10 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         Action<Action>?           postToUi                = null,
         IPermissionPresetService? permissionPresetService = null,
         ISidebarPinService?       sidebarPinService       = null,
-        ISettingsService?         settingsService         = null)
+        ISettingsService?         settingsService         = null,
+        ICredentialsService?      credentialService       = null,
+        Action<string?>?          applyThemePreference    = null,
+        ILlmCatalogService?       llmCatalogService       = null)
     {
         _sessionService          = sessionService;
         _backendHostService      = backendHostService;
@@ -131,6 +139,8 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         _workspaceService        = workspaceService;
         _permissionPresetService = permissionPresetService ?? EmptyPermissionPresetService.Instance;
         _settingsService         = settingsService         ?? EmptySettingsService.Instance;
+        _credentialsService      = credentialService       ?? EmptyCredentialsService.Instance;
+        _llmCatalogService       = llmCatalogService;
         IsSimulationMode         = isSimulatedMode;
         _postToUi                = postToUi ?? (action => action());
         // 草稿/发送/取消与模型选择已迁入 Composer；失败仍走窗口级 ErrorText（null 表示清除）。
@@ -166,10 +176,20 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
             new RelayCommand<PendingApprovalViewModel>(approval => _ = RespondApprovalAsync(approval, true));
         RejectApprovalCommand =
             new RelayCommand<PendingApprovalViewModel>(approval => _ = RespondApprovalAsync(approval, false));
-        OpenSettingsCommand                   =  new AsyncRelayCommand(OpenSettingsAsync);
+        OpenSettingsCommand = new AsyncRelayCommand(OpenSettingsAsync);
+        // 设置面板子视图模型：服务事件由 root 订阅并经 _postToUi 编组转发（见 OnSettings*），
+        // 面板开合由 root 的 IsSettingsOpen 承担，关闭请求由面板回调 root。
+        // 会话服务供模型分区展示账户路由可见性（与 composer 模型菜单同源），
+        // 目录服务供提供方行列表与添加卡（llm/listConfigurableProviders + llm/discoverModels）。
+        Settings = new SettingsPanelViewModel(_settingsService, _credentialsService,
+                                              applyThemePreference ?? (_ => { }), _postToUi, _sessionService,
+                                              _llmCatalogService);
+        Settings.CloseRequested               += OnSettingsCloseRequested;
         _backendHostService.StatusChanged     += OnBackendStatusChanged;
         _toolApprovalService.ApprovalsChanged += OnApprovalsChanged;
         _workspaceService.WorkspacesChanged   += OnWorkspacesChanged;
+        _settingsService.DocumentUpdated      += OnSettingsDocumentUpdated;
+        _credentialsService.ReferenceUpdated  += OnCredentialsReferenceUpdated;
         // 草稿页发送可用性随输入文本变化；Composer 由本类持有，同生命周期无需退订。
         Composer.PropertyChanged += OnComposerPropertyChanged;
         _assembly                =  CreateAssembly();
@@ -221,8 +241,18 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
 
     public RelayCommand<PendingApprovalViewModel> RejectApprovalCommand { get; }
 
-    /// <summary>打开 DSH 设置文档：经后端 RPC 物化并调起系统编辑器；设置面板 UI 尚未落地，此为当前设置入口。</summary>
+    /// <summary>打开应用内设置面板（侧栏齿轮入口）；面板内仍保留「打开配置文件」系统编辑器入口。</summary>
     public AsyncRelayCommand OpenSettingsCommand { get; }
+
+    /// <summary>设置面板子视图模型：分区投影、即时写引擎与外部改动刷新。</summary>
+    public SettingsPanelViewModel Settings { get; }
+
+    /// <summary>设置面板是否打开（全窗口覆盖层的可见性）。</summary>
+    public bool IsSettingsOpen
+    {
+        get => _isSettingsOpen;
+        private set => SetProperty(ref _isSettingsOpen, value);
+    }
 
     /// <summary>新对话草稿页的工作区选项（含显式「不使用工作区」项）；随工作区投影刷新。</summary>
     public ObservableCollection<WorkspaceOptionViewModel> WorkspaceOptions { get; } = [];
@@ -446,6 +476,9 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         _backendHostService.StatusChanged     -= OnBackendStatusChanged;
         _toolApprovalService.ApprovalsChanged -= OnApprovalsChanged;
         _workspaceService.WorkspacesChanged   -= OnWorkspacesChanged;
+        _settingsService.DocumentUpdated      -= OnSettingsDocumentUpdated;
+        _credentialsService.ReferenceUpdated  -= OnCredentialsReferenceUpdated;
+        Settings.CloseRequested               -= OnSettingsCloseRequested;
     }
 
     /// <summary>把会话提升为已开始（发送被接受/观察到内容或运行的过渡信号），并刷新阶段界面。</summary>
@@ -778,18 +811,30 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         }
     }
 
-    /// <summary>打开 DSH 设置文档（当前唯一设置入口）；模拟实现为空操作，失败写窗口级错误条。</summary>
+    /// <summary>打开应用内设置面板：每次打开都重新 describe 并全量投影（含主题应用）。</summary>
     private async Task OpenSettingsAsync()
     {
-        ErrorText = string.Empty;
-        try
-        {
-            await _settingsService.OpenSettingsDocumentAsync();
-        }
-        catch (Exception exception)
-        {
-            ErrorText = exception.Message;
-        }
+        IsSettingsOpen = true;
+        await Settings.OpenAsync();
+    }
+
+    /// <summary>面板关闭请求（Esc/遮罩/关闭按钮）：收起覆盖层并停用面板的防抖刷新。</summary>
+    private void OnSettingsCloseRequested(object? sender, EventArgs e)
+    {
+        IsSettingsOpen = false;
+        Settings.NotifyClosed();
+    }
+
+    /// <summary>设置文档外部改动回流：root 订阅服务事件，编组转发给面板（面板不自行订阅）。</summary>
+    private void OnSettingsDocumentUpdated(object? sender, SettingsDocumentUpdate e)
+    {
+        _postToUi(() => Settings.HandleDocumentUpdated(e));
+    }
+
+    /// <summary>凭据引用更新回流：编组转发给面板重查凭据状态。</summary>
+    private void OnCredentialsReferenceUpdated(object? sender, EventArgs e)
+    {
+        _postToUi(() => _ = Settings.HandleReferenceUpdatedAsync());
     }
 
     /// <summary>从全量条目重建时间线；折叠资格逐轮判定（窗口内完整覆盖的轮次折叠）。</summary>
@@ -1033,6 +1078,38 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         {
             cancellationToken.ThrowIfCancellationRequested();
             throw new NotSupportedException("当前上下文没有设置服务。");
+        }
+    }
+
+    /// <summary>未提供凭据服务时的空实现：状态查询恒为空（密码圆点隐藏），写入无效果。</summary>
+    private sealed class EmptyCredentialsService : ICredentialsService
+    {
+        public static EmptyCredentialsService Instance { get; } = new();
+
+        public event EventHandler? ReferenceUpdated
+        {
+            add { }
+            remove { }
+        }
+
+        public Task<IReadOnlyDictionary<string, CredentialStatus>> DescribeAsync(
+            IReadOnlyList<string> references, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            IReadOnlyDictionary<string, CredentialStatus> empty = new Dictionary<string, CredentialStatus>();
+            return Task.FromResult(empty);
+        }
+
+        public Task SetAsync(string reference, string value, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.CompletedTask;
+        }
+
+        public Task UnsetAsync(string reference, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.CompletedTask;
         }
     }
 

@@ -1,11 +1,13 @@
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using Avalonia.Styling;
 using Avalonia.Threading;
 using DshDesktop.Core.Services;
 using DshDesktop.Harness.Services.Approvals;
 using DshDesktop.Harness.Services.Changes;
 using DshDesktop.Harness.Services.Connection;
+using DshDesktop.Harness.Services.Llm;
 using DshDesktop.Harness.Services.Permissions;
 using DshDesktop.Harness.Services.Sessions;
 using DshDesktop.Harness.Services.Settings;
@@ -37,6 +39,7 @@ public partial class App : Application
             IPermissionPresetService permissionPresetService;
             ISettingsService        settingsService;
             ICredentialsService     credentialService;
+            ILlmCatalogService      llmCatalogService;
             IWorkspaceChangesService changesService;
             HarnessConnection?     connection      = null;
             var                    isSimulatedMode = true;
@@ -56,6 +59,7 @@ public partial class App : Application
                 // 设置域服务先行装配；设置界面落地时由 ViewModel 消费。
                 settingsService         = new HarnessSettingsService(connection);
                 credentialService       = new HarnessCredentialService(connection);
+                llmCatalogService       = new HarnessLlmCatalogService(connection);
                 // 文件改动域服务先行装配；改动卡片落地时由 ViewModel 消费。
                 changesService          = new HarnessWorkspaceChangesService(connection);
                 isSimulatedMode         = false;
@@ -75,6 +79,7 @@ public partial class App : Application
                 permissionPresetService = simulatedPermissions;
                 settingsService         = new SimulatedSettingsService();
                 credentialService       = new SimulatedCredentialsService();
+                llmCatalogService       = new SimulatedLlmCatalogService();
                 changesService          = new SimulatedWorkspaceChangesService();
             }
 
@@ -84,7 +89,17 @@ public partial class App : Application
                                                     action => Dispatcher.UIThread.Post(action),
                                                     permissionPresetService,
                                                     sidebarPinService,
-                                                    settingsService);
+                                                    settingsService,
+                                                    credentialService,
+                                                    // 设置面板的主题偏好回调：light/dark 原样应用，
+                                                    // 其余（system/缺省）回退跟随系统。
+                                                    preference => Application.Current!.RequestedThemeVariant =
+                                                        preference == "light"
+                                                            ? ThemeVariant.Light
+                                                            : preference == "dark"
+                                                                ? ThemeVariant.Dark
+                                                                : null,
+                                                    llmCatalogService);
             var mainWindow = new MainWindow(viewModel);
             if (configuration.ConfigurationError is { Length: > 0 } error)
             {

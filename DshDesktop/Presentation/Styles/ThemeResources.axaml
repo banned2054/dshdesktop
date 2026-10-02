@@ -78,6 +78,8 @@
             <SolidColorBrush x:Key="PopupForegroundBrush" Color="#F1F1F3" />
             <SolidColorBrush x:Key="PopupMutedForegroundBrush" Color="#A7ABB4" />
             <SolidColorBrush x:Key="PopupDividerBrush" Color="#414244" />
+            <!-- 应用内居中设置面板：弹层语义的独立表面，略深于弹层菜单的 #353638。 -->
+            <SolidColorBrush x:Key="SettingsPanelBackgroundBrush" Color="#2C2C2E" />
             <!-- 消息气泡 -->
             <SolidColorBrush x:Key="UserBubbleBrush" Color="#3B5CCC" />
             <SolidColorBrush x:Key="OnAccentBrush" Color="#FFFFFF" />
@@ -157,6 +159,8 @@
             <SolidColorBrush x:Key="PopupForegroundBrush" Color="#1A1D22" />
             <SolidColorBrush x:Key="PopupMutedForegroundBrush" Color="#70757E" />
             <SolidColorBrush x:Key="PopupDividerBrush" Color="#EDEEF0" />
+            <!-- 应用内居中设置面板（浅色对应：纯白面板）。 -->
+            <SolidColorBrush x:Key="SettingsPanelBackgroundBrush" Color="#FFFFFF" />
             <!-- 文本与状态：label-tertiary / link / warn-label / success / error-primary -->
             <SolidColorBrush x:Key="TextMutedBrush" Color="#81858C" />
             <SolidColorBrush x:Key="AccentTextBrush" Color="#4176E6" />

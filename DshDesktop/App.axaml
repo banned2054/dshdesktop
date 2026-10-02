@@ -20,6 +20,7 @@
         <StyleInclude Source="avares://DshDesktop/Presentation/Styles/Tooling.axaml" />
         <StyleInclude Source="avares://DshDesktop/Presentation/Styles/Sidebar.axaml" />
         <StyleInclude Source="avares://DshDesktop/Presentation/Styles/Composer.axaml" />
+        <StyleInclude Source="avares://DshDesktop/Presentation/Styles/Settings.axaml" />
         <!-- 标题栏样式与窗口装饰主题（caption 按钮）最后引入。 -->
         <StyleInclude Source="avares://DshDesktop/Presentation/Styles/TitleBar.axaml" />
     </Application.Styles>
