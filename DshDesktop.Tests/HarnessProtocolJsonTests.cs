@@ -41,6 +41,28 @@ public sealed class HarnessProtocolJsonTests
     }
 
     [Fact]
+    public void DiscoverModelsRequestSpreadsFlatArgsForGatewayDescriptor()
+    {
+        // llm/discoverModels 是多参方法（settingsNs + request 两形参）：args 必须扁平展开，
+        // 包一层 request 会被网关以 arguments-invalid（missing "settingsNs"）拒绝（真实后端已验证）。
+        var body = RpcEnvelope.BuildArgsRequest("rpc-2", "llm/discoverModels",
+                                                new LlmDiscoverModelsRequest(
+                                                    "llm-pi-ai",
+                                                    new LlmDiscoveryProbeRequest("glm", "https://relay.example/v1",
+                                                                                 "openai-completions", null)),
+                                                HarnessJsonContext.Default.LlmDiscoverModelsRequest);
+
+        using var document = JsonDocument.Parse(body);
+        var       args    = document.RootElement.GetProperty("payload").GetProperty("args");
+        Assert.Equal("llm-pi-ai", args.GetProperty("settingsNs").GetString());
+        var probe = args.GetProperty("request");
+        Assert.Equal("glm", probe.GetProperty("provider").GetString());
+        Assert.Equal("https://relay.example/v1", probe.GetProperty("baseURL").GetString());
+        Assert.Equal("openai-completions", probe.GetProperty("api").GetString());
+        Assert.False(probe.TryGetProperty("apiKey", out _));
+    }
+
+    [Fact]
     public void SessionAddressSerializesAsKindSession()
     {
         var element =
