@@ -363,8 +363,11 @@ public sealed class HarnessSessionService : ISessionService
         }
     }
 
-    /// <summary>follow 帧到会话更新的映射；快照统计随快照作为独立更新紧随其后。</summary>
-    private IEnumerable<SessionUpdate> MapFollowFrame(FollowFrame frame)
+    /// <summary>
+    ///     follow 帧到会话更新的映射；快照统计随快照作为独立更新紧随其后，
+    ///     快照窗口内的 workspace/changes 事件同样按记录顺序透出。
+    /// </summary>
+    internal static IEnumerable<SessionUpdate> MapFollowFrame(FollowFrame frame)
     {
         switch (frame)
         {
@@ -380,6 +383,11 @@ public sealed class HarnessSessionService : ISessionService
 
                 if (snapshot.CurrentPermission is { } permission)
                     yield return new SessionUpdate.PermissionsUpdated(permission, snapshot.ProjectionAsOfSeq);
+
+                // 快照窗口内的改动摘要宣告随重放透出，历史轮次的改动卡片不因折叠而缺失。
+                foreach (var wireEvent in snapshot.Records)
+                    if (WireEventJson.TryGetWorkspaceChanges(wireEvent, out var snapshotChangedTurn))
+                        yield return new SessionUpdate.WorkspaceChanged(snapshotChangedTurn, wireEvent.Seq);
 
                 break;
 
@@ -422,6 +430,10 @@ public sealed class HarnessSessionService : ISessionService
                     yield return new SessionUpdate.ModelSelected(new ModelSelection(selection.Provider,
                                                                           selection.Model,
                                                                           selection.ReasoningEffort));
+                }
+                else if (WireEventJson.TryGetWorkspaceChanges(wireEvent, out var changedTurn))
+                {
+                    yield return new SessionUpdate.WorkspaceChanged(changedTurn, wireEvent.Seq);
                 }
 
                 break;

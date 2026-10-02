@@ -91,6 +91,14 @@ public static class WireEventJson
                TryGetNumber(wireEvent.Data, "step", out step);
     }
 
+    /// <summary>workspace/changes 事件：一轮文件改动摘要宣告，载荷为轮次序号。</summary>
+    public static bool TryGetWorkspaceChanges(SessionWireEvent wireEvent, out long turn)
+    {
+        turn = 0;
+        return wireEvent is { Type: "workspace/changes", Data.ValueKind: JsonValueKind.Object } &&
+               TryGetNumber(wireEvent.Data, "turn", out turn);
+    }
+
     /// <summary>turn/end 边界事件的轮次序号。</summary>
     public static bool TryGetTurnEnd(SessionWireEvent wireEvent, out long turn)
     {

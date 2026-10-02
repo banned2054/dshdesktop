@@ -276,6 +276,52 @@ public sealed class HarnessConnection(Func<CancellationToken, Task<BackendConnec
     }
 
     /// <summary>
+    ///     调用认证 GET 路由（裸 JSON 返回值，无 RPC 信封），如 changes.summary/changes.diff。
+    ///     404 表示后端不再持有该资源，返回 null 且不重试；其余 4xx 属永久性业务错误
+    ///     （无信封，等价于 RPC 的 ok=false），以 HarnessRpcException 终态抛出不重试；
+    ///     5xx 与传输失败按退避重试，语义同只读一元调用。
+    /// </summary>
+    public async Task<TValue?> GetAsync<TValue>(string               route,
+                                                string               query,
+                                                JsonTypeInfo<TValue> valueType,
+                                                CancellationToken    cancellationToken)
+    {
+        for (var attempt = 0;; attempt++)
+            try
+            {
+                await EnsureConnectedAsync(cancellationToken).ConfigureAwait(false);
+                var http = CurrentHttp()
+                        ?? throw new HarnessConnectionException("连接尚未建立。");
+                using var response = await http
+                                   .GetAsync(new Uri($"/{route}?{query}", UriKind.Relative), cancellationToken)
+                                   .ConfigureAwait(false);
+                if (response.StatusCode == HttpStatusCode.NotFound) return default;
+                if (!response.IsSuccessStatusCode)
+                {
+                    // 其余 4xx 是永久性业务错误（无信封，等价于 RPC 的 ok=false）：终态不重试。
+                    if ((int)response.StatusCode is >= 400 and < 500)
+                        throw new HarnessRpcException($"http/{(int)response.StatusCode}",
+                                                      $"GET {route} 失败：HTTP {(int)response.StatusCode}。");
+                    throw new HarnessConnectionException($"GET {route} 失败：HTTP {(int)response.StatusCode}。");
+                }
+
+                var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    return JsonSerializer.Deserialize(json, valueType);
+                }
+                catch (JsonException exception)
+                {
+                    throw new HarnessConnectionException($"GET {route} 响应无法解析。", exception);
+                }
+            }
+            catch (HarnessConnectionException) when (attempt < UnaryRetryAttempts - 1)
+            {
+                await Task.Delay(NextBackoff(attempt), cancellationToken).ConfigureAwait(false);
+            }
+    }
+
+    /// <summary>
     ///     订阅会话流。载波错误由实现恢复：重建连接代后重新打开流，
     ///     消费者会先收到新的 Snapshot（整窗替换语义）。
     ///     业务错误（HarnessRpcException）是终态，直接抛出。

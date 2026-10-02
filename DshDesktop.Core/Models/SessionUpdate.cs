@@ -65,6 +65,13 @@ public abstract record SessionUpdate
     /// <summary>一轮对话收束（turn/end）：界面据此折叠该轮的过程条目；Reason 为结束原因。</summary>
     public sealed record TurnEnded(long Turn, long Seq, string? Reason = null) : SessionUpdate;
 
+    /// <summary>
+    ///     一轮文件改动摘要已宣告（workspace/changes 持久事件，快照重放同样到达）。
+    ///     <see cref="Seq" /> 是取回摘要与逐文件对比的定位键；同一轮后到的事件取代先前事件。
+    ///     内容本身不随事件携带，经 IWorkspaceChangesService 按 Seq 拉取。
+    /// </summary>
+    public sealed record WorkspaceChanged(long Turn, long Seq) : SessionUpdate;
+
     public sealed record StreamStarted(string AttemptId) : SessionUpdate;
 
     public sealed record StreamTextDelta(string AttemptId, string Text) : SessionUpdate;

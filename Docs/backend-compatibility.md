@@ -49,11 +49,13 @@
 | `settings/openSettingsDocument` | `{}`，物化 patch 文档并调系统编辑器 | 返回 `{opened:true}`；形参 signal 为中止信号，本端映射 CancellationToken |
 | `credentials/set` | `{ref,value}`，写入凭据值（不可读取回） | ref 语法 `^[A-Za-z_][A-Za-z0-9_]*$`、value 非空；`credential/rejected` 的 message 为 seam 原文，须原样展示 |
 | `credentials/unset` | `{ref}`，移除凭据值 | 同上 |
+| `GET api/changes.summary` | `?sessionId&seq`，读取一轮改动的文件摘要（认证 GET 路由，非 RPC 信封，返回裸 JSON） | 返回 `turn/files/total/added/deleted`；Host 保留 `cwd` 与 snapshot id 不下发；`maxFiles` 截断后 `total` 仍为全量计数；404=内容已不可用（会话销毁或 Host 重启），本端归一为 null 不重试；其余 4xx 为永久性错误按终态异常抛出不重试 |
+| `GET api/changes.diff` | `?sessionId&seq&index`，读取摘要中第 index 个文件的轮首/轮末对比（同上） | `kind:text`（`before/after/hunks/coarse`，hunk 3 行上下文、行带 +/-/空格前缀）/`binary`/`oversized`；404 语义同上，索引越界亦 404 |
 | `$events/result` | `{request:{clientId,eventId,outcome}}`，交互回执 | 事件代、取消与过期回执；审批使用 result，未支持的 waterfall 使用 rejected |
 | `permissionPresets/catalog` | `{}`，权限预设目录 | `options[].value/name/description`、`defaultPreset` 及目录变更广播；0.2.0 另返回 `defaultOptions`（本端忽略），AUTO 预设审批策略为 ask（原 never） |
 | `commands/execute` | `{agentId,line:"/permission <preset>",submittedAttachments:[]}`，切换权限 | args 为扁平命名参数；无命令时值缺失；RPC 成功不等于预设已生效，须等待投影 |
 
-消费入口：[会话服务](../DshDesktop.Harness/Services/Sessions/HarnessSessionService.cs)、[工作区服务](../DshDesktop.Harness/Services/Workspaces/HarnessWorkspaceService.cs)、[权限服务](../DshDesktop.Harness/Services/Permissions/HarnessPermissionPresetService.cs)、[设置服务](../DshDesktop.Harness/Services/Settings/HarnessSettingsService.cs)、[凭据服务](../DshDesktop.Harness/Services/Settings/HarnessCredentialService.cs)、[连接与回执](../DshDesktop.Harness/Services/Connection/HarnessConnection.cs)。
+消费入口：[会话服务](../DshDesktop.Harness/Services/Sessions/HarnessSessionService.cs)、[工作区服务](../DshDesktop.Harness/Services/Workspaces/HarnessWorkspaceService.cs)、[权限服务](../DshDesktop.Harness/Services/Permissions/HarnessPermissionPresetService.cs)、[设置服务](../DshDesktop.Harness/Services/Settings/HarnessSettingsService.cs)、[凭据服务](../DshDesktop.Harness/Services/Settings/HarnessCredentialService.cs)、[文件改动服务](../DshDesktop.Harness/Services/Changes/HarnessWorkspaceChangesService.cs)、[连接与回执](../DshDesktop.Harness/Services/Connection/HarnessConnection.cs)。
 
 `agentPresets/list`、用户问题交互、附件与插件管理不能从后端存在相应能力推定为本端已支持；`workspace/unarchiveSession` 与归档筛选/恢复界面当前未接入（本端归档后行隐藏，恢复入口待后续）。
 
@@ -71,7 +73,7 @@
 - `sessionListMetadata.blank` 是空白核实依据，缺失元数据保持 Unknown；不能用标题、Token、缓存缺失或一时没有气泡来推断空白。
 - `modelSelection` 读取 `next`，再回退 `lastUsed`；推理档位来自模型目录，模型不支持的档位应回退其默认档位，无元数据时省略显式档位。
 - `tokenUsage/sessionStats` 支撑 Token、缓存命中和生成速度展示；`permissions.currentValue` 是已创建会话的当前权限依据，点选请求不乐观改写它。
-- 持久化事件中的 `user/message`、`assistant/message`、`tool/call`、`tool/result`、`turn/end` 及消息块、`source.kind`、中断标记影响时间线。工具身份和结果位置、注入上下文过滤、轮次边界与流式结束语义均需要真实样本核对。
+- 持久化事件中的 `user/message`、`assistant/message`、`tool/call`、`tool/result`、`turn/end` 及消息块、`source.kind`、中断标记影响时间线。工具身份和结果位置、注入上下文过滤、轮次边界与流式结束语义均需要真实样本核对。`workspace/changes`（载荷 `{turn}`）经 session/follow 透出为会话更新（同 seq 定位键拉取 changes.summary/diff），同一轮后到事件取代先前事件；摘要与对比内容只存于 Host 进程内存，不随会话日志持久化，Host 重启后按官方行为作废。
 
 解析入口：[FollowFrames](../DshDesktop.Harness/Models/Events/FollowFrames.cs)、[SessionControlFrames](../DshDesktop.Harness/Models/Events/SessionControlFrames.cs)、[AssistantStreamFrames](../DshDesktop.Harness/Models/Events/AssistantStreamFrames.cs)、[RemoteEventFrames](../DshDesktop.Harness/Models/Events/RemoteEventFrames.cs)。
 
@@ -159,5 +161,6 @@
 | 2026-10-01 | 置顶迁出后端协议（不再消费 workspace/pinSession·unpinSession 与 pinned 帧），改为本端自有置顶（本地配置文件持久化）与侧栏置顶分类（工作区在上、会话在下，同类按更新时间排序，工作区与其中置顶会话并列）；协议与 VM 测试 201 通过、0 失败、8 跳过，build 0 错误 | 置顶分类未做 GUI 手工冒烟；AOT 未重验（含新增 Infrastructure JSON 源生成上下文）；归档链路沿用 09-30 结论 |
 | 2026-10-01 | 后端基线升至 0.2.0-rc.2：checkout master 快进至 639ed01539 并重建，launcher 冒烟 ready 与干净关停；09-29 审计后新增的消费面（分叉/重命名/归档/权限预设/agentPreset 绑定及相关事件帧）逐项核对 0.2.0 源码全部兼容；客户端代码零修改，详见历史兼容性记录 | 真实 GUI、RealBackendE2E 复跑、Native AOT、macOS/Linux 未验证；AUTO 预设审批 ask 的行为变化待 GUI 观察 |
 | 2026-10-02 | settings/credentials RPC 域客户端接入层实现：Core 契约（ISettingsService/ICredentialsService、视图模型、conflict/rejected 异常）、Harness DTO 与错误映射、`settings/document-updated` 与 `credentials/reference-updated` 事件帧、Simulated 内存实现与 App 装配；事件名/形参名对照 0.2.0-rc.2 源码核实（settings-controller、remote-events.ts）；测试 241 通过、0 失败、8 跳过，build 0 错误；Windows x64 AOT 发布通过 | 真实后端 settings/credentials 往返、设置 GUI、AOT 产物启动核对、macOS/Linux 未验证；设置界面尚未接入 ViewModel |
+| 2026-10-02 | 文件改动域接入层实现：Core 契约（IWorkspaceChangesService、summary/diff 模型、SessionUpdate.WorkspaceChanged）、认证 GET 通道（404 归一 null 不重试）、`workspace/changes` 事件解析与 follow 流映射、Simulated 固定种子实现与 App 装配；路由与载荷对照 0.2.0-rc.2 源码核实（workspace-changes 插件、ui-deliverables present-open.ts：summary 只下发 turn/files/total/added/deleted，diff 按 kind=text/binary/oversized）；测试 247 通过、0 失败、8 跳过，build 0 错误 0 新警告 | 真实后端 changes 往返（404 语义、长 diff、binary/oversized 实样）、改动卡片 GUI、AOT、macOS/Linux 未验证；改动 UI 尚未接入 ViewModel |
 
 用户问题、附件、设置、偏好持久化和高级原生界面尚未实现。断线专项、长会话性能、输入法/快捷键、Markdown 复制与部分富元素交互仍需验证；这些是当前缺口和证据边界，不表示已安排执行。

@@ -1006,6 +1006,45 @@ public sealed class HarnessProtocolJsonTests
     }
 
     [Fact]
+    public void FollowSnapshotReplaysWorkspaceChangesRecordsAfterSnapshotUpdate()
+    {
+        var frame = FollowFrameJson.Parse(JsonDocument.Parse("""
+                                                             {"type": "snapshot",
+                                                              "header": {"version": 4, "id": "session-1", "createdAt": 1700000000000, "isSeeded": false},
+                                                              "cursor": 5,
+                                                              "records": [
+                                                                {"type": "event", "event": {"type": "workspace/changes", "seq": 3, "time": 1700000003000, "data": {"turn": 1}}},
+                                                                {"type": "event", "event": {"type": "workspace/changes", "seq": 5, "time": 1700000005000, "data": {"turn": 2}}}],
+                                                              "hasMore": false}
+                                                             """).RootElement.Clone());
+        var snapshotFrame = Assert.IsType<FollowFrame.Snapshot>(frame);
+
+        var updates = HarnessSessionService.MapFollowFrame(snapshotFrame).ToList();
+
+        // 快照窗口内的改动摘要按记录顺序重放，且位于整窗替换之后。
+        Assert.Equal(3, updates.Count);
+        Assert.IsType<SessionUpdate.Snapshot>(updates[0]);
+        var first  = Assert.IsType<SessionUpdate.WorkspaceChanged>(updates[1]);
+        var second = Assert.IsType<SessionUpdate.WorkspaceChanged>(updates[2]);
+        Assert.Equal((1L, 3L), (first.Turn, first.Seq));
+        Assert.Equal((2L, 5L), (second.Turn, second.Seq));
+    }
+
+    [Fact]
+    public void WorkspaceChangesEventFrameMapsToWorkspaceChangedUpdate()
+    {
+        var frame = FollowFrameJson.Parse(JsonDocument.Parse("""
+                                                             {"type": "event",
+                                                              "event": {"type": "workspace/changes", "seq": 41, "time": 1727840000000, "data": {"turn": 3}}}
+                                                             """).RootElement.Clone());
+
+        var updates = HarnessSessionService.MapFollowFrame(Assert.IsType<FollowFrame.EventFrame>(frame)).ToList();
+
+        var changed = Assert.IsType<SessionUpdate.WorkspaceChanged>(Assert.Single(updates));
+        Assert.Equal((3L, 41L), (changed.Turn, changed.Seq));
+    }
+
+    [Fact]
     public void EmitFrameParsesPermissionCatalogChangedEvent()
     {
         var frame = RemoteEventJson.Parse(JsonDocument

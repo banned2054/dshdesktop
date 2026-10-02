@@ -4,6 +4,7 @@ using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
 using DshDesktop.Core.Services;
 using DshDesktop.Harness.Services.Approvals;
+using DshDesktop.Harness.Services.Changes;
 using DshDesktop.Harness.Services.Connection;
 using DshDesktop.Harness.Services.Permissions;
 using DshDesktop.Harness.Services.Sessions;
@@ -34,8 +35,9 @@ public partial class App : Application
             IBackendHostService    backendService;
             IToolApprovalService   toolApprovalService;
             IPermissionPresetService permissionPresetService;
-            ISettingsService       settingsService;
-            ICredentialsService    credentialService;
+            ISettingsService        settingsService;
+            ICredentialsService     credentialService;
+            IWorkspaceChangesService changesService;
             HarnessConnection?     connection      = null;
             var                    isSimulatedMode = true;
 
@@ -54,6 +56,8 @@ public partial class App : Application
                 // 设置域服务先行装配；设置界面落地时由 ViewModel 消费。
                 settingsService         = new HarnessSettingsService(connection);
                 credentialService       = new HarnessCredentialService(connection);
+                // 文件改动域服务先行装配；改动卡片落地时由 ViewModel 消费。
+                changesService          = new HarnessWorkspaceChangesService(connection);
                 isSimulatedMode         = false;
             }
             else
@@ -71,6 +75,7 @@ public partial class App : Application
                 permissionPresetService = simulatedPermissions;
                 settingsService         = new SimulatedSettingsService();
                 credentialService       = new SimulatedCredentialsService();
+                changesService          = new SimulatedWorkspaceChangesService();
             }
 
             var viewModel = new MainWindowViewModel(sessionService, backendService, workspaceService,
