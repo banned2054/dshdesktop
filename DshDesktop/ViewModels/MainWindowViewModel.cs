@@ -4,6 +4,7 @@ using DshDesktop.Harness.Exceptions;
 using DshDesktop.Services.Conversations;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Text.Json;
 
 namespace DshDesktop.ViewModels;
 
@@ -26,6 +27,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
 
     private readonly IPermissionPresetService _permissionPresetService;
     private readonly ISessionService          _sessionService;
+    private readonly ISettingsService         _settingsService;
     private readonly IToolApprovalService     _toolApprovalService;
     private readonly IWorkspaceService        _workspaceService;
 
@@ -99,7 +101,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     /// <summary>
     ///     保持旧测试与宿主构造调用的兼容性。未提供审批服务时，界面没有审批来源，
     ///     但纯会话测试不应因此必须组装基础设施实现；未提供置顶服务时界面同样没有
-    ///     置顶来源（空实现，集合恒空且不持久化）。
+    ///     置顶来源（空实现，集合恒空且不持久化）；未提供设置服务时没有设置文档入口。
     /// </summary>
     public MainWindowViewModel(
         ISessionService     sessionService,
@@ -120,13 +122,15 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         bool                      isSimulatedMode         = true,
         Action<Action>?           postToUi                = null,
         IPermissionPresetService? permissionPresetService = null,
-        ISidebarPinService?       sidebarPinService       = null)
+        ISidebarPinService?       sidebarPinService       = null,
+        ISettingsService?         settingsService         = null)
     {
         _sessionService          = sessionService;
         _backendHostService      = backendHostService;
         _toolApprovalService     = toolApprovalService;
         _workspaceService        = workspaceService;
         _permissionPresetService = permissionPresetService ?? EmptyPermissionPresetService.Instance;
+        _settingsService         = settingsService         ?? EmptySettingsService.Instance;
         IsSimulationMode         = isSimulatedMode;
         _postToUi                = postToUi ?? (action => action());
         // 草稿/发送/取消与模型选择已迁入 Composer；失败仍走窗口级 ErrorText（null 表示清除）。
@@ -162,6 +166,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
             new RelayCommand<PendingApprovalViewModel>(approval => _ = RespondApprovalAsync(approval, true));
         RejectApprovalCommand =
             new RelayCommand<PendingApprovalViewModel>(approval => _ = RespondApprovalAsync(approval, false));
+        OpenSettingsCommand                   =  new AsyncRelayCommand(OpenSettingsAsync);
         _backendHostService.StatusChanged     += OnBackendStatusChanged;
         _toolApprovalService.ApprovalsChanged += OnApprovalsChanged;
         _workspaceService.WorkspacesChanged   += OnWorkspacesChanged;
@@ -215,6 +220,9 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     public RelayCommand<PendingApprovalViewModel> ApproveApprovalCommand { get; }
 
     public RelayCommand<PendingApprovalViewModel> RejectApprovalCommand { get; }
+
+    /// <summary>打开 DSH 设置文档：经后端 RPC 物化并调起系统编辑器；设置面板 UI 尚未落地，此为当前设置入口。</summary>
+    public AsyncRelayCommand OpenSettingsCommand { get; }
 
     /// <summary>新对话草稿页的工作区选项（含显式「不使用工作区」项）；随工作区投影刷新。</summary>
     public ObservableCollection<WorkspaceOptionViewModel> WorkspaceOptions { get; } = [];
@@ -770,6 +778,20 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         }
     }
 
+    /// <summary>打开 DSH 设置文档（当前唯一设置入口）；模拟实现为空操作，失败写窗口级错误条。</summary>
+    private async Task OpenSettingsAsync()
+    {
+        ErrorText = string.Empty;
+        try
+        {
+            await _settingsService.OpenSettingsDocumentAsync();
+        }
+        catch (Exception exception)
+        {
+            ErrorText = exception.Message;
+        }
+    }
+
     /// <summary>从全量条目重建时间线；折叠资格逐轮判定（窗口内完整覆盖的轮次折叠）。</summary>
     private void RebuildTimeline()
     {
@@ -964,6 +986,53 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         {
             cancellationToken.ThrowIfCancellationRequested();
             return Task.FromResult(false);
+        }
+    }
+
+    /// <summary>无设置来源时的降级实现：只读/写入一律拒绝，避免测试构造被迫组装基础设施实现。</summary>
+    private sealed class EmptySettingsService : ISettingsService
+    {
+        public static EmptySettingsService Instance { get; } = new();
+
+        public event EventHandler<SettingsDocumentUpdate>? DocumentUpdated
+        {
+            add { }
+            remove { }
+        }
+
+        public Task<SettingsDescribeValue> DescribeAsync(CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            throw new NotSupportedException("当前上下文没有设置服务。");
+        }
+
+        public Task<SettingsNamespaceView> UpdateAsync(string ns, JsonElement patch, long? expectedRevision = null,
+                                                       CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            throw new NotSupportedException("当前上下文没有设置服务。");
+        }
+
+        public Task<SettingsNamespaceView> ReplaceAsync(
+            string            ns, JsonElement section, long? expectedRevision = null,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            throw new NotSupportedException("当前上下文没有设置服务。");
+        }
+
+        public Task<SettingsNamespaceView> MutateAsync(
+            string            ns, IReadOnlyList<SettingsMutationOp> ops, long? expectedRevision = null,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            throw new NotSupportedException("当前上下文没有设置服务。");
+        }
+
+        public Task OpenSettingsDocumentAsync(CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            throw new NotSupportedException("当前上下文没有设置服务。");
         }
     }
 

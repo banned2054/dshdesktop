@@ -49,12 +49,13 @@ Windows is the current development and validation platform. macOS and Linux are 
 - Model selection with reasoning levels filtered by model capabilities, plus token usage, cache-hit rate, and generation-speed statistics.
 - Session permission presets and local draft preselection, with confirmation for full-access or automatic modes and backend projections confirming the active session value.
 - Tool approval prompts with allow-once and reject actions.
+- A settings entry at the right of the sidebar status bar: opens the DSH settings document (materialized by the backend, then launched in the system editor).
 - Explicit Harness host startup, authentication, shutdown, and child-process cleanup.
 - Compiled XAML bindings, source-generated JSON serialization, and previous Windows x64 Native AOT publishing verification. Recent changes have not all been republished with AOT.
 
 ## 🗺️ Current Limitations
 
-- User-question prompts, attachments, settings, and preference persistence are not implemented. Drafts are retained only within the running application.
+- User-question prompts, attachments, the settings panel, and preference persistence are not implemented (a settings-document open entry exists; the panel UI and preference persistence are still missing). Drafts are retained only within the running application.
 - Workspace support covers registration, selection, session grouping, renaming, and deletion; session pin, archive, fork, and rename plus workspace pinning are wired up, while unarchive entry and archived filtering are not yet implemented; there is no custom agent-preset catalog.
 - Terminal, file and diff previews, and plugin-management interfaces are not implemented.
 - Reconnect behavior, long-session performance, shortcuts, input methods, and some popup and rich-text interactions still need further GUI or real-backend validation.

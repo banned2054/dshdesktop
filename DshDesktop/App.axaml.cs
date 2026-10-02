@@ -83,7 +83,8 @@ public partial class App : Application
                                                     isSimulatedMode,
                                                     action => Dispatcher.UIThread.Post(action),
                                                     permissionPresetService,
-                                                    sidebarPinService);
+                                                    sidebarPinService,
+                                                    settingsService);
             var mainWindow = new MainWindow(viewModel);
             if (configuration.ConfigurationError is { Length: > 0 } error)
             {

@@ -580,15 +580,32 @@
                     Background="{DynamicResource PanelBackgroundBrush}"
                     CornerRadius="10">
                 <StackPanel Spacing="7">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <Ellipse Width="8" Height="8" VerticalAlignment="Center"
-                                 Fill="{DynamicResource StatusConnectedBrush}"
-                                 IsVisible="{Binding IsBackendConnected}" />
-                        <Ellipse Width="8" Height="8" VerticalAlignment="Center"
-                                 Fill="{DynamicResource TextMutedBrush}"
-                                 IsVisible="{Binding IsBackendDisconnected}" />
-                        <TextBlock Text="{Binding BackendStatusText}" FontSize="12" />
-                    </StackPanel>
+                    <!-- 状态行右侧挤入设置按钮：点击经后端 RPC 打开 DSH 设置文档
+                         （系统编辑器）；设置面板 UI 未落地前这是唯一设置入口。 -->
+                    <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <Ellipse Width="8" Height="8" VerticalAlignment="Center"
+                                     Fill="{DynamicResource StatusConnectedBrush}"
+                                     IsVisible="{Binding IsBackendConnected}" />
+                            <Ellipse Width="8" Height="8" VerticalAlignment="Center"
+                                     Fill="{DynamicResource TextMutedBrush}"
+                                     IsVisible="{Binding IsBackendDisconnected}" />
+                            <TextBlock Text="{Binding BackendStatusText}" FontSize="12"
+                                       TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                        <Button Grid.Column="1" Classes="sidebar-icon"
+                                AutomationProperties.Name="设置"
+                                ToolTip.Tip="设置"
+                                Command="{Binding OpenSettingsCommand}">
+                            <!-- Path 尺寸须等于图标 viewBox（16），Stretch=None 时按几何
+                                 原始坐标绘制，槽小于域会溢出布局框导致图标偏离圆心。 -->
+                            <Path Width="16" Height="16"
+                                  Data="{StaticResource Icon.SettingsOutlineRegular}"
+                                  Stroke="{DynamicResource TextMutedBrush}" StrokeThickness="1"
+                                  StrokeLineCap="Round"
+                                  HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Button>
+                    </Grid>
                     <TextBlock Text="{Binding BackendErrorDetail}" Classes="caption" TextWrapping="Wrap"
                                IsVisible="{Binding HasBackendError}" />
                     <TextBlock Text="{Binding SimulationNotice}" Classes="caption" TextWrapping="Wrap"
