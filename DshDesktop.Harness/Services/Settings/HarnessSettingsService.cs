@@ -1,5 +1,3 @@
-using System.Text.Json;
-using System.Text.Json.Serialization.Metadata;
 using DshDesktop.Core.Models;
 using DshDesktop.Core.Services;
 using DshDesktop.Harness.Exceptions;
@@ -8,6 +6,8 @@ using DshDesktop.Harness.Models.Events;
 using DshDesktop.Harness.Models.Requests;
 using DshDesktop.Harness.Models.Responses;
 using DshDesktop.Harness.Services.Connection;
+using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 
 namespace DshDesktop.Harness.Services.Settings;
 

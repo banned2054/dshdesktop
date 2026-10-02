@@ -3,7 +3,6 @@ using DshDesktop.Harness.Exceptions;
 using DshDesktop.Harness.Json;
 using DshDesktop.Harness.Models.Events;
 using DshDesktop.Harness.Models.Requests;
-using DshDesktop.Harness.Models.Responses;
 using DshDesktop.Harness.Services.Connection;
 using DshDesktop.Harness.Services.Settings;
 using System.Text.Json;

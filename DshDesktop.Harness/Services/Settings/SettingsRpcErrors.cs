@@ -1,7 +1,7 @@
-using System.Diagnostics.CodeAnalysis;
-using System.Text.Json;
 using DshDesktop.Core.Exceptions;
 using DshDesktop.Harness.Exceptions;
+using System.Diagnostics.CodeAnalysis;
+using System.Text.Json;
 
 namespace DshDesktop.Harness.Services.Settings;
 
