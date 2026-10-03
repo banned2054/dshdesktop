@@ -1,12 +1,13 @@
 using DshDesktop.Core.Models;
 using DshDesktop.Infrastructure.Services;
-using Xunit;
+using NUnit.Framework;
+using NUnit.Framework.Legacy;
 
 namespace DshDesktop.Tests;
 
 public sealed class SimulatedSessionServiceTests
 {
-    [Fact]
+    [Test]
     public async Task SessionsAreReturnedInMostRecentlyUpdatedOrder()
     {
         var service = new SimulatedSessionService();
@@ -14,14 +15,14 @@ public sealed class SimulatedSessionServiceTests
         var sessions = await service.GetSessionsAsync();
 
         // 长会话翻页是模拟模式的功能演示会话，置为最新；其余按更新时间倒序。
-        Assert.Equal(4, sessions.Count);
-        Assert.Equal("session-history", sessions[0].Id);
-        Assert.Equal("session-welcome", sessions[1].Id);
-        Assert.True(sessions[0].UpdatedAt >= sessions[1].UpdatedAt);
-        Assert.True(sessions[1].UpdatedAt >= sessions[2].UpdatedAt);
+        ClassicAssert.AreEqual(4, sessions.Count);
+        ClassicAssert.AreEqual("session-history", sessions[0].Id);
+        ClassicAssert.AreEqual("session-welcome", sessions[1].Id);
+        ClassicAssert.IsTrue(sessions[0].UpdatedAt >= sessions[1].UpdatedAt);
+        ClassicAssert.IsTrue(sessions[1].UpdatedAt >= sessions[2].UpdatedAt);
     }
 
-    [Fact]
+    [Test]
     public async Task SendingMessagePersistsUserMessageAndSignalsChange()
     {
         var service     = new SimulatedSessionService();
@@ -31,12 +32,12 @@ public sealed class SimulatedSessionServiceTests
         await service.SendPromptAsync("session-native", "request-1", "请给我一个摘要");
         var messages = await service.GetMessagesAsync("session-native");
 
-        Assert.Equal(MessageRole.User, messages[^1].Role);
-        Assert.Equal("请给我一个摘要", messages[^1].Content);
-        Assert.Equal(1, changeCount);
+        ClassicAssert.AreEqual(MessageRole.User, messages[^1].Role);
+        ClassicAssert.AreEqual("请给我一个摘要", messages[^1].Content);
+        ClassicAssert.AreEqual(1, changeCount);
     }
 
-    [Fact]
+    [Test]
     public async Task FollowSessionEmitsSnapshotThenPushedUpdates()
     {
         var       service      = new SimulatedSessionService();
@@ -58,18 +59,18 @@ public sealed class SimulatedSessionServiceTests
         await followTask;
         cancellation.Cancel();
 
-        Assert.IsType<SessionUpdate.Snapshot>(updates[0]);
+        ClassicAssert.IsInstanceOf<SessionUpdate.Snapshot>(updates[0]);
         // 快照紧随统计整值基线（与真实后端快照投影同位）。
-        Assert.IsType<SessionUpdate.UsageUpdated>(updates[1]);
-        Assert.IsType<SessionUpdate.StatsUpdated>(updates[2]);
-        Assert.Contains(updates, update => update is SessionUpdate.MessageAppended
+        ClassicAssert.IsInstanceOf<SessionUpdate.UsageUpdated>(updates[1]);
+        ClassicAssert.IsInstanceOf<SessionUpdate.StatsUpdated>(updates[2]);
+        Assert.That(updates.Any(update => update is SessionUpdate.MessageAppended
         {
             Message.Role: MessageRole.Assistant
-        });
-        Assert.Contains(updates, update => update is SessionUpdate.StreamTextDelta);
+        }), Is.True);
+        Assert.That(updates.Any(update => update is SessionUpdate.StreamTextDelta), Is.True);
     }
 
-    [Fact]
+    [Test]
     public async Task SnapshotCarriesAccountedUsageAndReplyAccumulates()
     {
         var       service      = new SimulatedSessionService();
@@ -85,17 +86,17 @@ public sealed class SimulatedSessionServiceTests
         await WaitForAsync(() => updates.OfType<SessionUpdate.UsageUpdated>().Any());
         var baseline = updates.OfType<SessionUpdate.UsageUpdated>().First().Usage;
         // 预置会话两条助手消息：至少两步计费，四桶非零。
-        Assert.True(baseline.OutputTokens        > 0);
-        Assert.True(baseline.CacheReadTokens     > 0);
-        Assert.True(baseline.UncachedInputTokens > 0);
+        ClassicAssert.IsTrue(baseline.OutputTokens        > 0);
+        ClassicAssert.IsTrue(baseline.CacheReadTokens     > 0);
+        ClassicAssert.IsTrue(baseline.UncachedInputTokens > 0);
 
         service.PushAssistantReply("session-welcome", "一段会累计输出 token 的回复内容");
         await WaitForAsync(() => updates.OfType<SessionUpdate.UsageUpdated>().Count() >= 2);
         var afterReply = updates.OfType<SessionUpdate.UsageUpdated>().Last().Usage;
-        Assert.True(afterReply.OutputTokens > baseline.OutputTokens);
+        ClassicAssert.IsTrue(afterReply.OutputTokens > baseline.OutputTokens);
         // 统计更新带单调 seq（快照与增量共用同一时间线）。
-        Assert.True(updates.OfType<SessionUpdate.StatsUpdated>().Last().Seq >=
-                    updates.OfType<SessionUpdate.StatsUpdated>().First().Seq);
+        ClassicAssert.IsTrue(updates.OfType<SessionUpdate.StatsUpdated>().Last().Seq >=
+                             updates.OfType<SessionUpdate.StatsUpdated>().First().Seq);
         cancellation.Cancel();
         try
         {
@@ -110,10 +111,10 @@ public sealed class SimulatedSessionServiceTests
         await using var reopen = service.FollowSessionAsync("session-welcome").GetAsyncEnumerator();
         await reopen.MoveNextAsync();
         await reopen.MoveNextAsync();
-        Assert.Equal(afterReply, ((SessionUpdate.UsageUpdated)reopen.Current).Usage);
+        ClassicAssert.AreEqual(afterReply, ((SessionUpdate.UsageUpdated)reopen.Current).Usage);
     }
 
-    [Fact]
+    [Test]
     public async Task CreatingSessionStartsEmptyAndCanBeLoaded()
     {
         var service = new SimulatedSessionService();
@@ -121,12 +122,12 @@ public sealed class SimulatedSessionServiceTests
         var created  = await service.CreateSessionAsync();
         var messages = await service.GetMessagesAsync(created.Id);
 
-        Assert.Equal("新对话", created.Title);
-        Assert.Equal(SessionBlankState.ConfirmedBlank, created.BlankState);
-        Assert.Empty(messages);
+        ClassicAssert.AreEqual("新对话", created.Title);
+        ClassicAssert.AreEqual(SessionBlankState.ConfirmedBlank, created.BlankState);
+        ClassicAssert.IsEmpty(messages);
     }
 
-    [Fact]
+    [Test]
     public async Task EngagedSessionStaysEngagedAcrossListRefresh()
     {
         var service = new SimulatedSessionService();
@@ -137,10 +138,10 @@ public sealed class SimulatedSessionServiceTests
         service.MarkSessionEngaged(created.Id);
         var summary = (await service.GetSessionsAsync()).Single(item => item.Id == created.Id);
 
-        Assert.Equal(SessionBlankState.Engaged, summary.BlankState);
+        ClassicAssert.AreEqual(SessionBlankState.Engaged, summary.BlankState);
     }
 
-    [Fact]
+    [Test]
     public async Task AdoptingExistingSessionReusesItWithoutCreatingNew()
     {
         var service = new SimulatedSessionService();
@@ -148,11 +149,11 @@ public sealed class SimulatedSessionServiceTests
         var second  = await service.CreateSessionAsync("ws-1", first.Id);
 
         // 收养语义：按身份复用同一会话，不新建、不伪造空白摘要。
-        Assert.Equal(first.Id, second.Id);
-        Assert.Equal(1, service.CreatedSessionCount);
+        ClassicAssert.AreEqual(first.Id, second.Id);
+        ClassicAssert.AreEqual(1, service.CreatedSessionCount);
     }
 
-    [Fact]
+    [Test]
     public async Task SelectModelEchoesThroughFollowAndSnapshotCarriesCurrentModel()
     {
         var       service      = new SimulatedSessionService();
@@ -160,8 +161,8 @@ public sealed class SimulatedSessionServiceTests
         using var cancellation = new CancellationTokenSource();
 
         var catalog = await service.GetModelCatalogAsync();
-        Assert.NotNull(catalog.Default);
-        Assert.Equal(2, catalog.Groups.Count);
+        ClassicAssert.IsNotNull(catalog.Default);
+        ClassicAssert.AreEqual(2, catalog.Groups.Count);
 
         var followTask = Task.Run(async () =>
         {
@@ -170,13 +171,13 @@ public sealed class SimulatedSessionServiceTests
         });
 
         await WaitForAsync(() => updates.Count >= 1);
-        Assert.IsType<SessionUpdate.Snapshot>(updates[0]);
+        ClassicAssert.IsInstanceOf<SessionUpdate.Snapshot>(updates[0]);
         // 预置选型随快照携带（与真实后端的 modelSelection 投影同位）。
-        Assert.Equal(new ModelSelection("sim", "sim-chat"),
-                     ((SessionUpdate.Snapshot)updates[0]).CurrentModel);
+        ClassicAssert.AreEqual(new ModelSelection("sim", "sim-chat"),
+                               ((SessionUpdate.Snapshot)updates[0]).CurrentModel);
 
         var selection = await service.SelectModelAsync("session-welcome", "sim-alt", "alt-chat");
-        Assert.Equal(new ModelSelection("sim-alt", "alt-chat"), selection);
+        ClassicAssert.AreEqual(new ModelSelection("sim-alt", "alt-chat"), selection);
         await WaitForAsync(() => updates.Any(update => update is SessionUpdate.ModelSelected
         {
             Selection.Provider: "sim-alt", Selection.Model: "alt-chat"
@@ -194,11 +195,11 @@ public sealed class SimulatedSessionServiceTests
         // 选型持久在会话上：重新订阅的快照仍携带最新选型。
         await using var reopen = service.FollowSessionAsync("session-welcome").GetAsyncEnumerator();
         await reopen.MoveNextAsync();
-        Assert.Equal(new ModelSelection("sim-alt", "alt-chat"),
-                     ((SessionUpdate.Snapshot)reopen.Current).CurrentModel);
+        ClassicAssert.AreEqual(new ModelSelection("sim-alt", "alt-chat"),
+                               ((SessionUpdate.Snapshot)reopen.Current).CurrentModel);
     }
 
-    [Fact]
+    [Test]
     public async Task SelectingModelOnMissingSessionThrows()
     {
         var service = new SimulatedSessionService();
@@ -211,6 +212,6 @@ public sealed class SimulatedSessionServiceTests
         var timeout = DateTime.UtcNow.AddMilliseconds(timeoutMilliseconds);
         while (!condition() && DateTime.UtcNow < timeout) await Task.Delay(10);
 
-        Assert.True(condition(), "预期的异步状态未在超时前出现。");
+        ClassicAssert.IsTrue(condition(), "预期的异步状态未在超时前出现。");
     }
 }

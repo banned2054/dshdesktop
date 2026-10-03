@@ -1,14 +1,15 @@
 using DshDesktop.Core.Models;
 using DshDesktop.ViewModels;
-using Xunit;
+using NUnit.Framework;
+using NUnit.Framework.Legacy;
 
 namespace DshDesktop.Tests;
 
 public sealed class ToolActivityItemViewModelTests
 {
-    [Theory]
-    [InlineData(ToolActivityStatus.Succeeded)]
-    [InlineData(ToolActivityStatus.Failed)]
+    [Test]
+    [TestCase(ToolActivityStatus.Succeeded)]
+    [TestCase(ToolActivityStatus.Failed)]
     public void SettlementNotifiesStatusBindingsWithoutErrorReason(ToolActivityStatus status)
     {
         var activity = new ToolActivity(1, "call-1", "fs.read", null, ToolActivityStatus.Running, null, null,
@@ -19,17 +20,17 @@ public sealed class ToolActivityItemViewModelTests
 
         card.Settle(activity.Settle(status, null, null, DateTimeOffset.UtcNow));
 
-        Assert.Contains(nameof(card.IsSucceeded), notifications);
-        Assert.Contains(nameof(card.HasError), notifications);
-        Assert.Contains(nameof(card.IsRunning), notifications);
-        Assert.Contains(nameof(card.IsFailed), notifications);
-        Assert.Contains(nameof(card.HasDetails), notifications);
-        Assert.Equal(status == ToolActivityStatus.Succeeded, card.IsSucceeded);
-        Assert.Equal(status == ToolActivityStatus.Failed, card.HasError);
-        Assert.Equal(status == ToolActivityStatus.Failed, card.HasDetails);
+        Assert.That(notifications, Does.Contain(nameof(card.IsSucceeded)));
+        Assert.That(notifications, Does.Contain(nameof(card.HasError)));
+        Assert.That(notifications, Does.Contain(nameof(card.IsRunning)));
+        Assert.That(notifications, Does.Contain(nameof(card.IsFailed)));
+        Assert.That(notifications, Does.Contain(nameof(card.HasDetails)));
+        ClassicAssert.AreEqual(status == ToolActivityStatus.Succeeded, card.IsSucceeded);
+        ClassicAssert.AreEqual(status == ToolActivityStatus.Failed, card.HasError);
+        ClassicAssert.AreEqual(status == ToolActivityStatus.Failed, card.HasDetails);
     }
 
-    [Fact]
+    [Test]
     public void SettlementNotifiesLateNameAndArgumentsBindings()
     {
         var activity = new ToolActivity(1, "call-1", "", null, ToolActivityStatus.Running,
@@ -40,11 +41,11 @@ public sealed class ToolActivityItemViewModelTests
 
         card.Settle(activity with { Name = "fs.read", ArgumentsJson = "{}" });
 
-        Assert.Contains(nameof(card.Name), notifications);
-        Assert.Contains(nameof(card.DisplayName), notifications);
-        Assert.Contains(nameof(card.ArgumentsText), notifications);
-        Assert.Contains(nameof(card.ArgumentsPreview), notifications);
-        Assert.Equal("fs.read", card.DisplayName);
-        Assert.Equal("{}", card.ArgumentsPreview);
+        Assert.That(notifications, Does.Contain(nameof(card.Name)));
+        Assert.That(notifications, Does.Contain(nameof(card.DisplayName)));
+        Assert.That(notifications, Does.Contain(nameof(card.ArgumentsText)));
+        Assert.That(notifications, Does.Contain(nameof(card.ArgumentsPreview)));
+        ClassicAssert.AreEqual("fs.read", card.DisplayName);
+        ClassicAssert.AreEqual("{}", card.ArgumentsPreview);
     }
 }

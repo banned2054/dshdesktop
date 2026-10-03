@@ -8,15 +8,16 @@ using DshDesktop.Harness.Services.Connection;
 using DshDesktop.Harness.Services.Permissions;
 using DshDesktop.Harness.Services.Sessions;
 using DshDesktop.Harness.Services.Workspaces;
+using NUnit.Framework;
+using NUnit.Framework.Legacy;
 using System.Text.Json;
-using Xunit;
 
 namespace DshDesktop.Tests;
 
 /// <summary>协议信封与线上帧解析的行为验证（真实样本形态）。</summary>
 public sealed class HarnessProtocolJsonTests
 {
-    [Fact]
+    [Test]
     public void RequestEnvelopeCarriesCamelCaseWireShape()
     {
         var body = RpcEnvelope.BuildRequest("rpc-1", "session/prompt",
@@ -26,70 +27,71 @@ public sealed class HarnessProtocolJsonTests
 
         using var document = JsonDocument.Parse(body);
         var       root     = document.RootElement;
-        Assert.Equal("client-request", root.GetProperty("type").GetString());
-        Assert.Equal("rpc-1", root.GetProperty("rpcId").GetString());
-        Assert.Equal("session/prompt", root.GetProperty("method").GetString());
+        ClassicAssert.AreEqual("client-request", root.GetProperty("type").GetString());
+        ClassicAssert.AreEqual("rpc-1", root.GetProperty("rpcId").GetString());
+        ClassicAssert.AreEqual("session/prompt", root.GetProperty("method").GetString());
         var request = root.GetProperty("payload")
                           .GetProperty("args")
                           .GetProperty("request");
-        Assert.Equal("request-1", request.GetProperty("requestId").GetString());
-        Assert.Equal("queue", request.GetProperty("mode").GetString());
-        Assert.Equal("Asia/Shanghai", request.GetProperty("clientTimeZone").GetString());
+        ClassicAssert.AreEqual("request-1", request.GetProperty("requestId").GetString());
+        ClassicAssert.AreEqual("queue", request.GetProperty("mode").GetString());
+        ClassicAssert.AreEqual("Asia/Shanghai", request.GetProperty("clientTimeZone").GetString());
         var part = request.GetProperty("content")[0];
-        Assert.Equal("text", part.GetProperty("type").GetString());
-        Assert.Equal("你好", part.GetProperty("text").GetString());
+        ClassicAssert.AreEqual("text", part.GetProperty("type").GetString());
+        ClassicAssert.AreEqual("你好", part.GetProperty("text").GetString());
     }
 
-    [Fact]
+    [Test]
     public void DiscoverModelsRequestSpreadsFlatArgsForGatewayDescriptor()
     {
         // llm/discoverModels 是多参方法（settingsNs + request 两形参）：args 必须扁平展开，
         // 包一层 request 会被网关以 arguments-invalid（missing "settingsNs"）拒绝（真实后端已验证）。
         var body = RpcEnvelope.BuildArgsRequest("rpc-2", "llm/discoverModels",
                                                 new LlmDiscoverModelsRequest(
-                                                    "llm-pi-ai",
-                                                    new LlmDiscoveryProbeRequest("glm", "https://relay.example/v1",
-                                                                                 "openai-completions", null)),
+                                                                             "llm-pi-ai",
+                                                                             new LlmDiscoveryProbeRequest("glm",
+                                                                                      "https://relay.example/v1",
+                                                                                      "openai-completions", null)),
                                                 HarnessJsonContext.Default.LlmDiscoverModelsRequest);
 
         using var document = JsonDocument.Parse(body);
-        var       args    = document.RootElement.GetProperty("payload").GetProperty("args");
-        Assert.Equal("llm-pi-ai", args.GetProperty("settingsNs").GetString());
+        var       args     = document.RootElement.GetProperty("payload").GetProperty("args");
+        ClassicAssert.AreEqual("llm-pi-ai", args.GetProperty("settingsNs").GetString());
         var probe = args.GetProperty("request");
-        Assert.Equal("glm", probe.GetProperty("provider").GetString());
-        Assert.Equal("https://relay.example/v1", probe.GetProperty("baseURL").GetString());
-        Assert.Equal("openai-completions", probe.GetProperty("api").GetString());
-        Assert.False(probe.TryGetProperty("apiKey", out _));
+        ClassicAssert.AreEqual("glm", probe.GetProperty("provider").GetString());
+        ClassicAssert.AreEqual("https://relay.example/v1", probe.GetProperty("baseURL").GetString());
+        ClassicAssert.AreEqual("openai-completions", probe.GetProperty("api").GetString());
+        ClassicAssert.IsFalse(probe.TryGetProperty("apiKey", out _));
     }
 
-    [Fact]
+    [Test]
     public void SessionAddressSerializesAsKindSession()
     {
         var element =
             JsonSerializer.SerializeToElement(new SessionAddress("session-9"),
                                               HarnessJsonContext.Default.SessionAddress);
-        Assert.Equal("session", element.GetProperty("kind").GetString());
-        Assert.Equal("session-9", element.GetProperty("sessionId").GetString());
+        ClassicAssert.AreEqual("session", element.GetProperty("kind").GetString());
+        ClassicAssert.AreEqual("session-9", element.GetProperty("sessionId").GetString());
     }
 
-    [Fact]
+    [Test]
     public void ResponseEnvelopeParsesSuccessAndFailure()
     {
         var success =
             RpcEnvelope.ParseResponse("""{"type":"server-response","rpcId":"rpc-1","result":{"ok":true,"value":{"accepted":true}}}""");
-        Assert.Equal("rpc-1", success.RpcId);
-        Assert.True(success.Ok);
-        Assert.NotNull(success.Value);
-        Assert.True(success.Value.Value.GetProperty("accepted").GetBoolean());
+        ClassicAssert.AreEqual("rpc-1", success.RpcId);
+        ClassicAssert.IsTrue(success.Ok);
+        ClassicAssert.IsNotNull(success.Value);
+        ClassicAssert.IsTrue(success.Value.Value.GetProperty("accepted").GetBoolean());
 
         var failure =
             RpcEnvelope.ParseResponse("""{"type":"server-response","rpcId":"rpc-2","result":{"ok":false,"error":{"code":"session/not-found","message":"会话不存在"}}}""");
-        Assert.False(failure.Ok);
-        Assert.Equal("session/not-found", failure.ErrorCode);
-        Assert.Equal("会话不存在", failure.ErrorMessage);
+        ClassicAssert.IsFalse(failure.Ok);
+        ClassicAssert.AreEqual("session/not-found", failure.ErrorCode);
+        ClassicAssert.AreEqual("会话不存在", failure.ErrorMessage);
     }
 
-    [Fact]
+    [Test]
     public void FollowSnapshotFrameParsesHeaderRecordsAndTitle()
     {
         var frame = FollowFrameJson.Parse(JsonDocument.Parse("""
@@ -110,24 +112,25 @@ public sealed class HarnessProtocolJsonTests
                                                              }
                                                              """).RootElement.Clone());
 
-        var snapshot = Assert.IsType<FollowFrame.Snapshot>(frame);
-        Assert.Equal(4, snapshot.Cursor);
-        Assert.Equal("示例标题", snapshot.Title);
-        Assert.False(snapshot.HasMore);
-        Assert.Equal(2, snapshot.Records.Count);
+        Assert.That(frame, Is.TypeOf<FollowFrame.Snapshot>());
+        var snapshot = (FollowFrame.Snapshot)frame;
+        ClassicAssert.AreEqual(4, snapshot.Cursor);
+        ClassicAssert.AreEqual("示例标题", snapshot.Title);
+        ClassicAssert.IsFalse(snapshot.HasMore);
+        ClassicAssert.AreEqual(2, snapshot.Records.Count);
 
         var userMessage = WireEventJson.TryGetMessage(snapshot.Records[0]);
-        Assert.NotNull(userMessage);
-        Assert.Equal("问题", WireEventJson.ExtractText(userMessage));
+        ClassicAssert.IsNotNull(userMessage);
+        ClassicAssert.AreEqual("问题", WireEventJson.ExtractText(userMessage));
 
         var assistantMessage = WireEventJson.TryGetMessage(snapshot.Records[1]);
-        Assert.NotNull(assistantMessage);
-        Assert.Equal("回答", WireEventJson.ExtractText(assistantMessage));
-        Assert.Equal("先想一想", WireEventJson.ExtractReasoning(assistantMessage));
-        Assert.True(WireEventJson.IsInterrupted(snapshot.Records[1]));
+        ClassicAssert.IsNotNull(assistantMessage);
+        ClassicAssert.AreEqual("回答", WireEventJson.ExtractText(assistantMessage));
+        ClassicAssert.AreEqual("先想一想", WireEventJson.ExtractReasoning(assistantMessage));
+        ClassicAssert.IsTrue(WireEventJson.IsInterrupted(snapshot.Records[1]));
     }
 
-    [Fact]
+    [Test]
     public void SnapshotMappingHidesInjectedUserContextMessages()
     {
         var records = ParseRecords("""
@@ -150,28 +153,28 @@ public sealed class HarnessProtocolJsonTests
         var messages = HarnessSessionService.MapMessages(records);
 
         // 真实用户输入与助手回复保留；runtime-context 快照与技能目录等注入消息不作为用户气泡显示。
-        Assert.Equal(2, messages.Count);
-        Assert.Equal("你好", messages[0].Content);
-        Assert.Equal(MessageRole.User, messages[0].Role);
-        Assert.Equal("回复", messages[1].Content);
-        Assert.Equal(MessageRole.Assistant, messages[1].Role);
+        ClassicAssert.AreEqual(2, messages.Count);
+        ClassicAssert.AreEqual("你好", messages[0].Content);
+        ClassicAssert.AreEqual(MessageRole.User, messages[0].Role);
+        ClassicAssert.AreEqual("回复", messages[1].Content);
+        ClassicAssert.AreEqual(MessageRole.Assistant, messages[1].Role);
     }
 
-    [Fact]
+    [Test]
     public void SessionPageRequestSerializesBackwardCursorWireShape()
     {
         var element =
             JsonSerializer.SerializeToElement(new SessionPageRequest(new SessionAddress("session-1"), 42, 9, 50),
                                               HarnessJsonContext.Default.SessionPageRequest);
 
-        Assert.Equal("session", element.GetProperty("address").GetProperty("kind").GetString());
-        Assert.Equal("session-1", element.GetProperty("address").GetProperty("sessionId").GetString());
-        Assert.Equal(42, element.GetProperty("throughSeq").GetInt64());
-        Assert.Equal(9, element.GetProperty("beforeSeq").GetInt64());
-        Assert.Equal(50, element.GetProperty("maxMessages").GetInt32());
+        ClassicAssert.AreEqual("session", element.GetProperty("address").GetProperty("kind").GetString());
+        ClassicAssert.AreEqual("session-1", element.GetProperty("address").GetProperty("sessionId").GetString());
+        ClassicAssert.AreEqual(42, element.GetProperty("throughSeq").GetInt64());
+        ClassicAssert.AreEqual(9, element.GetProperty("beforeSeq").GetInt64());
+        ClassicAssert.AreEqual(50, element.GetProperty("maxMessages").GetInt32());
     }
 
-    [Fact]
+    [Test]
     public void PageValueRecordsParseAndFoldIntoEntries()
     {
         var page = JsonSerializer.Deserialize("""
@@ -192,31 +195,33 @@ public sealed class HarnessProtocolJsonTests
                                               """,
                                               HarnessJsonContext.Default.SessionPageValue);
 
-        Assert.NotNull(page);
-        Assert.True(page.HasMore);
+        ClassicAssert.IsNotNull(page);
+        ClassicAssert.IsTrue(page.HasMore);
 
         var records = FollowFrameJson.ParseHistoryRecords(page.Records);
-        Assert.Equal(3, records.Count);
+        ClassicAssert.AreEqual(3, records.Count);
 
         var entries = HarnessSessionService.MapEntries(records);
-        Assert.Equal(2, entries.Count);
+        ClassicAssert.AreEqual(2, entries.Count);
 
         // tool/call 与同 callId 的 tool/result 折叠为同一条目：保留发起位置与参数，补上结果。
-        var tool = Assert.IsType<ToolActivity>(entries[0]);
-        Assert.Equal(7, tool.Seq);
-        Assert.Equal("call-1", tool.CallId);
-        Assert.Equal("fs.read", tool.Name);
-        Assert.Equal("{\"path\":\"a.md\"}", tool.ArgumentsJson);
-        Assert.Equal(ToolActivityStatus.Succeeded, tool.Status);
-        Assert.Equal("文件内容", tool.ResultText);
-        Assert.Null(tool.ErrorReason);
-        Assert.NotNull(tool.CompletedAt);
+        Assert.That(entries[0], Is.TypeOf<ToolActivity>());
+        var tool = (ToolActivity)entries[0];
+        ClassicAssert.AreEqual(7, tool.Seq);
+        ClassicAssert.AreEqual("call-1", tool.CallId);
+        ClassicAssert.AreEqual("fs.read", tool.Name);
+        ClassicAssert.AreEqual("{\"path\":\"a.md\"}", tool.ArgumentsJson);
+        ClassicAssert.AreEqual(ToolActivityStatus.Succeeded, tool.Status);
+        ClassicAssert.AreEqual("文件内容", tool.ResultText);
+        ClassicAssert.IsNull(tool.ErrorReason);
+        ClassicAssert.IsNotNull(tool.CompletedAt);
 
-        var message = Assert.IsType<ConversationMessage>(entries[1]);
-        Assert.Equal("调用完成", message.Content);
+        Assert.That(entries[1], Is.TypeOf<ConversationMessage>());
+        var message = (ConversationMessage)entries[1];
+        ClassicAssert.AreEqual("调用完成", message.Content);
     }
 
-    [Fact]
+    [Test]
     public void FailedToolResultMapsErrorIdentityAndReason()
     {
         var records = ParseRecords("""
@@ -234,13 +239,14 @@ public sealed class HarnessProtocolJsonTests
 
         var entries = HarnessSessionService.MapEntries(records);
 
-        var tool = Assert.IsType<ToolActivity>(Assert.Single(entries));
-        Assert.Equal(ToolActivityStatus.Failed, tool.Status);
-        Assert.Equal("exit 1", tool.ResultText);
-        Assert.Equal("命令以非零状态退出", tool.ErrorReason);
+        Assert.That(entries.Single(), Is.TypeOf<ToolActivity>());
+        var tool = (ToolActivity)entries.Single();
+        ClassicAssert.AreEqual(ToolActivityStatus.Failed, tool.Status);
+        ClassicAssert.AreEqual("exit 1", tool.ResultText);
+        ClassicAssert.AreEqual("命令以非零状态退出", tool.ErrorReason);
     }
 
-    [Fact]
+    [Test]
     public void V4ToolResultMessageMapsTopLevelIdentityAndText()
     {
         // v4（含迁移后的 v3 历史）tool/result 是 first-class tool 消息：toolCallId/isError
@@ -260,13 +266,14 @@ public sealed class HarnessProtocolJsonTests
 
         var entries = HarnessSessionService.MapEntries(records);
 
-        var tool = Assert.IsType<ToolActivity>(Assert.Single(entries));
-        Assert.Equal("call-4", tool.CallId);
-        Assert.Equal(ToolActivityStatus.Failed, tool.Status);
-        Assert.Equal("命令失败", tool.ResultText);
+        Assert.That(entries.Single(), Is.TypeOf<ToolActivity>());
+        var tool = (ToolActivity)entries.Single();
+        ClassicAssert.AreEqual("call-4", tool.CallId);
+        ClassicAssert.AreEqual(ToolActivityStatus.Failed, tool.Status);
+        ClassicAssert.AreEqual("命令失败", tool.ResultText);
     }
 
-    [Fact]
+    [Test]
     public void V4ToolResultWithoutSourceFallsBackToTopLevelCallId()
     {
         var records = ParseRecords("""
@@ -280,13 +287,14 @@ public sealed class HarnessProtocolJsonTests
 
         var entries = HarnessSessionService.MapEntries(records);
 
-        var tool = Assert.IsType<ToolActivity>(Assert.Single(entries));
-        Assert.Equal("call-y", tool.CallId);
-        Assert.Equal(ToolActivityStatus.Succeeded, tool.Status);
-        Assert.Equal("第一段\n第二段", tool.ResultText);
+        Assert.That(entries.Single(), Is.TypeOf<ToolActivity>());
+        var tool = (ToolActivity)entries.Single();
+        ClassicAssert.AreEqual("call-y", tool.CallId);
+        ClassicAssert.AreEqual(ToolActivityStatus.Succeeded, tool.Status);
+        ClassicAssert.AreEqual("第一段\n第二段", tool.ResultText);
     }
 
-    [Fact]
+    [Test]
     public void OrphanToolResultBecomesStandaloneEntry()
     {
         // 窗口起点落在调用中间（或恢复期 repair 合成结果）：没有 tool/call 也展示结果条目。
@@ -302,13 +310,14 @@ public sealed class HarnessProtocolJsonTests
 
         var entries = HarnessSessionService.MapEntries(records);
 
-        var tool = Assert.IsType<ToolActivity>(Assert.Single(entries));
-        Assert.Equal("call-x", tool.CallId);
-        Assert.Equal(ToolActivityStatus.Succeeded, tool.Status);
-        Assert.Equal("结果文本", tool.ResultText);
+        Assert.That(entries.Single(), Is.TypeOf<ToolActivity>());
+        var tool = (ToolActivity)entries.Single();
+        ClassicAssert.AreEqual("call-x", tool.CallId);
+        ClassicAssert.AreEqual(ToolActivityStatus.Succeeded, tool.Status);
+        ClassicAssert.AreEqual("结果文本", tool.ResultText);
     }
 
-    [Fact]
+    [Test]
     public void TurnBoundariesMapToBoundaryEntriesAndCarryTurnNumbers()
     {
         var records = ParseRecords("""
@@ -322,15 +331,17 @@ public sealed class HarnessProtocolJsonTests
 
         var entries = HarnessSessionService.MapEntries(records);
 
-        Assert.Equal(2, entries.Count);
-        var message = Assert.IsType<ConversationMessage>(entries[0]);
-        Assert.Equal(3, message.Turn);
-        var boundary = Assert.IsType<TurnBoundary>(entries[1]);
-        Assert.Equal(3, boundary.Turn);
-        Assert.Equal(3, boundary.Seq);
+        ClassicAssert.AreEqual(2, entries.Count);
+        Assert.That(entries[0], Is.TypeOf<ConversationMessage>());
+        var message = (ConversationMessage)entries[0];
+        ClassicAssert.AreEqual(3, message.Turn);
+        Assert.That(entries[1], Is.TypeOf<TurnBoundary>());
+        var boundary = (TurnBoundary)entries[1];
+        ClassicAssert.AreEqual(3, boundary.Turn);
+        ClassicAssert.AreEqual(3, boundary.Seq);
     }
 
-    [Fact]
+    [Test]
     public void AssistantToolCallBlocksAreDetectedForProcessClassification()
     {
         // 内容含 tool-call 块的助手提交是轮次过程，不是可见回复：HasToolCalls 标注供折叠规则使用。
@@ -350,10 +361,10 @@ public sealed class HarnessProtocolJsonTests
 
         var messages = HarnessSessionService.MapMessages(records);
 
-        Assert.Equal(2, messages.Count);
-        Assert.True(messages[0].HasToolCalls);
-        Assert.Equal("先读取文件", messages[0].Content);
-        Assert.False(messages[1].HasToolCalls);
+        ClassicAssert.AreEqual(2, messages.Count);
+        ClassicAssert.IsTrue(messages[0].HasToolCalls);
+        ClassicAssert.AreEqual("先读取文件", messages[0].Content);
+        ClassicAssert.IsFalse(messages[1].HasToolCalls);
     }
 
     private static IReadOnlyList<SessionWireEvent> ParseRecords(string json)
@@ -365,7 +376,7 @@ public sealed class HarnessProtocolJsonTests
                        .ToArray();
     }
 
-    [Fact]
+    [Test]
     public void AssistantStreamChunkFrameParsesTextDelta()
     {
         var frame = AssistantStreamFrameJson.ParseFrame(JsonDocument.Parse("""
@@ -373,33 +384,37 @@ public sealed class HarnessProtocolJsonTests
                                                                             "chunk": {"type": "text-delta", "index": 0, "text": "增量文本"}}
                                                                            """).RootElement.Clone());
 
-        var chunk = Assert.IsType<AssistantStreamFrame.StreamChunkFrame>(frame);
-        Assert.Equal("attempt-1", chunk.AttemptId);
-        Assert.Equal(3, chunk.Revision);
-        var delta = Assert.IsType<StreamChunk.TextDelta>(chunk.Chunk);
-        Assert.Equal("增量文本", delta.Text);
+        Assert.That(frame, Is.TypeOf<AssistantStreamFrame.StreamChunkFrame>());
+        var chunk = (AssistantStreamFrame.StreamChunkFrame)frame;
+        ClassicAssert.AreEqual("attempt-1", chunk.AttemptId);
+        ClassicAssert.AreEqual(3, chunk.Revision);
+        Assert.That(chunk.Chunk, Is.TypeOf<StreamChunk.TextDelta>());
+        var delta = (StreamChunk.TextDelta)chunk.Chunk;
+        ClassicAssert.AreEqual("增量文本", delta.Text);
     }
 
-    [Fact]
+    [Test]
     public void RemoteEventFramesParseReadyAndEmit()
     {
         var ready = RemoteEventJson.Parse(JsonDocument
                                          .Parse("""{"type": "ready", "clientId": "client-1", "host": {"home": "C:/dsh"}}""")
                                          .RootElement.Clone());
-        var readyFrame = Assert.IsType<RemoteEventFrame.Ready>(ready);
-        Assert.Equal("client-1", readyFrame.ClientId);
+        Assert.That(ready, Is.TypeOf<RemoteEventFrame.Ready>());
+        var readyFrame = (RemoteEventFrame.Ready)ready;
+        ClassicAssert.AreEqual("client-1", readyFrame.ClientId);
 
         var emit = RemoteEventJson.Parse(JsonDocument
                                         .Parse("""{"type": "emit", "event": "api-session/status", "args": ["session-1", true]}""")
                                         .RootElement.Clone());
-        var emitFrame = Assert.IsType<RemoteEventFrame.Emit>(emit);
-        Assert.Equal("api-session/status", emitFrame.Event);
-        Assert.Equal(2, emitFrame.Args.Count);
-        Assert.Equal("session-1", emitFrame.Args[0].GetString());
-        Assert.True(emitFrame.Args[1].GetBoolean());
+        Assert.That(emit, Is.TypeOf<RemoteEventFrame.Emit>());
+        var emitFrame = (RemoteEventFrame.Emit)emit;
+        ClassicAssert.AreEqual("api-session/status", emitFrame.Event);
+        ClassicAssert.AreEqual(2, emitFrame.Args.Count);
+        ClassicAssert.AreEqual("session-1", emitFrame.Args[0].GetString());
+        ClassicAssert.IsTrue(emitFrame.Args[1].GetBoolean());
     }
 
-    [Fact]
+    [Test]
     public void ApprovalWaterfallCarriesAgentRequestAndMapsAgentToSession()
     {
         var frame = RemoteEventJson.Parse(JsonDocument
@@ -418,27 +433,28 @@ public sealed class HarnessProtocolJsonTests
                                                 """)
                                          .RootElement.Clone());
 
-        var waterfall = Assert.IsType<RemoteEventFrame.Waterfall>(frame);
-        Assert.Equal("event-7", waterfall.EventId);
-        Assert.Equal("session-42", waterfall.AgentId);
+        Assert.That(frame, Is.TypeOf<RemoteEventFrame.Waterfall>());
+        var waterfall = (RemoteEventFrame.Waterfall)frame;
+        ClassicAssert.AreEqual("event-7", waterfall.EventId);
+        ClassicAssert.AreEqual("session-42", waterfall.AgentId);
 
         var request = RemoteEventJson.TryGetApprovalRequest(waterfall);
-        Assert.NotNull(request);
-        Assert.Equal("fs.write", request!.ToolName);
-        Assert.Equal("call-9", request.CallId);
-        Assert.Equal("需要修改项目文件", request.Reason);
+        ClassicAssert.IsNotNull(request);
+        ClassicAssert.AreEqual("fs.write", request!.ToolName);
+        ClassicAssert.AreEqual("call-9", request.CallId);
+        ClassicAssert.AreEqual("需要修改项目文件", request.Reason);
     }
 
-    [Fact]
+    [Test]
     public void WaterfallResultOutcomesUseStrictWireShapes()
     {
         var result =
             JsonSerializer.SerializeToElement(new EventsResultRequest("client-1", "event-1",
                                                                       new EventsOutcomeWire("result", "allowed-once")),
                                               HarnessJsonContext.Default.EventsResultRequest);
-        Assert.Equal("result", result.GetProperty("outcome").GetProperty("kind").GetString());
-        Assert.Equal("allowed-once", result.GetProperty("outcome").GetProperty("value").GetString());
-        Assert.False(result.GetProperty("outcome").TryGetProperty("error", out _));
+        ClassicAssert.AreEqual("result", result.GetProperty("outcome").GetProperty("kind").GetString());
+        ClassicAssert.AreEqual("allowed-once", result.GetProperty("outcome").GetProperty("value").GetString());
+        ClassicAssert.IsFalse(result.GetProperty("outcome").TryGetProperty("error", out _));
 
         var rejected =
             JsonSerializer.SerializeToElement(new EventsResultRequest("client-1", "event-2",
@@ -448,20 +464,20 @@ public sealed class HarnessProtocolJsonTests
                                                                                             "不支持的交互"))),
                                               HarnessJsonContext.Default.EventsResultRequest);
         var error = rejected.GetProperty("outcome").GetProperty("error");
-        Assert.Equal("rejected", rejected.GetProperty("outcome").GetProperty("kind").GetString());
-        Assert.Equal("Error", error.GetProperty("name").GetString());
-        Assert.Equal("不支持的交互", error.GetProperty("message").GetString());
+        ClassicAssert.AreEqual("rejected", rejected.GetProperty("outcome").GetProperty("kind").GetString());
+        ClassicAssert.AreEqual("Error", error.GetProperty("name").GetString());
+        ClassicAssert.AreEqual("不支持的交互", error.GetProperty("message").GetString());
 
         var next = JsonSerializer.SerializeToElement(
                                                      new EventsResultRequest("client-1", "event-3",
                                                                              new EventsOutcomeWire("next")),
                                                      HarnessJsonContext.Default.EventsResultRequest);
-        Assert.Equal("next", next.GetProperty("outcome").GetProperty("kind").GetString());
-        Assert.False(next.GetProperty("outcome").TryGetProperty("value", out _));
-        Assert.False(next.GetProperty("outcome").TryGetProperty("error", out _));
+        ClassicAssert.AreEqual("next", next.GetProperty("outcome").GetProperty("kind").GetString());
+        ClassicAssert.IsFalse(next.GetProperty("outcome").TryGetProperty("value", out _));
+        ClassicAssert.IsFalse(next.GetProperty("outcome").TryGetProperty("error", out _));
     }
 
-    [Fact]
+    [Test]
     public void UnknownWaterfallRequestStillParsesForRejection()
     {
         var frame = RemoteEventJson.Parse(JsonDocument
@@ -476,12 +492,13 @@ public sealed class HarnessProtocolJsonTests
                                                 """)
                                          .RootElement.Clone());
 
-        var waterfall = Assert.IsType<RemoteEventFrame.Waterfall>(frame);
-        Assert.Equal("interaction/question", waterfall.Event);
-        Assert.Null(RemoteEventJson.TryGetApprovalRequest(waterfall));
+        Assert.That(frame, Is.TypeOf<RemoteEventFrame.Waterfall>());
+        var waterfall = (RemoteEventFrame.Waterfall)frame;
+        ClassicAssert.AreEqual("interaction/question", waterfall.Event);
+        ClassicAssert.IsNull(RemoteEventJson.TryGetApprovalRequest(waterfall));
     }
 
-    [Fact]
+    [Test]
     public void SessionSummaryWireMapsToApplicationModel()
     {
         var wire = new SessionSummaryWire("session-1", 1700000000000, true, false,
@@ -496,15 +513,15 @@ public sealed class HarnessProtocolJsonTests
 
         var summary = HarnessSessionService.ToSummary(wire);
 
-        Assert.Equal("session-1", summary.Id);
-        Assert.Equal("会话标题", summary.Title);
-        Assert.True(summary.Running);
+        ClassicAssert.AreEqual("session-1", summary.Id);
+        ClassicAssert.AreEqual("会话标题", summary.Title);
+        ClassicAssert.IsTrue(summary.Running);
         // wire blank=false 但投影只有 title（无 sessionListMetadata）：元数据缺失 → 未知。
-        Assert.Equal(SessionBlankState.Unknown, summary.BlankState);
-        Assert.Equal(DateTimeOffset.FromUnixTimeMilliseconds(1700000000000), summary.UpdatedAt);
+        ClassicAssert.AreEqual(SessionBlankState.Unknown, summary.BlankState);
+        ClassicAssert.AreEqual(DateTimeOffset.FromUnixTimeMilliseconds(1700000000000), summary.UpdatedAt);
     }
 
-    [Fact]
+    [Test]
     public void SessionSummaryWireMapsBlankStateFromMetadataPresence()
     {
         // 空白判定对齐参考实现 sessionListMetadata：blank=true 是权威空白；blank=false
@@ -512,8 +529,8 @@ public sealed class HarnessProtocolJsonTests
         // 被投影缓存拒认的冷行、cache miss）是保守回退，标记未知并保持可见。
         var metadataLess        = new SessionSummaryWire("session-1", 1700000000000, false, false);
         var metadataLessSummary = HarnessSessionService.ToSummary(metadataLess);
-        Assert.Equal(SessionBlankState.Unknown, metadataLessSummary.BlankState);
-        Assert.Null(metadataLessSummary.Title);
+        ClassicAssert.AreEqual(SessionBlankState.Unknown, metadataLessSummary.BlankState);
+        ClassicAssert.IsNull(metadataLessSummary.Title);
 
         var titledCold = new SessionSummaryWire("session-2", 1700000000000, false, false,
                                                 Projections :
@@ -525,8 +542,8 @@ public sealed class HarnessProtocolJsonTests
                                                                                       .RootElement.Clone()
                                                                                }));
         var titledSummary = HarnessSessionService.ToSummary(titledCold);
-        Assert.Equal(SessionBlankState.Unknown, titledSummary.BlankState);
-        Assert.Equal("迁移前旧会话", titledSummary.Title);
+        ClassicAssert.AreEqual(SessionBlankState.Unknown, titledSummary.BlankState);
+        ClassicAssert.AreEqual("迁移前旧会话", titledSummary.Title);
 
         var engaged = new SessionSummaryWire("session-3", 1700000000000, false, false,
                                              Projections :
@@ -537,7 +554,7 @@ public sealed class HarnessProtocolJsonTests
                                                                                    .Parse("""{"blank":false,"lastPromptAt":null}""")
                                                                                    .RootElement.Clone()
                                                                             }));
-        Assert.Equal(SessionBlankState.Engaged, HarnessSessionService.ToSummary(engaged).BlankState);
+        ClassicAssert.AreEqual(SessionBlankState.Engaged, HarnessSessionService.ToSummary(engaged).BlankState);
 
         // 确认空白（元数据背书的 blank=true）；cwd 进入应用模型供复用候选匹配。
         var blankDraft = new SessionSummaryWire("session-4", 1700000000000, false, true, Cwd : "C:/Code/Sample",
@@ -551,11 +568,11 @@ public sealed class HarnessProtocolJsonTests
                                                                                           .RootElement.Clone()
                                                                                }));
         var blankSummary = HarnessSessionService.ToSummary(blankDraft);
-        Assert.Equal(SessionBlankState.ConfirmedBlank, blankSummary.BlankState);
-        Assert.Equal("C:/Code/Sample", blankSummary.Cwd);
+        ClassicAssert.AreEqual(SessionBlankState.ConfirmedBlank, blankSummary.BlankState);
+        ClassicAssert.AreEqual("C:/Code/Sample", blankSummary.Cwd);
     }
 
-    [Fact]
+    [Test]
     public void WorkspaceFollowBaselineFrameParsesItemsAndRegistrySets()
     {
         var frame = WorkspaceFrameJson.Parse(JsonDocument.Parse("""
@@ -577,49 +594,55 @@ public sealed class HarnessProtocolJsonTests
                                                                 }
                                                                 """).RootElement);
 
-        var baseline  = Assert.IsType<WorkspaceFollowFrame.Baseline>(frame);
-        var workspace = Assert.Single(baseline.Items);
-        Assert.Equal("ws-1", workspace.WorkspaceId);
-        Assert.Equal("主工作区", workspace.Title);
-        Assert.Equal("C:/Code/Main", workspace.Path);
-        Assert.Equal(["session-a", "session-b"], workspace.SessionIds);
-        Assert.Equal(DateTimeOffset.Parse("2026-09-20T10:00:00.000Z"), workspace.UpdatedAt);
+        Assert.That(frame, Is.TypeOf<WorkspaceFollowFrame.Baseline>());
+        var baseline = (WorkspaceFollowFrame.Baseline)frame;
+        Assert.That(baseline.Items, Has.Count.EqualTo(1));
+        var workspace = baseline.Items.Single();
+        ClassicAssert.AreEqual("ws-1", workspace.WorkspaceId);
+        ClassicAssert.AreEqual("主工作区", workspace.Title);
+        ClassicAssert.AreEqual("C:/Code/Main", workspace.Path);
+        ClassicAssert.AreEqual(new[] { "session-a", "session-b" }, workspace.SessionIds);
+        ClassicAssert.AreEqual(DateTimeOffset.Parse("2026-09-20T10:00:00.000Z"), workspace.UpdatedAt);
         // 基线携带 registry 级归档全量集合（feed.ts baseline()）；缺它冷启动
         // 会把已归档会话当正常行展示，点归档被后端 gate 拒绝。置顶集合（pinned 帧）
         // 属上游协议但本端已改为自有置顶方案，不再消费。
-        Assert.Equal(["session-c", "session-d"], baseline.ArchivedSessionIds);
+        ClassicAssert.AreEqual(new[] { "session-c", "session-d" }, baseline.ArchivedSessionIds);
     }
 
-    [Fact]
+    [Test]
     public void WorkspaceFollowIncrementFramesParse()
     {
         var upsert = WorkspaceFrameJson.Parse(JsonDocument.Parse("""
                                                                  {"type":"upsert","workspace":{"workspaceId":"ws-2","path":"C:/Docs","title":"文档",
                                                                   "sessionIds":[],"createdAt":"2026-09-19T10:00:00.000Z","updatedAt":"2026-09-21T08:00:00.000Z"}}
                                                                  """).RootElement);
-        var upsertFrame = Assert.IsType<WorkspaceFollowFrame.Upsert>(upsert);
-        Assert.Equal("ws-2", upsertFrame.Workspace.WorkspaceId);
-        Assert.Empty(upsertFrame.Workspace.SessionIds);
+        Assert.That(upsert, Is.TypeOf<WorkspaceFollowFrame.Upsert>());
+        var upsertFrame = (WorkspaceFollowFrame.Upsert)upsert;
+        ClassicAssert.AreEqual("ws-2", upsertFrame.Workspace.WorkspaceId);
+        ClassicAssert.IsEmpty(upsertFrame.Workspace.SessionIds);
 
         var removed =
             WorkspaceFrameJson.Parse(JsonDocument.Parse("""{"type":"remove","workspaceId":"ws-2"}""").RootElement);
-        var removedFrame = Assert.IsType<WorkspaceFollowFrame.Removed>(removed);
-        Assert.Equal("ws-2", removedFrame.WorkspaceId);
+        Assert.That(removed, Is.TypeOf<WorkspaceFollowFrame.Removed>());
+        var removedFrame = (WorkspaceFollowFrame.Removed)removed;
+        ClassicAssert.AreEqual("ws-2", removedFrame.WorkspaceId);
 
         var order = WorkspaceFrameJson.Parse(JsonDocument.Parse("""{"type":"order","workspaceIds":["ws-2","ws-1"]}""")
                                                          .RootElement);
-        var orderFrame = Assert.IsType<WorkspaceFollowFrame.Reordered>(order);
-        Assert.Equal(["ws-2", "ws-1"], orderFrame.WorkspaceIds);
+        Assert.That(order, Is.TypeOf<WorkspaceFollowFrame.Reordered>());
+        var orderFrame = (WorkspaceFollowFrame.Reordered)order;
+        ClassicAssert.AreEqual(new[] { "ws-2", "ws-1" }, orderFrame.WorkspaceIds);
 
         // 归档帧：解析为 registry 级集合帧，由工作区服务维护（复用候选排除归档会话）。
         var archived = WorkspaceFrameJson.Parse(JsonDocument
                                                .Parse("""{"type":"archived","archivedSessionIds":["session-a"]}""")
                                                .RootElement);
-        var archivedFrame = Assert.IsType<WorkspaceFollowFrame.Archived>(archived);
-        Assert.Equal(["session-a"], archivedFrame.ArchivedSessionIds);
+        Assert.That(archived, Is.TypeOf<WorkspaceFollowFrame.Archived>());
+        var archivedFrame = (WorkspaceFollowFrame.Archived)archived;
+        ClassicAssert.AreEqual(new[] { "session-a" }, archivedFrame.ArchivedSessionIds);
     }
 
-    [Fact]
+    [Test]
     public void WorkspaceProjectionAppliesBaselineUpsertRemoveAndOrder()
     {
         var baseline = new WorkspaceFollowFrame.Baseline([
@@ -631,7 +654,7 @@ public sealed class HarnessProtocolJsonTests
                                                          ],
                                                          ["session-archived"]);
         var items = HarnessWorkspaceService.ApplyFrame([], baseline);
-        Assert.Equal(["ws-1", "ws-2"], items.Select(item => item.Id));
+        ClassicAssert.AreEqual(new[] { "ws-1", "ws-2" }, items.Select(item => item.Id));
 
         // 已存在：原位替换；记账变化体现为新实例。
         var replaced =
@@ -640,8 +663,8 @@ public sealed class HarnessProtocolJsonTests
                                                                                         "文档", ["session-b"],
                                                                                         DateTimeOffset
                                                                                            .Parse("2026-09-21T10:00:00Z"))));
-        Assert.Equal(["ws-1", "ws-2"], replaced.Select(item => item.Id));
-        Assert.Equal(["session-b"], replaced[1].SessionIds);
+        ClassicAssert.AreEqual(new[] { "ws-1", "ws-2" }, replaced.Select(item => item.Id));
+        ClassicAssert.AreEqual(new[] { "session-b" }, replaced[1].SessionIds);
 
         // 旧投影不覆盖新（乱序到达）。
         var stale = HarnessWorkspaceService.ApplyFrame(replaced,
@@ -649,7 +672,7 @@ public sealed class HarnessProtocolJsonTests
                                                                          "C:/Docs", "文档", [],
                                                                          DateTimeOffset
                                                                             .Parse("2026-09-18T10:00:00Z"))));
-        Assert.Equal(["session-b"], stale[1].SessionIds);
+        ClassicAssert.AreEqual(new[] { "session-b" }, stale[1].SessionIds);
 
         // 新工作区插到头部（对齐参考客户端 upsert 语义）。
         var added =
@@ -658,18 +681,18 @@ public sealed class HarnessProtocolJsonTests
                                                                                         "新工作区", [],
                                                                                         DateTimeOffset
                                                                                            .Parse("2026-09-21T11:00:00Z"))));
-        Assert.Equal(["ws-3", "ws-1", "ws-2"], added.Select(item => item.Id));
+        ClassicAssert.AreEqual(new[] { "ws-3", "ws-1", "ws-2" }, added.Select(item => item.Id));
 
         // order 按给出的顺序重排，未知 id 排尾。
         var ordered =
             HarnessWorkspaceService.ApplyFrame(added, new WorkspaceFollowFrame.Reordered(["ws-2", "ws-9", "ws-3"]));
-        Assert.Equal(["ws-2", "ws-3", "ws-1"], ordered.Select(item => item.Id));
+        ClassicAssert.AreEqual(new[] { "ws-2", "ws-3", "ws-1" }, ordered.Select(item => item.Id));
 
         var removed = HarnessWorkspaceService.ApplyFrame(ordered, new WorkspaceFollowFrame.Removed("ws-3"));
-        Assert.Equal(["ws-2", "ws-1"], removed.Select(item => item.Id));
+        ClassicAssert.AreEqual(new[] { "ws-2", "ws-1" }, removed.Select(item => item.Id));
     }
 
-    [Fact]
+    [Test]
     public void WorkspaceRenameDeleteRequestsAndResponsesCarryWireShapes()
     {
         var renameBody = JsonSerializer.Serialize(new WorkspaceRenameRequest("ws-1", "改名后"),
@@ -677,57 +700,63 @@ public sealed class HarnessProtocolJsonTests
         using (var document = JsonDocument.Parse(renameBody))
         {
             var root = document.RootElement;
-            Assert.Equal("ws-1", root.GetProperty("workspaceId").GetString());
-            Assert.Equal("改名后", root.GetProperty("title").GetString());
+            ClassicAssert.AreEqual("ws-1", root.GetProperty("workspaceId").GetString());
+            ClassicAssert.AreEqual("改名后", root.GetProperty("title").GetString());
         }
 
         var deleteBody = JsonSerializer.Serialize(new WorkspaceDeleteRequest("ws-2"),
                                                   HarnessJsonContext.Default.WorkspaceDeleteRequest);
         using (var document = JsonDocument.Parse(deleteBody))
         {
-            Assert.Equal("ws-2", document.RootElement.GetProperty("workspaceId").GetString());
+            ClassicAssert.AreEqual("ws-2", document.RootElement.GetProperty("workspaceId").GetString());
         }
 
         var rename =
             JsonSerializer
                .Deserialize("""{"workspace":{"workspaceId":"ws-1","path":"C:/Main","title":"改名后","sessionIds":["session-a"],"updatedAt":"2026-09-20T10:00:00Z"}}""",
                             HarnessJsonContext.Default.WorkspaceRenameValue);
-        Assert.Equal("改名后", Assert.IsType<WorkspaceRenameValue>(rename).Workspace.Title);
+        Assert.That(rename, Is.TypeOf<WorkspaceRenameValue>());
+        ClassicAssert.AreEqual("改名后", ((WorkspaceRenameValue)rename).Workspace.Title);
 
         var deleted =
             JsonSerializer.Deserialize("""{"deleted":true}""", HarnessJsonContext.Default.WorkspaceDeleteValue);
-        Assert.True(Assert.IsType<WorkspaceDeleteValue>(deleted).Deleted);
+        Assert.That(deleted, Is.TypeOf<WorkspaceDeleteValue>());
+        ClassicAssert.IsTrue(((WorkspaceDeleteValue)deleted).Deleted);
     }
 
-    [Fact]
+    [Test]
     public void SessionForkRenameRequestsAndValuesCarryWireShapes()
     {
         var forkBody = JsonSerializer.Serialize(new SessionForkRequest("session-1"),
                                                 HarnessJsonContext.Default.SessionForkRequest);
         using (var document = JsonDocument.Parse(forkBody))
-            Assert.Equal("session-1", document.RootElement.GetProperty("sessionId").GetString());
+        {
+            ClassicAssert.AreEqual("session-1", document.RootElement.GetProperty("sessionId").GetString());
+        }
 
         var renameBody = JsonSerializer.Serialize(new SessionRenameRequest("session-1", "新标题"),
                                                   HarnessJsonContext.Default.SessionRenameRequest);
         using (var document = JsonDocument.Parse(renameBody))
         {
             var root = document.RootElement;
-            Assert.Equal("session-1", root.GetProperty("sessionId").GetString());
-            Assert.Equal("新标题", root.GetProperty("title").GetString());
+            ClassicAssert.AreEqual("session-1", root.GetProperty("sessionId").GetString());
+            ClassicAssert.AreEqual("新标题", root.GetProperty("title").GetString());
         }
 
         var forked = JsonSerializer.Deserialize("""{"sessionId":"session-9"}""",
                                                 HarnessJsonContext.Default.SessionForkValue);
-        Assert.Equal("session-9", Assert.IsType<SessionForkValue>(forked).SessionId);
+        Assert.That(forked, Is.TypeOf<SessionForkValue>());
+        ClassicAssert.AreEqual("session-9", ((SessionForkValue)forked).SessionId);
 
         var renamed = JsonSerializer.Deserialize("""{"title":"接受后","seq":42}""",
                                                  HarnessJsonContext.Default.SessionRenameValue);
-        var renameValue = Assert.IsType<SessionRenameValue>(renamed);
-        Assert.Equal("接受后", renameValue.Title);
-        Assert.Equal(42, renameValue.Seq);
+        Assert.That(renamed, Is.TypeOf<SessionRenameValue>());
+        var renameValue = (SessionRenameValue)renamed;
+        ClassicAssert.AreEqual("接受后", renameValue.Title);
+        ClassicAssert.AreEqual(42, renameValue.Seq);
     }
 
-    [Fact]
+    [Test]
     public void ModelCatalogMapsGroupsFailuresAndDefaultSelection()
     {
         var value = JsonSerializer.Deserialize("""
@@ -748,32 +777,34 @@ public sealed class HarnessProtocolJsonTests
                                                }
                                                """, HarnessJsonContext.Default.SessionModelCatalogValue);
 
-        Assert.NotNull(value);
+        ClassicAssert.IsNotNull(value);
         var catalog = HarnessSessionService.ToCatalog(value!);
 
-        Assert.Equal(new ModelSelection("glm", "glm-5.3"), catalog.Default);
+        ClassicAssert.AreEqual(new ModelSelection("glm", "glm-5.3"), catalog.Default);
         // 空模型组剔除；组内模型顺序保持目录顺序。
-        var group = Assert.Single(catalog.Groups);
-        Assert.Equal(("glm", "Zhipu GLM"), (group.Id, group.Name));
-        Assert.Equal(["glm-5.3", "glm-5.3-flash"], group.Models.Select(model => model.Id));
-        Assert.Equal("GLM 5.3 Flash", group.Models[1].Name);
-        var failure = Assert.Single(catalog.Failures);
-        Assert.Equal(("broken", "credentials unavailable"), (failure.Id, failure.Message));
+        Assert.That(catalog.Groups, Has.Count.EqualTo(1));
+        var group = catalog.Groups.Single();
+        ClassicAssert.AreEqual(("glm", "Zhipu GLM"), (group.Id, group.Name));
+        ClassicAssert.AreEqual(new[] { "glm-5.3", "glm-5.3-flash" }, group.Models.Select(model => model.Id));
+        ClassicAssert.AreEqual("GLM 5.3 Flash", group.Models[1].Name);
+        Assert.That(catalog.Failures, Has.Count.EqualTo(1));
+        var failure = catalog.Failures.Single();
+        ClassicAssert.AreEqual(("broken", "credentials unavailable"), (failure.Id, failure.Message));
 
         // 模型 reasoning 元数据：受支持档位与默认档位映射到应用模型，供界面按模型过滤。
-        Assert.Null(group.Models[0].Reasoning);
+        ClassicAssert.IsNull(group.Models[0].Reasoning);
         var reasoning = group.Models[1].Reasoning;
-        Assert.NotNull(reasoning);
-        Assert.Equal(["low", "high"], reasoning!.Efforts.Select(effort => effort.Id));
-        Assert.Equal("Low", reasoning.Efforts[0].Name);
-        Assert.Equal("low", reasoning.DefaultEffort);
+        ClassicAssert.IsNotNull(reasoning);
+        ClassicAssert.AreEqual(new[] { "low", "high" }, reasoning!.Efforts.Select(effort => effort.Id));
+        ClassicAssert.AreEqual("Low", reasoning.Efforts[0].Name);
+        ClassicAssert.AreEqual("low", reasoning.DefaultEffort);
         // 跨模型携带档位的裁决：支持的保留，不支持回退默认档位。
-        Assert.Equal("low", reasoning.Resolve("low"));
-        Assert.Equal("low", reasoning.Resolve("off"));
-        Assert.Null(reasoning.Resolve(null));
+        ClassicAssert.AreEqual("low", reasoning.Resolve("low"));
+        ClassicAssert.AreEqual("low", reasoning.Resolve("off"));
+        ClassicAssert.IsNull(reasoning.Resolve(null));
     }
 
-    [Fact]
+    [Test]
     public void FollowSnapshotParsesModelSelectionProjection()
     {
         var frame = FollowFrameJson.Parse(JsonDocument.Parse("""
@@ -791,23 +822,24 @@ public sealed class HarnessProtocolJsonTests
                                                              }
                                                              """).RootElement.Clone());
 
-        var snapshot = Assert.IsType<FollowFrame.Snapshot>(frame);
+        Assert.That(frame, Is.TypeOf<FollowFrame.Snapshot>());
+        var snapshot = (FollowFrame.Snapshot)frame;
         // next 优先于 lastUsed：它是下一次请求将使用的选型。
-        Assert.Equal(new ModelSelection("glm", "glm-5.3-flash", "high"), snapshot.CurrentModel);
+        ClassicAssert.AreEqual(new ModelSelection("glm", "glm-5.3-flash", "high"), snapshot.CurrentModel);
     }
 
-    [Fact]
+    [Test]
     public void ModelSelectionEventParsesAndFallsBackToLastUsedProjection()
     {
         var wireEvent = WireEventJson.ParseEvent(JsonDocument.Parse("""
                                                                     {"type": "model/selection", "seq": 6, "time": 1700000006000,
                                                                      "data": {"provider": "glm", "model": "glm-5.3"}}
                                                                     """).RootElement.Clone());
-        Assert.NotNull(wireEvent);
+        ClassicAssert.IsNotNull(wireEvent);
         var selection = WireEventJson.TryGetModelSelection(wireEvent!);
-        Assert.NotNull(selection);
-        Assert.Equal(("glm", "glm-5.3"), (selection!.Provider, selection.Model));
-        Assert.Null(selection.ReasoningEffort);
+        ClassicAssert.IsNotNull(selection);
+        ClassicAssert.AreEqual(("glm", "glm-5.3"), (selection!.Provider, selection.Model));
+        ClassicAssert.IsNull(selection.ReasoningEffort);
 
         // next 为空时回退 lastUsed；两者皆空（未选过型）为 null。
         var fallback = FollowFrameJson.Parse(JsonDocument.Parse("""
@@ -820,8 +852,9 @@ public sealed class HarnessProtocolJsonTests
                                                                   }}
                                                                 }
                                                                 """).RootElement.Clone());
-        var fallbackSnapshot = Assert.IsType<FollowFrame.Snapshot>(fallback);
-        Assert.Equal(new ModelSelection("glm", "glm-5.3"), fallbackSnapshot.CurrentModel);
+        Assert.That(fallback, Is.TypeOf<FollowFrame.Snapshot>());
+        var fallbackSnapshot = (FollowFrame.Snapshot)fallback;
+        ClassicAssert.AreEqual(new ModelSelection("glm", "glm-5.3"), fallbackSnapshot.CurrentModel);
 
         var unselected = FollowFrameJson.Parse(JsonDocument.Parse("""
                                                                   {
@@ -833,11 +866,12 @@ public sealed class HarnessProtocolJsonTests
                                                                     }}
                                                                   }
                                                                   """).RootElement.Clone());
-        var unselectedSnapshot = Assert.IsType<FollowFrame.Snapshot>(unselected);
-        Assert.Null(unselectedSnapshot.CurrentModel);
+        Assert.That(unselected, Is.TypeOf<FollowFrame.Snapshot>());
+        var unselectedSnapshot = (FollowFrame.Snapshot)unselected;
+        ClassicAssert.IsNull(unselectedSnapshot.CurrentModel);
     }
 
-    [Fact]
+    [Test]
     public void FollowSnapshotParsesUsageAndStatsProjections()
     {
         var frame = FollowFrameJson.Parse(JsonDocument.Parse("""
@@ -860,24 +894,27 @@ public sealed class HarnessProtocolJsonTests
                                                              }
                                                              """).RootElement.Clone());
 
-        var snapshot = Assert.IsType<FollowFrame.Snapshot>(frame);
-        Assert.Equal(7, snapshot.ProjectionAsOfSeq);
-        Assert.Equal(new SessionUsage(96, 240, 512, 128), snapshot.Usage);
-        Assert.NotNull(snapshot.Stats);
-        Assert.Equal((2L, 3L, 240L), (snapshot.Stats!.Turns, snapshot.Stats.Steps, snapshot.Stats.DecodeTokens));
-        Assert.Equal(10800, snapshot.Stats.DecodeMs);
+        Assert.That(frame, Is.TypeOf<FollowFrame.Snapshot>());
+        var snapshot = (FollowFrame.Snapshot)frame;
+        ClassicAssert.AreEqual(7, snapshot.ProjectionAsOfSeq);
+        ClassicAssert.AreEqual(new SessionUsage(96, 240, 512, 128), snapshot.Usage);
+        ClassicAssert.IsNotNull(snapshot.Stats);
+        ClassicAssert.AreEqual((2L, 3L, 240L),
+                               (snapshot.Stats!.Turns, snapshot.Stats.Steps, snapshot.Stats.DecodeTokens));
+        ClassicAssert.AreEqual(10800, snapshot.Stats.DecodeMs);
 
         // 投影缺失（后端未装 token-meter）时统计为 null、水位 0，不视为错误。
         var bare = FollowFrameJson.Parse(JsonDocument.Parse("""
                                                             {"type": "snapshot", "cursor": 1, "records": []}
                                                             """).RootElement.Clone());
-        var bareSnapshot = Assert.IsType<FollowFrame.Snapshot>(bare);
-        Assert.Null(bareSnapshot.Usage);
-        Assert.Null(bareSnapshot.Stats);
-        Assert.Equal(0, bareSnapshot.ProjectionAsOfSeq);
+        Assert.That(bare, Is.TypeOf<FollowFrame.Snapshot>());
+        var bareSnapshot = (FollowFrame.Snapshot)bare;
+        ClassicAssert.IsNull(bareSnapshot.Usage);
+        ClassicAssert.IsNull(bareSnapshot.Stats);
+        ClassicAssert.AreEqual(0, bareSnapshot.ProjectionAsOfSeq);
     }
 
-    [Fact]
+    [Test]
     public void SessionControlFramesParseBaselineAndProjectionUpdates()
     {
         var baseline = SessionControlFrameJson.Parse(JsonDocument.Parse("""
@@ -893,44 +930,49 @@ public sealed class HarnessProtocolJsonTests
                                                                           }
                                                                         }
                                                                         """).RootElement.Clone());
-        var baselineFrame = Assert.IsType<SessionControlFrame.Baseline>(baseline);
-        Assert.True(baselineFrame.Projections.TryGetValue("session-1", out var block));
-        Assert.Equal(12, block!.AsOfSeq);
-        Assert.Equal(new SessionUsage(10, 20, 30, 0),
-                     ProjectionValuesJson.ParseUsage(block.Values.GetProperty("tokenUsage")));
+        Assert.That(baseline, Is.TypeOf<SessionControlFrame.Baseline>());
+        var baselineFrame = (SessionControlFrame.Baseline)baseline;
+        ClassicAssert.IsTrue(baselineFrame.Projections.TryGetValue("session-1", out var block));
+        ClassicAssert.AreEqual(12, block!.AsOfSeq);
+        ClassicAssert.AreEqual(new SessionUsage(10, 20, 30, 0),
+                               ProjectionValuesJson.ParseUsage(block.Values.GetProperty("tokenUsage")));
 
         // projection 帧：tokenUsage/sessionStats 键解释为模型，其余键载荷为 null（忽略）。
         var usageUpdate = SessionControlFrameJson.Parse(JsonDocument.Parse("""
                                                                            {"type": "projection", "sessionId": "session-1", "key": "tokenUsage",
                                                                             "seq": 13, "value": {"uncachedInputTokens": 11, "outputTokens": 21, "cacheReadTokens": 31, "cacheWriteTokens": 1}}
                                                                            """).RootElement.Clone());
-        var usageFrame = Assert.IsType<SessionControlFrame.ProjectionUpdate>(usageUpdate);
-        Assert.Equal(("session-1", "tokenUsage", 13L),
-                     (usageFrame.SessionId, usageFrame.Key, usageFrame.Seq));
-        Assert.Equal(new SessionUsage(11, 21, 31, 1), usageFrame.Usage);
-        Assert.Null(usageFrame.Stats);
+        Assert.That(usageUpdate, Is.TypeOf<SessionControlFrame.ProjectionUpdate>());
+        var usageFrame = (SessionControlFrame.ProjectionUpdate)usageUpdate;
+        ClassicAssert.AreEqual(("session-1", "tokenUsage", 13L),
+                               (usageFrame.SessionId, usageFrame.Key, usageFrame.Seq));
+        ClassicAssert.AreEqual(new SessionUsage(11, 21, 31, 1), usageFrame.Usage);
+        ClassicAssert.IsNull(usageFrame.Stats);
 
         var statsUpdate = SessionControlFrameJson.Parse(JsonDocument.Parse("""
                                                                            {"type": "projection", "sessionId": "session-2", "key": "sessionStats",
                                                                             "seq": 5, "value": {"turns": 1, "steps": 1, "llmMs": 100, "toolMs": 0, "ttftMs": 50, "ttftSteps": 1, "decodeMs": 400, "decodeTokens": 10}}
                                                                            """).RootElement.Clone());
-        var statsFrame = Assert.IsType<SessionControlFrame.ProjectionUpdate>(statsUpdate);
-        Assert.Null(statsFrame.Usage);
-        Assert.Equal((1L, 1L, 10L), (statsFrame.Stats!.Turns, statsFrame.Stats.Steps, statsFrame.Stats.DecodeTokens));
+        Assert.That(statsUpdate, Is.TypeOf<SessionControlFrame.ProjectionUpdate>());
+        var statsFrame = (SessionControlFrame.ProjectionUpdate)statsUpdate;
+        ClassicAssert.IsNull(statsFrame.Usage);
+        ClassicAssert.AreEqual((1L, 1L, 10L),
+                               (statsFrame.Stats!.Turns, statsFrame.Stats.Steps, statsFrame.Stats.DecodeTokens));
 
         // jobs 帧与未知投影键：无消费方，解析为 null / 无载荷。
-        Assert.Null(SessionControlFrameJson.Parse(JsonDocument
-                                                 .Parse("""{"type": "jobs", "sessionId": "session-1", "jobs": []}""")
-                                                 .RootElement.Clone()));
+        ClassicAssert.IsNull(SessionControlFrameJson.Parse(JsonDocument
+                                                          .Parse("""{"type": "jobs", "sessionId": "session-1", "jobs": []}""")
+                                                          .RootElement.Clone()));
         var otherKey = SessionControlFrameJson.Parse(JsonDocument
                                                     .Parse("""{"type": "projection", "sessionId": "s", "key": "title", "seq": 2, "value": "标题"}""")
                                                     .RootElement.Clone());
-        var otherFrame = Assert.IsType<SessionControlFrame.ProjectionUpdate>(otherKey);
-        Assert.Null(otherFrame.Usage);
-        Assert.Null(otherFrame.Stats);
+        Assert.That(otherKey, Is.TypeOf<SessionControlFrame.ProjectionUpdate>());
+        var otherFrame = (SessionControlFrame.ProjectionUpdate)otherKey;
+        ClassicAssert.IsNull(otherFrame.Usage);
+        ClassicAssert.IsNull(otherFrame.Stats);
     }
 
-    [Fact]
+    [Test]
     public void PermissionCatalogWireParsesAndMapsToCoreCatalog()
     {
         var wire = JsonSerializer.Deserialize("""
@@ -943,15 +985,16 @@ public sealed class HarnessProtocolJsonTests
                                               """,
                                               HarnessJsonContext.Default.PermissionCatalogWire);
 
-        var catalog = HarnessPermissionPresetService.ToCatalog(Assert.IsType<PermissionCatalogWire>(wire));
-        Assert.Equal("workspace-write", catalog.DefaultPreset);
-        Assert.Equal(4, catalog.Options.Count);
+        Assert.That(wire, Is.TypeOf<PermissionCatalogWire>());
+        var catalog = HarnessPermissionPresetService.ToCatalog((PermissionCatalogWire)wire);
+        ClassicAssert.AreEqual("workspace-write", catalog.DefaultPreset);
+        ClassicAssert.AreEqual(4, catalog.Options.Count);
         var customized = catalog.Options.Single(option => option.Value == "workspace-write");
-        Assert.Equal("工作区内修改", customized.Description);
-        Assert.Null(catalog.Options.Single(option => option.Value == "auto").Description);
+        ClassicAssert.AreEqual("工作区内修改", customized.Description);
+        ClassicAssert.IsNull(catalog.Options.Single(option => option.Value == "auto").Description);
     }
 
-    [Fact]
+    [Test]
     public void CommandExecuteRequestBuildsFlatNamedArgsEnvelope()
     {
         var body = RpcEnvelope.BuildArgsRequest("rpc-1", "commands/execute",
@@ -960,47 +1003,49 @@ public sealed class HarnessProtocolJsonTests
 
         using var document = JsonDocument.Parse(body);
         var       root     = document.RootElement;
-        Assert.Equal("commands/execute", root.GetProperty("method").GetString());
+        ClassicAssert.AreEqual("commands/execute", root.GetProperty("method").GetString());
         var args = root.GetProperty("payload").GetProperty("args");
         // 扁平命名参数表：与宿主 commands.execute 的形参一一对应，无 request 包装。
-        Assert.Equal("session-1", args.GetProperty("agentId").GetString());
-        Assert.Equal("/permission auto", args.GetProperty("line").GetString());
-        Assert.Equal(JsonValueKind.Array, args.GetProperty("submittedAttachments").ValueKind);
-        Assert.Equal(0, args.GetProperty("submittedAttachments").GetArrayLength());
-        Assert.False(args.TryGetProperty("request", out _));
+        ClassicAssert.AreEqual("session-1", args.GetProperty("agentId").GetString());
+        ClassicAssert.AreEqual("/permission auto", args.GetProperty("line").GetString());
+        ClassicAssert.AreEqual(JsonValueKind.Array, args.GetProperty("submittedAttachments").ValueKind);
+        ClassicAssert.AreEqual(0, args.GetProperty("submittedAttachments").GetArrayLength());
+        ClassicAssert.IsFalse(args.TryGetProperty("request", out _));
     }
 
-    [Fact]
+    [Test]
     public void CommandsExecuteUndefinedResultMeansCommandMissing()
     {
         // 宿主无该命令时 result 无 value：信封层解析为 null（服务层翻译为 matched=false）。
         var response = RpcEnvelope.ParseResponse("""{"type":"server-response","rpcId":"rpc-1","result":{"ok":true}}""");
-        Assert.True(response.Ok);
-        Assert.Null(response.Value);
+        ClassicAssert.IsTrue(response.Ok);
+        ClassicAssert.IsNull(response.Value);
     }
 
-    [Fact]
+    [Test]
     public void ControlFrameParsesPermissionsProjectionKey()
     {
         var update = SessionControlFrameJson.Parse(JsonDocument.Parse("""
                                                                       {"type": "projection", "sessionId": "session-1", "key": "permissions",
                                                                        "seq": 7, "value": {"currentValue": "workspace-write"}}
                                                                       """).RootElement.Clone());
-        var frame = Assert.IsType<SessionControlFrame.ProjectionUpdate>(update);
-        Assert.Equal(("session-1", "permissions", 7L), (frame.SessionId, frame.Key, frame.Seq));
-        Assert.Equal("workspace-write", frame.PermissionValue);
-        Assert.Null(frame.Usage);
-        Assert.Null(frame.Stats);
+        Assert.That(update, Is.TypeOf<SessionControlFrame.ProjectionUpdate>());
+        var frame = (SessionControlFrame.ProjectionUpdate)update;
+        ClassicAssert.AreEqual(("session-1", "permissions", 7L), (frame.SessionId, frame.Key, frame.Seq));
+        ClassicAssert.AreEqual("workspace-write", frame.PermissionValue);
+        ClassicAssert.IsNull(frame.Usage);
+        ClassicAssert.IsNull(frame.Stats);
 
         // currentValue 形状不符（非字符串）时保持 null，不产生伪基线。
         var malformed = SessionControlFrameJson.Parse(JsonDocument.Parse("""
                                                                          {"type": "projection", "sessionId": "s", "key": "permissions",
                                                                           "seq": 8, "value": {"currentValue": 42}}
                                                                          """).RootElement.Clone());
-        Assert.Null(Assert.IsType<SessionControlFrame.ProjectionUpdate>(malformed).PermissionValue);
+        Assert.That(malformed, Is.TypeOf<SessionControlFrame.ProjectionUpdate>());
+        ClassicAssert.IsNull(((SessionControlFrame.ProjectionUpdate)malformed).PermissionValue);
     }
 
-    [Fact]
+    [Test]
     public void BaselineValuesCarryParsablePermissionsProjection()
     {
         var baseline = SessionControlFrameJson.Parse(JsonDocument.Parse("""
@@ -1008,12 +1053,14 @@ public sealed class HarnessProtocolJsonTests
                                                                          "value": {"projections": {"session-1": {"asOfSeq": 12, "values": {
                                                                            "permissions": {"currentValue": "read-only"}}}}}}
                                                                         """).RootElement.Clone());
-        var frame = Assert.IsType<SessionControlFrame.Baseline>(baseline);
-        Assert.True(frame.Projections.TryGetValue("session-1", out var block));
-        Assert.Equal("read-only", ProjectionValuesJson.ParsePermissions(block!.Values.GetProperty("permissions")));
+        Assert.That(baseline, Is.TypeOf<SessionControlFrame.Baseline>());
+        var frame = (SessionControlFrame.Baseline)baseline;
+        ClassicAssert.IsTrue(frame.Projections.TryGetValue("session-1", out var block));
+        ClassicAssert.AreEqual("read-only",
+                               ProjectionValuesJson.ParsePermissions(block!.Values.GetProperty("permissions")));
     }
 
-    [Fact]
+    [Test]
     public void FollowSnapshotCarriesPermissionsProjection()
     {
         var frame = FollowFrameJson.Parse(JsonDocument.Parse("""
@@ -1022,12 +1069,13 @@ public sealed class HarnessProtocolJsonTests
                                                               "cursor": 4, "records": [], "hasMore": false,
                                                               "projections": {"asOfSeq": 9, "values": {"permissions": {"currentValue": "danger-full-access"}}}}
                                                              """).RootElement.Clone());
-        var snapshot = Assert.IsType<FollowFrame.Snapshot>(frame);
-        Assert.Equal(9, snapshot.ProjectionAsOfSeq);
-        Assert.Equal("danger-full-access", snapshot.CurrentPermission);
+        Assert.That(frame, Is.TypeOf<FollowFrame.Snapshot>());
+        var snapshot = (FollowFrame.Snapshot)frame;
+        ClassicAssert.AreEqual(9, snapshot.ProjectionAsOfSeq);
+        ClassicAssert.AreEqual("danger-full-access", snapshot.CurrentPermission);
     }
 
-    [Fact]
+    [Test]
     public void FollowSnapshotReplaysWorkspaceChangesRecordsAfterSnapshotUpdate()
     {
         var frame = FollowFrameJson.Parse(JsonDocument.Parse("""
@@ -1039,20 +1087,23 @@ public sealed class HarnessProtocolJsonTests
                                                                 {"type": "event", "event": {"type": "workspace/changes", "seq": 5, "time": 1700000005000, "data": {"turn": 2}}}],
                                                               "hasMore": false}
                                                              """).RootElement.Clone());
-        var snapshotFrame = Assert.IsType<FollowFrame.Snapshot>(frame);
+        Assert.That(frame, Is.TypeOf<FollowFrame.Snapshot>());
+        var snapshotFrame = (FollowFrame.Snapshot)frame;
 
         var updates = HarnessSessionService.MapFollowFrame(snapshotFrame).ToList();
 
         // 快照窗口内的改动摘要按记录顺序重放，且位于整窗替换之后。
-        Assert.Equal(3, updates.Count);
-        Assert.IsType<SessionUpdate.Snapshot>(updates[0]);
-        var first  = Assert.IsType<SessionUpdate.WorkspaceChanged>(updates[1]);
-        var second = Assert.IsType<SessionUpdate.WorkspaceChanged>(updates[2]);
-        Assert.Equal((1L, 3L), (first.Turn, first.Seq));
-        Assert.Equal((2L, 5L), (second.Turn, second.Seq));
+        ClassicAssert.AreEqual(3, updates.Count);
+        ClassicAssert.IsInstanceOf<SessionUpdate.Snapshot>(updates[0]);
+        Assert.That(updates[1], Is.TypeOf<SessionUpdate.WorkspaceChanged>());
+        var first = (SessionUpdate.WorkspaceChanged)updates[1];
+        Assert.That(updates[2], Is.TypeOf<SessionUpdate.WorkspaceChanged>());
+        var second = (SessionUpdate.WorkspaceChanged)updates[2];
+        ClassicAssert.AreEqual((1L, 3L), (first.Turn, first.Seq));
+        ClassicAssert.AreEqual((2L, 5L), (second.Turn, second.Seq));
     }
 
-    [Fact]
+    [Test]
     public void WorkspaceChangesEventFrameMapsToWorkspaceChangedUpdate()
     {
         var frame = FollowFrameJson.Parse(JsonDocument.Parse("""
@@ -1060,20 +1111,23 @@ public sealed class HarnessProtocolJsonTests
                                                               "event": {"type": "workspace/changes", "seq": 41, "time": 1727840000000, "data": {"turn": 3}}}
                                                              """).RootElement.Clone());
 
-        var updates = HarnessSessionService.MapFollowFrame(Assert.IsType<FollowFrame.EventFrame>(frame)).ToList();
+        Assert.That(frame, Is.TypeOf<FollowFrame.EventFrame>());
+        var updates = HarnessSessionService.MapFollowFrame((FollowFrame.EventFrame)frame).ToList();
 
-        var changed = Assert.IsType<SessionUpdate.WorkspaceChanged>(Assert.Single(updates));
-        Assert.Equal((3L, 41L), (changed.Turn, changed.Seq));
+        Assert.That(updates.Single(), Is.TypeOf<SessionUpdate.WorkspaceChanged>());
+        var changed = (SessionUpdate.WorkspaceChanged)updates.Single();
+        ClassicAssert.AreEqual((3L, 41L), (changed.Turn, changed.Seq));
     }
 
-    [Fact]
+    [Test]
     public void EmitFrameParsesPermissionCatalogChangedEvent()
     {
         var frame = RemoteEventJson.Parse(JsonDocument
                                          .Parse("""{"type": "emit", "event": "permission-presets/catalog-changed", "args": []}""")
                                          .RootElement.Clone());
-        var emit = Assert.IsType<RemoteEventFrame.Emit>(frame);
-        Assert.Equal(RemoteEventJson.PermissionCatalogChangedEvent, emit.Event);
-        Assert.Empty(emit.Args);
+        Assert.That(frame, Is.TypeOf<RemoteEventFrame.Emit>());
+        var emit = (RemoteEventFrame.Emit)frame;
+        ClassicAssert.AreEqual(RemoteEventJson.PermissionCatalogChangedEvent, emit.Event);
+        ClassicAssert.IsEmpty(emit.Args);
     }
 }

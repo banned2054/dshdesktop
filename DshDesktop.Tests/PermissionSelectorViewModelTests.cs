@@ -1,7 +1,8 @@
 using DshDesktop.Core.Models;
 using DshDesktop.Core.Services;
 using DshDesktop.ViewModels;
-using Xunit;
+using NUnit.Framework;
+using NUnit.Framework.Legacy;
 
 namespace DshDesktop.Tests;
 
@@ -11,7 +12,7 @@ namespace DshDesktop.Tests;
 /// </summary>
 public sealed class PermissionSelectorViewModelTests
 {
-    [Fact]
+    [Test]
     public async Task CatalogMapsToOptionItemsWithDisplayNames()
     {
         var (selector, _) = await CreateReadySelector(service =>
@@ -25,32 +26,32 @@ public sealed class PermissionSelectorViewModelTests
             ], "workspace-write");
         });
 
-        Assert.Equal(4, selector.Options.Count);
-        Assert.Equal("仅可查看", selector.Options[0].DisplayName);
-        Assert.Equal("工作区内修改", selector.Options[1].DisplayName);
-        Assert.Equal("完全权限", selector.Options[2].DisplayName);
+        ClassicAssert.AreEqual(4, selector.Options.Count);
+        ClassicAssert.AreEqual("仅可查看", selector.Options[0].DisplayName);
+        ClassicAssert.AreEqual("工作区内修改", selector.Options[1].DisplayName);
+        ClassicAssert.AreEqual("完全权限", selector.Options[2].DisplayName);
         // 宿主定制名透传展示，不按 id 推导。
-        Assert.Equal("Team preset", selector.Options[3].DisplayName);
-        Assert.Equal("团队定制预设", selector.Options[3].Description);
+        ClassicAssert.AreEqual("Team preset", selector.Options[3].DisplayName);
+        ClassicAssert.AreEqual("团队定制预设", selector.Options[3].Description);
     }
 
-    [Fact]
+    [Test]
     public async Task ProjectionIsTheAuthoritativeCurrentPermission()
     {
         var (selector, _) = await CreateReadySelector();
 
         selector.ApplyPermission(9, "workspace-write");
-        Assert.Equal("工作区内修改", selector.PermissionPickerLabel);
-        Assert.True(selector.Options.Single(option => option.Value == "workspace-write").IsSelected);
+        ClassicAssert.AreEqual("工作区内修改", selector.PermissionPickerLabel);
+        ClassicAssert.IsTrue(selector.Options.Single(option => option.Value == "workspace-write").IsSelected);
 
         // 整值替换：新投影到达后勾选与文案整体迁移。
         selector.ApplyPermission(10, "danger-full-access");
-        Assert.Equal("完全权限", selector.PermissionPickerLabel);
-        Assert.True(selector.Options.Single(option => option.Value  == "danger-full-access").IsSelected);
-        Assert.False(selector.Options.Single(option => option.Value == "workspace-write").IsSelected);
+        ClassicAssert.AreEqual("完全权限", selector.PermissionPickerLabel);
+        ClassicAssert.IsTrue(selector.Options.Single(option => option.Value  == "danger-full-access").IsSelected);
+        ClassicAssert.IsFalse(selector.Options.Single(option => option.Value == "workspace-write").IsSelected);
     }
 
-    [Fact]
+    [Test]
     public async Task SelectingPresetSendsSwitchAndWaitsForProjection()
     {
         var (selector, service) = await CreateReadySelector();
@@ -58,19 +59,20 @@ public sealed class PermissionSelectorViewModelTests
         var option = selector.Options.Single(item => item.Value == "read-only");
         option.SelectCommand.Execute(null);
 
-        var (sessionId, preset) = Assert.Single(service.Switches);
-        Assert.Equal("session-1", sessionId);
-        Assert.Equal("read-only", preset);
+        Assert.That(service.Switches, Has.Count.EqualTo(1));
+        var (sessionId, preset) = service.Switches.Single();
+        ClassicAssert.AreEqual("session-1", sessionId);
+        ClassicAssert.AreEqual("read-only", preset);
 
         // 不做乐观更新：投影回流前当前权限保持旧值。
-        Assert.Equal("workspace-write", selector.CurrentValue);
-        Assert.Equal("工作区内修改", selector.PermissionPickerLabel);
+        ClassicAssert.AreEqual("workspace-write", selector.CurrentValue);
+        ClassicAssert.AreEqual("工作区内修改", selector.PermissionPickerLabel);
 
         selector.ApplyPermission(11, "read-only");
-        Assert.Equal("仅可查看", selector.PermissionPickerLabel);
+        ClassicAssert.AreEqual("仅可查看", selector.PermissionPickerLabel);
     }
 
-    [Fact]
+    [Test]
     public async Task SwitchFailureKeepsOldStateAndReenablesSelector()
     {
         var errors = new List<string?>();
@@ -80,16 +82,17 @@ public sealed class PermissionSelectorViewModelTests
         SelectOptionByValue(selector, "read-only");
         await WaitUntilAsync(() => !selector.IsSwitching);
 
-        Assert.Equal("workspace-write", selector.CurrentValue);
-        Assert.Equal("工作区内修改", selector.PermissionPickerLabel);
-        Assert.True(selector.IsSelectorEnabled);
+        ClassicAssert.AreEqual("workspace-write", selector.CurrentValue);
+        ClassicAssert.AreEqual("工作区内修改", selector.PermissionPickerLabel);
+        ClassicAssert.IsTrue(selector.IsSelectorEnabled);
 
         // 首条是请求前的错误清除（null），第二条是真实失败信息。
-        var error = Assert.Single(errors.Where(text => text is not null));
-        Assert.StartsWith("权限切换失败：", error);
+        Assert.That(errors.Where(text => text is not null).Count(), Is.EqualTo(1));
+        var error = errors.Where(text => text is not null).Single();
+        Assert.That(error, Does.StartWith("权限切换失败："));
     }
 
-    [Fact]
+    [Test]
     public async Task MissingPermissionCommandReportsWithoutStateChange()
     {
         var errors = new List<string?>();
@@ -99,57 +102,58 @@ public sealed class PermissionSelectorViewModelTests
         SelectOptionByValue(selector, "read-only");
         await WaitUntilAsync(() => !selector.IsSwitching);
 
-        Assert.Equal("workspace-write", selector.CurrentValue);
-        Assert.Contains("未提供权限切换命令", Assert.Single(errors.Where(text => text is not null)));
+        ClassicAssert.AreEqual("workspace-write", selector.CurrentValue);
+        Assert.That(errors.Where(text => text is not null).Single(), Does.Contain("未提供权限切换命令"));
     }
 
-    [Fact]
+    [Test]
     public async Task FullAccessRequiresAcknowledgedConfirmationBeforeRequest()
     {
         var (selector, service) = await CreateReadySelector();
 
         SelectOptionByValue(selector, "danger-full-access");
 
-        Assert.True(selector.IsConfirmOpen);
-        Assert.Empty(service.Switches);
-        Assert.Equal("确认启用完全权限？", selector.ConfirmTitle);
-        Assert.Contains("减少确认步骤", selector.ConfirmDescription);
-        Assert.Equal("启用完全权限", selector.ConfirmEnableText);
+        ClassicAssert.IsTrue(selector.IsConfirmOpen);
+        ClassicAssert.IsEmpty(service.Switches);
+        ClassicAssert.AreEqual("确认启用完全权限？", selector.ConfirmTitle);
+        Assert.That(selector.ConfirmDescription, Does.Contain("减少确认步骤"));
+        ClassicAssert.AreEqual("启用完全权限", selector.ConfirmEnableText);
 
         // 未勾选确认不可启用（按钮禁用 + 命令守卫双保险）。
         selector.ConfirmSwitchCommand.Execute(null);
-        Assert.Empty(service.Switches);
-        Assert.True(selector.IsConfirmOpen);
+        ClassicAssert.IsEmpty(service.Switches);
+        ClassicAssert.IsTrue(selector.IsConfirmOpen);
 
         selector.IsAcknowledged = true;
         selector.ConfirmSwitchCommand.Execute(null);
 
-        Assert.False(selector.IsConfirmOpen);
-        var (_, preset) = Assert.Single(service.Switches);
-        Assert.Equal("danger-full-access", preset);
+        ClassicAssert.IsFalse(selector.IsConfirmOpen);
+        Assert.That(service.Switches, Has.Count.EqualTo(1));
+        var (_, preset) = service.Switches.Single();
+        ClassicAssert.AreEqual("danger-full-access", preset);
         // 确认后同样不乐观更新：仍以投影回流为准。
-        Assert.Equal("workspace-write", selector.CurrentValue);
+        ClassicAssert.AreEqual("workspace-write", selector.CurrentValue);
     }
 
-    [Fact]
+    [Test]
     public async Task CancellingConfirmationSendsNothing()
     {
         var (selector, service) = await CreateReadySelector();
 
         SelectOptionByValue(selector, "danger-full-access");
-        Assert.True(selector.IsConfirmOpen);
+        ClassicAssert.IsTrue(selector.IsConfirmOpen);
 
         selector.CancelSwitchCommand.Execute(null);
 
-        Assert.False(selector.IsConfirmOpen);
-        Assert.Empty(service.Switches);
+        ClassicAssert.IsFalse(selector.IsConfirmOpen);
+        ClassicAssert.IsEmpty(service.Switches);
 
         // 弹层已收起：后续普通切换不再被确认门拦住。
         SelectOptionByValue(selector, "read-only");
-        Assert.Single(service.Switches);
+        Assert.That(service.Switches, Has.Count.EqualTo(1));
     }
 
-    [Fact]
+    [Test]
     public async Task AutoPresetUsesExperimentalConfirmationCopy()
     {
         var (selector, service) = await CreateReadySelector(service =>
@@ -164,23 +168,24 @@ public sealed class PermissionSelectorViewModelTests
         });
 
         var autoOption = selector.Options.Single(item => item.Value == "auto");
-        Assert.True(autoOption.IsExperimental);
+        ClassicAssert.IsTrue(autoOption.IsExperimental);
 
         SelectOptionByValue(selector, "auto");
 
-        Assert.True(selector.IsConfirmOpen);
-        Assert.Equal("确认启用 Auto review（实验）？", selector.ConfirmTitle);
-        Assert.Equal("我已了解这些风险，并愿意继续", selector.ConfirmAcknowledgeText);
-        Assert.Equal("启用 Auto review", selector.ConfirmEnableText);
+        ClassicAssert.IsTrue(selector.IsConfirmOpen);
+        ClassicAssert.AreEqual("确认启用 Auto review（实验）？", selector.ConfirmTitle);
+        ClassicAssert.AreEqual("我已了解这些风险，并愿意继续", selector.ConfirmAcknowledgeText);
+        ClassicAssert.AreEqual("启用 Auto review", selector.ConfirmEnableText);
 
         selector.IsAcknowledged = true;
         selector.ConfirmSwitchCommand.Execute(null);
 
-        var (_, preset) = Assert.Single(service.Switches);
-        Assert.Equal("auto", preset);
+        Assert.That(service.Switches, Has.Count.EqualTo(1));
+        var (_, preset) = service.Switches.Single();
+        ClassicAssert.AreEqual("auto", preset);
     }
 
-    [Fact]
+    [Test]
     public async Task SelectingAlreadyCurrentPresetSkipsConfirmationAndRequest()
     {
         var (selector, service) = await CreateReadySelector();
@@ -188,26 +193,26 @@ public sealed class PermissionSelectorViewModelTests
 
         SelectOptionByValue(selector, "danger-full-access");
 
-        Assert.False(selector.IsConfirmOpen);
-        Assert.Empty(service.Switches);
+        ClassicAssert.IsFalse(selector.IsConfirmOpen);
+        ClassicAssert.IsEmpty(service.Switches);
     }
 
-    [Fact]
+    [Test]
     public async Task UnknownPresetValueFallsBackWithoutCrashing()
     {
         var (selector, _) = await CreateReadySelector();
 
         selector.ApplyPermission(4, "custom");
-        Assert.Equal("Custom", selector.PermissionPickerLabel);
-        Assert.True(selector.IsSelectorEnabled);
+        ClassicAssert.AreEqual("Custom", selector.PermissionPickerLabel);
+        ClassicAssert.IsTrue(selector.IsSelectorEnabled);
 
         // 非惯例键原样展示；目录中无匹配行时不勾任何选项。
         selector.ApplyPermission(5, "Some Exotic Value");
-        Assert.Equal("Some Exotic Value", selector.PermissionPickerLabel);
-        Assert.DoesNotContain(selector.Options, option => option.IsSelected);
+        ClassicAssert.AreEqual("Some Exotic Value", selector.PermissionPickerLabel);
+        Assert.That(selector.Options.Any(option => option.IsSelected), Is.False);
     }
 
-    [Fact]
+    [Test]
     public async Task StaleProjectionSeqIsIgnored()
     {
         var (selector, _) = await CreateReadySelector();
@@ -215,74 +220,74 @@ public sealed class PermissionSelectorViewModelTests
         selector.ApplyPermission(10, "read-only");
         selector.ApplyPermission(5, "workspace-write");
 
-        Assert.Equal("read-only", selector.CurrentValue);
-        Assert.Equal("仅可查看", selector.PermissionPickerLabel);
+        ClassicAssert.AreEqual("read-only", selector.CurrentValue);
+        ClassicAssert.AreEqual("仅可查看", selector.PermissionPickerLabel);
     }
 
-    [Fact]
+    [Test]
     public async Task InFlightSwitchDisablesSelectorUntilRequestSettles()
     {
         var (selector, service) = await CreateReadySelector();
         service.PendingSwitch   = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
         SelectOptionByValue(selector, "read-only");
-        Assert.True(selector.IsSwitching);
-        Assert.False(selector.IsSelectorEnabled);
+        ClassicAssert.IsTrue(selector.IsSwitching);
+        ClassicAssert.IsFalse(selector.IsSelectorEnabled);
 
         // 在途期间不能提交相互冲突的切换请求。
         SelectOptionByValue(selector, "danger-full-access");
-        Assert.Single(service.Switches);
+        Assert.That(service.Switches, Has.Count.EqualTo(1));
 
         service.PendingSwitch.TrySetResult();
         await WaitUntilAsync(() => !selector.IsSwitching);
-        Assert.True(selector.IsSelectorEnabled);
+        ClassicAssert.IsTrue(selector.IsSelectorEnabled);
     }
 
-    [Fact]
+    [Test]
     public async Task SessionSwitchResetsProjectionStateUntilNextBaseline()
     {
         var (selector, _) = await CreateReadySelector();
 
         selector.SetSession("session-2");
 
-        Assert.Null(selector.CurrentValue);
-        Assert.Equal("权限…", selector.PermissionPickerLabel);
-        Assert.False(selector.IsSelectorEnabled);
+        ClassicAssert.IsNull(selector.CurrentValue);
+        ClassicAssert.AreEqual("权限…", selector.PermissionPickerLabel);
+        ClassicAssert.IsFalse(selector.IsSelectorEnabled);
 
         // 新会话投影基线到达后恢复可用。
         selector.ApplyPermission(1, "workspace-write");
-        Assert.Equal("工作区内修改", selector.PermissionPickerLabel);
-        Assert.True(selector.IsSelectorEnabled);
+        ClassicAssert.AreEqual("工作区内修改", selector.PermissionPickerLabel);
+        ClassicAssert.IsTrue(selector.IsSelectorEnabled);
     }
 
-    [Fact]
+    [Test]
     public async Task DraftPageWithoutSessionHidesSelector()
     {
         var (selector, _) = await CreateReadySelector();
 
         selector.SetSession(null);
 
-        Assert.False(selector.HasSession);
-        Assert.False(selector.IsSelectorEnabled);
+        ClassicAssert.IsFalse(selector.HasSession);
+        ClassicAssert.IsFalse(selector.IsSelectorEnabled);
     }
 
-    [Fact]
+    [Test]
     public async Task DisconnectedBackendDisablesSelector()
     {
         var (selector, _) = await CreateReadySelector();
 
         selector.SetBackendConnected(false);
-        Assert.False(selector.IsSelectorEnabled);
+        ClassicAssert.IsFalse(selector.IsSelectorEnabled);
 
         selector.SetBackendConnected(true);
-        Assert.True(selector.IsSelectorEnabled);
+        ClassicAssert.IsTrue(selector.IsSelectorEnabled);
     }
 
-    [Fact]
+    [Test]
     public async Task CatalogChangedBroadcastReloadsOptions()
     {
         var (selector, service) = await CreateReadySelector();
-        Assert.Equal(1, service.CatalogRequests);
+        ClassicAssert.AreEqual(1, service.CatalogRequests);
 
         service.Catalog = new PermissionCatalog(
         [
@@ -292,14 +297,14 @@ public sealed class PermissionSelectorViewModelTests
         ], "workspace-write");
         service.RaiseCatalogChanged();
 
-        Assert.Equal(2, service.CatalogRequests);
-        Assert.Equal(3, selector.Options.Count);
+        ClassicAssert.AreEqual(2, service.CatalogRequests);
+        ClassicAssert.AreEqual(3, selector.Options.Count);
         // 目录重读不改写当前权限：仍由投影决定。
-        Assert.Equal("workspace-write", selector.CurrentValue);
-        Assert.Equal("工作区内修改", selector.PermissionPickerLabel);
+        ClassicAssert.AreEqual("workspace-write", selector.CurrentValue);
+        ClassicAssert.AreEqual("工作区内修改", selector.PermissionPickerLabel);
     }
 
-    [Fact]
+    [Test]
     public async Task CatalogFailureKeepsSelectorUnavailableWithoutErrorLeak()
     {
         var errors   = new List<string?>();
@@ -311,31 +316,31 @@ public sealed class PermissionSelectorViewModelTests
         // 目录加载失败：保持不可用态，不向窗口级错误条泄漏（不影响正常聊天）。
         await selector.ReloadCatalogSafeAsync();
 
-        Assert.False(selector.IsSelectorEnabled);
-        Assert.Equal("权限不可用", selector.PermissionPickerLabel);
-        Assert.Empty(errors);
+        ClassicAssert.IsFalse(selector.IsSelectorEnabled);
+        ClassicAssert.AreEqual("权限不可用", selector.PermissionPickerLabel);
+        ClassicAssert.IsEmpty(errors);
     }
 
-    [Fact]
+    [Test]
     public async Task DraftPageShowsCatalogDefaultAndPreselectsLocally()
     {
         var (selector, service, draftPresets) = await CreateDraftSelector();
 
         // 草稿页无会话也可见（本地预选，不发 RPC）；未预选时显示目录默认——即新会话将被后端播种的预设。
-        Assert.False(selector.HasSession);
-        Assert.True(selector.IsVisible);
-        Assert.True(selector.IsSelectorEnabled);
-        Assert.Equal("工作区内修改", selector.PermissionPickerLabel);
-        Assert.True(selector.Options.Single(option => option.Value == "workspace-write").IsSelected);
+        ClassicAssert.IsFalse(selector.HasSession);
+        ClassicAssert.IsTrue(selector.IsVisible);
+        ClassicAssert.IsTrue(selector.IsSelectorEnabled);
+        ClassicAssert.AreEqual("工作区内修改", selector.PermissionPickerLabel);
+        ClassicAssert.IsTrue(selector.Options.Single(option => option.Value == "workspace-write").IsSelected);
 
         SelectOptionByValue(selector, "read-only");
 
-        Assert.Empty(service.Switches);
-        Assert.Equal("仅可查看", selector.PermissionPickerLabel);
-        Assert.Equal("read-only", Assert.Single(draftPresets));
+        ClassicAssert.IsEmpty(service.Switches);
+        ClassicAssert.AreEqual("仅可查看", selector.PermissionPickerLabel);
+        ClassicAssert.AreEqual("read-only", draftPresets.Single());
     }
 
-    [Fact]
+    [Test]
     public async Task DraftFullAccessRequiresConfirmationBeforeLocalPreset()
     {
         var (selector, service, draftPresets) = await CreateDraftSelector();
@@ -343,19 +348,19 @@ public sealed class PermissionSelectorViewModelTests
         SelectOptionByValue(selector, "danger-full-access");
 
         // 确认门在草稿页同样生效：确认前不记账。
-        Assert.True(selector.IsConfirmOpen);
-        Assert.Empty(draftPresets);
+        ClassicAssert.IsTrue(selector.IsConfirmOpen);
+        ClassicAssert.IsEmpty(draftPresets);
 
         selector.IsAcknowledged = true;
         selector.ConfirmSwitchCommand.Execute(null);
 
-        Assert.False(selector.IsConfirmOpen);
-        Assert.Equal("完全权限", selector.PermissionPickerLabel);
-        Assert.Equal("danger-full-access", Assert.Single(draftPresets));
-        Assert.Empty(service.Switches);
+        ClassicAssert.IsFalse(selector.IsConfirmOpen);
+        ClassicAssert.AreEqual("完全权限", selector.PermissionPickerLabel);
+        ClassicAssert.AreEqual("danger-full-access", draftPresets.Single());
+        ClassicAssert.IsEmpty(service.Switches);
     }
 
-    [Fact]
+    [Test]
     public async Task DraftSelectingCatalogDefaultSkipsCallback()
     {
         var (selector, _, draftPresets) = await CreateDraftSelector();
@@ -363,32 +368,32 @@ public sealed class PermissionSelectorViewModelTests
         // 目录默认即当前生效值：与 WebUI 一致直接返回，不产生草稿改动。
         SelectOptionByValue(selector, "workspace-write");
 
-        Assert.Empty(draftPresets);
+        ClassicAssert.IsEmpty(draftPresets);
     }
 
-    [Fact]
+    [Test]
     public async Task DraftPreselectionRestoresAndLeavingDraftClearsIt()
     {
         var (selector, _, _) = await CreateDraftSelector();
 
         // root 在进入草稿页时推送既有草稿的预选（null=未预选，显示目录默认）。
         selector.ApplyDraftPreset("read-only");
-        Assert.Equal("仅可查看", selector.PermissionPickerLabel);
+        ClassicAssert.AreEqual("仅可查看", selector.PermissionPickerLabel);
 
         // 离开草稿页清除预选：改由会话投影驱动（投影基线未到时显示「权限…」）。
         selector.SetDraftTarget(false);
         selector.SetSession("session-2");
-        Assert.True(selector.IsVisible);
-        Assert.Equal("权限…", selector.PermissionPickerLabel);
-        Assert.False(selector.IsSelectorEnabled);
+        ClassicAssert.IsTrue(selector.IsVisible);
+        ClassicAssert.AreEqual("权限…", selector.PermissionPickerLabel);
+        ClassicAssert.IsFalse(selector.IsSelectorEnabled);
     }
 
-    [Fact]
+    [Test]
     public void SetSessionFromDraftReRaisesIsVisibleForBinding()
     {
         var selector = new PermissionSelectorViewModel(new FakePermissionPresetService(), _ => { });
         selector.SetDraftTarget(true);
-        Assert.True(selector.IsVisible);
+        ClassicAssert.IsTrue(selector.IsVisible);
 
         var isVisibleRaised = false;
         selector.PropertyChanged += (_, eventArgs) =>
@@ -400,13 +405,13 @@ public sealed class PermissionSelectorViewModelTests
         // 求值为 false；再 SetSession 使属性转为 true。转 true 时必须重发通知，否则
         // XAML 绑定不重估，选择器在已有会话中卡在隐藏态。
         selector.SetDraftTarget(false);
-        Assert.False(selector.IsVisible);
+        ClassicAssert.IsFalse(selector.IsVisible);
         isVisibleRaised = false;
 
         selector.SetSession("session-1");
 
-        Assert.True(selector.IsVisible);
-        Assert.True(isVisibleRaised);
+        ClassicAssert.IsTrue(selector.IsVisible);
+        ClassicAssert.IsTrue(isVisibleRaised);
     }
 
     private static void SelectOptionByValue(PermissionSelectorViewModel selector, string value)
@@ -454,7 +459,7 @@ public sealed class PermissionSelectorViewModelTests
             await Task.Delay(10);
         }
 
-        Assert.True(condition(), "预期的异步状态未在超时前出现。");
+        ClassicAssert.IsTrue(condition(), "预期的异步状态未在超时前出现。");
     }
 
     private sealed class FakePermissionPresetService : IPermissionPresetService

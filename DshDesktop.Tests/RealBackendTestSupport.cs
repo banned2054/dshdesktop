@@ -1,9 +1,8 @@
 using DshDesktop.Core.Models;
 using DshDesktop.Harness.Services.Sessions;
 using DshDesktop.Infrastructure.Services.Backend;
+using NUnit.Framework.Legacy;
 using System.Collections.Concurrent;
-using Xunit;
-using Xunit.Abstractions;
 
 namespace DshDesktop.Tests;
 
@@ -121,7 +120,7 @@ internal static class RealBackendTestSupport
     /// <summary>
     ///     订阅线程与断言线程之间的更新收集：ConcurrentQueue 避免跨线程读写普通 List 的竞态。
     /// </summary>
-    internal sealed class UpdateCollector(ITestOutputHelper output)
+    internal sealed class UpdateCollector(TextWriter output)
     {
         private readonly ConcurrentQueue<SessionUpdate> _updates = new();
 
@@ -161,7 +160,7 @@ internal static class RealBackendTestSupport
 
         public void AssertNoSubscriptionFault()
         {
-            Assert.Null(_fault);
+            ClassicAssert.IsNull(_fault);
         }
     }
 }

@@ -5,17 +5,16 @@ using DshDesktop.Harness.Exceptions;
 using DshDesktop.Infrastructure.Services;
 using DshDesktop.Presentation.Views;
 using DshDesktop.ViewModels;
+using NUnit.Framework;
+using NUnit.Framework.Legacy;
 using System.Collections.Specialized;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Threading.Channels;
-using Xunit;
-using Xunit.Abstractions;
-using Xunit.Sdk;
 
 namespace DshDesktop.Tests;
 
-public sealed class MainWindowViewModelTests(ITestOutputHelper output)
+public sealed class MainWindowViewModelTests
 {
     private static readonly Lock AvaloniaSetupLock = new();
 
@@ -28,12 +27,12 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         {
             await WaitUntilAsync(condition, timeoutMilliseconds);
         }
-        catch (XunitException)
+        catch (AssertionException)
         {
-            output.WriteLine($"等待超时现场：selected={viewModel.SelectedSession?.Id} "          +
-                             $"usage={viewModel.Composer.Usage?.ToString() ?? "<null>"} " +
-                             $"stats={viewModel.Composer.Stats?.ToString() ?? "<null>"} " +
-                             $"error=\"{viewModel.ErrorText}\" items={viewModel.ConversationItems.Count}");
+            await TestContext.Out.WriteLineAsync($"等待超时现场：selected={viewModel.SelectedSession?.Id} "          +
+                                                 $"usage={viewModel.Composer.Usage?.ToString() ?? "<null>"} " +
+                                                 $"stats={viewModel.Composer.Stats?.ToString() ?? "<null>"} " +
+                                                 $"error=\"{viewModel.ErrorText}\" items={viewModel.ConversationItems.Count}");
             throw;
         }
     }
@@ -48,20 +47,20 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         return session;
     }
 
-    [Fact]
+    [Test]
     public async Task MainWindowReceivesTheComposedViewModelAsDataContext()
     {
         var viewModel = CreateViewModel();
         EnsureAvaloniaPlatform();
         var window = new MainWindow(viewModel);
 
-        Assert.Same(viewModel, window.DataContext);
+        ClassicAssert.AreSame(viewModel, window.DataContext);
 
         window.Close();
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task LoadOlderRebuildRaisesResetInsideLoadingWindow()
     {
         var viewModel = CreateViewModel();
@@ -79,13 +78,13 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         viewModel.LoadOlderCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.ConversationItems[0].Seq == 23 && !viewModel.IsLoadingOlder);
 
-        Assert.Contains(events,
-                        recorded => recorded is { Action: NotifyCollectionChangedAction.Reset, LoadingOlder: true });
+        Assert.That(events.Any(recorded => recorded is
+                                   { Action: NotifyCollectionChangedAction.Reset, LoadingOlder: true }), Is.True);
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task SessionSwitchRebuildRaisesResetOutsideLoadingWindow()
     {
         var viewModel = CreateViewModel();
@@ -108,13 +107,13 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
             viewModel.Sidebar.Sessions.First(session => session.Id != firstSessionId);
         await WaitUntilAsync(() => viewModel.ConversationItems.Count > 0);
 
-        Assert.True(sawReset);
-        Assert.False(sawResetWhileLoadingOlder);
+        ClassicAssert.IsTrue(sawReset);
+        ClassicAssert.IsFalse(sawResetWhileLoadingOlder);
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task ApprovalPanelFiltersBySessionAndSendsAllowOnceDecision()
     {
         var sessionService  = new SimulatedSessionService();
@@ -128,23 +127,25 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         approvalService.PushRequest("session-not-selected", "fs.read", "不应出现在当前会话", "call-other");
 
         await WaitUntilAsync(() => viewModel.SessionPendingApprovals.Count == 1);
-        var approval = Assert.Single(viewModel.SessionPendingApprovals);
-        Assert.Equal("fs.write", approval.ToolName);
-        Assert.Equal("需要修改项目文件", approval.HeadlineText);
+        Assert.That(viewModel.SessionPendingApprovals, Has.Count.EqualTo(1));
+        var approval = viewModel.SessionPendingApprovals.Single();
+        ClassicAssert.AreEqual("fs.write", approval.ToolName);
+        ClassicAssert.AreEqual("需要修改项目文件", approval.HeadlineText);
 
         viewModel.ApproveApprovalCommand.Execute(approval);
         await WaitUntilAsync(() => approvalService.Decisions.Count == 1);
 
-        var decision = Assert.Single(approvalService.Decisions);
-        Assert.Equal(approval.EventId, decision.EventId);
-        Assert.True(decision.Allowed);
-        Assert.Single(approvalService.Pending);
-        Assert.Empty(viewModel.SessionPendingApprovals);
+        Assert.That(approvalService.Decisions, Has.Count.EqualTo(1));
+        var decision = approvalService.Decisions.Single();
+        ClassicAssert.AreEqual(approval.EventId, decision.EventId);
+        ClassicAssert.IsTrue(decision.Allowed);
+        Assert.That(approvalService.Pending, Has.Count.EqualTo(1));
+        ClassicAssert.IsEmpty(viewModel.SessionPendingApprovals);
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task ApprovalDecisionLeavesComposerPermissionPresetUntouched()
     {
         var sessionService          = new SimulatedSessionService();
@@ -165,14 +166,14 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         await WaitUntilAsync(() => approvalService.Decisions.Count == 1);
 
         // 允许一次只裁决当前 tool call：不触碰 Composer 的当前权限预设。
-        Assert.Equal("workspace-write", viewModel.PermissionSelector.CurrentValue);
-        Assert.Equal("工作区内修改", viewModel.PermissionSelector.PermissionPickerLabel);
-        Assert.Empty(permissionPresetService.Switches);
+        ClassicAssert.AreEqual("workspace-write", viewModel.PermissionSelector.CurrentValue);
+        ClassicAssert.AreEqual("工作区内修改", viewModel.PermissionSelector.PermissionPickerLabel);
+        ClassicAssert.IsEmpty(permissionPresetService.Switches);
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task PermissionProjectionFlowsToSelectorAndSwitchGoesThroughCommand()
     {
         var sessionService          = new SimulatedSessionService();
@@ -189,20 +190,21 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         viewModel.PermissionSelector.SelectOptionCommand.Execute(
                                                                  viewModel.PermissionSelector.Options.Single(option =>
                                                                               option.Value == "read-only"));
-        var (switchedSession, preset) = Assert.Single(permissionPresetService.Switches);
-        Assert.Equal(selectedSessionId, switchedSession);
-        Assert.Equal("read-only", preset);
-        Assert.Equal("workspace-write", viewModel.PermissionSelector.CurrentValue);
+        Assert.That(permissionPresetService.Switches, Has.Count.EqualTo(1));
+        var (switchedSession, preset) = permissionPresetService.Switches.Single();
+        ClassicAssert.AreEqual(selectedSessionId, switchedSession);
+        ClassicAssert.AreEqual("read-only", preset);
+        ClassicAssert.AreEqual("workspace-write", viewModel.PermissionSelector.CurrentValue);
 
         // 模拟后端接受切换后的 permissions 投影回流（session/control 整值更新路径）。
         sessionService.PushPermission(selectedSessionId, "read-only");
         await WaitUntilAsync(() => viewModel.PermissionSelector.PermissionPickerLabel == "仅可查看");
-        Assert.Equal("read-only", viewModel.PermissionSelector.CurrentValue);
+        ClassicAssert.AreEqual("read-only", viewModel.PermissionSelector.CurrentValue);
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task DraftFirstSendAppliesPreselectedPermissionPreset()
     {
         var sessionService          = new SimulatedSessionService();
@@ -211,20 +213,20 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
                                                 new StaticWorkspaceService(), new SimulatedToolApprovalService(),
                                                 permissionPresetService : permissionPresetService);
         await viewModel.InitializeAsync();
-        Assert.True(viewModel.ShowNewConversationPage);
+        ClassicAssert.IsTrue(viewModel.ShowNewConversationPage);
 
         // 草稿页本地预选（无会话，不发请求）：完全权限走确认门后才记入草稿。
-        Assert.True(viewModel.PermissionSelector.IsVisible);
+        ClassicAssert.IsTrue(viewModel.PermissionSelector.IsVisible);
         viewModel.PermissionSelector.Options
                  .Single(option => option.Value == "danger-full-access")
                  .SelectCommand.Execute(null);
-        Assert.True(viewModel.PermissionSelector.IsConfirmOpen);
-        Assert.Empty(permissionPresetService.Switches);
+        ClassicAssert.IsTrue(viewModel.PermissionSelector.IsConfirmOpen);
+        ClassicAssert.IsEmpty(permissionPresetService.Switches);
 
         viewModel.PermissionSelector.IsAcknowledged = true;
         viewModel.PermissionSelector.ConfirmSwitchCommand.Execute(null);
-        Assert.Equal("完全权限", viewModel.PermissionSelector.PermissionPickerLabel);
-        Assert.Empty(permissionPresetService.Switches);
+        ClassicAssert.AreEqual("完全权限", viewModel.PermissionSelector.PermissionPickerLabel);
+        ClassicAssert.IsEmpty(permissionPresetService.Switches);
 
         // 首发送：创建会话后、首条消息前应用预选（预选随会话记账，确认由投影回流）。
         viewModel.SelectWorkspaceCommand.Execute(viewModel.WorkspaceOptions
@@ -233,9 +235,10 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         viewModel.SendDraftCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.SelectedSession is { Id: not "session-history" });
 
-        var (switchedSession, preset) = Assert.Single(permissionPresetService.Switches);
-        Assert.Equal(viewModel.SelectedSession!.Id, switchedSession);
-        Assert.Equal("danger-full-access", preset);
+        Assert.That(permissionPresetService.Switches, Has.Count.EqualTo(1));
+        var (switchedSession, preset) = permissionPresetService.Switches.Single();
+        ClassicAssert.AreEqual(viewModel.SelectedSession!.Id, switchedSession);
+        ClassicAssert.AreEqual("danger-full-access", preset);
 
         // 模拟后端接受切换后的投影回流：选择器改由会话投影驱动并显示新值。
         sessionService.PushPermission(viewModel.SelectedSession.Id, "danger-full-access");
@@ -244,7 +247,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task DraftFirstSendWithoutPreselectionSkipsPermissionCommand()
     {
         var sessionService          = new SimulatedSessionService();
@@ -261,12 +264,12 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         viewModel.SendDraftCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.SelectedSession is { Id: not "session-history" });
 
-        Assert.Empty(permissionPresetService.Switches);
+        ClassicAssert.IsEmpty(permissionPresetService.Switches);
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task SwitchingSessionsLoadsEachSessionSnapshot()
     {
         var viewModel = CreateViewModel();
@@ -275,12 +278,12 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         viewModel.SelectedSession = viewModel.Sidebar.Sessions.First(session => session.Id == "session-native");
         await WaitUntilAsync(() => viewModel.ConversationItems.OfType<MessageItemViewModel>().Count() == 2);
 
-        Assert.False(viewModel.HasError);
+        ClassicAssert.IsFalse(viewModel.HasError);
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task SendingMessagePreservesDraftEnteredWhileRequestIsInFlight()
     {
         var sessionService = new BlockingSendSessionService();
@@ -297,12 +300,12 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         sessionService.ReleaseSend.TrySetResult();
         await WaitUntilAsync(() => !viewModel.Composer.IsSending);
 
-        Assert.Equal("发送期间的新草稿", viewModel.Composer.DraftMessage);
+        ClassicAssert.AreEqual("发送期间的新草稿", viewModel.Composer.DraftMessage);
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task StreamingUpdatesAppendAssistantTextAndCommitReplacesBubble()
     {
         var sessionService = new SimulatedSessionService();
@@ -320,17 +323,17 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
                                 .Any(message => message is { Content: "流式回复内容", Seq: >= 0 }));
         var committed = viewModel.ConversationItems.OfType<MessageItemViewModel>()
                                  .FirstOrDefault(message => message.Content == "流式回复内容");
-        Assert.NotNull(committed);
-        Assert.Equal(MessageRole.Assistant, committed.Role);
-        Assert.DoesNotContain(viewModel.ConversationItems.OfType<MessageItemViewModel>(),
-                              message => message.IsStreaming);
+        ClassicAssert.IsNotNull(committed);
+        ClassicAssert.AreEqual(MessageRole.Assistant, committed.Role);
+        Assert.That(viewModel.ConversationItems.OfType<MessageItemViewModel>().Any(message => message.IsStreaming),
+                    Is.False);
         // Markdown 渲染源与字符串内容保持一致（快照构造路径）。
-        Assert.Equal(committed.Content, committed.MarkdownBuilder.ToString());
+        ClassicAssert.AreEqual(committed.Content, committed.MarkdownBuilder.ToString());
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task AbandonedStreamMarksBubbleInterruptedInsteadOfHanging()
     {
         var sessionService = new SimulatedSessionService();
@@ -345,16 +348,16 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
                                             .Any(message => message.IsInterrupted));
         var interrupted = viewModel.ConversationItems.OfType<MessageItemViewModel>()
                                    .Single(message => message.IsInterrupted);
-        Assert.False(interrupted.IsStreaming);
+        ClassicAssert.IsFalse(interrupted.IsStreaming);
         // 中断是独立标注，不再混入正文；已生成内容原样保留。
-        Assert.Equal("部分生成内容", interrupted.Content);
-        Assert.False(viewModel.HasError);
-        Assert.Equal(interrupted.Content, interrupted.MarkdownBuilder.ToString());
+        ClassicAssert.AreEqual("部分生成内容", interrupted.Content);
+        ClassicAssert.IsFalse(viewModel.HasError);
+        ClassicAssert.AreEqual(interrupted.Content, interrupted.MarkdownBuilder.ToString());
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task ModelCatalogPopulatesOptionsAndSnapshotCarriesCurrentModel()
     {
         var sessionService = new SimulatedSessionService();
@@ -364,17 +367,17 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
 
         // 目录扁平投影：两个提供方共三个模型。
         await WaitUntilAsync(() => viewModel.Composer.ModelOptions.Count == 3);
-        Assert.True(viewModel.Composer.IsModelPickerEnabled);
+        ClassicAssert.IsTrue(viewModel.Composer.IsModelPickerEnabled);
 
         // 选中最新会话（session-history，预置 sim/sim-chat）：快照投影生效。
         await SelectFirstSessionAsync(viewModel);
         await WaitUntilAsync(() => viewModel.Composer.SelectedModelOption is { Provider: "sim", Model: "sim-chat" });
-        Assert.Equal(new ModelSelection("sim", "sim-chat"), viewModel.Composer.CurrentModel);
+        ClassicAssert.AreEqual(new ModelSelection("sim", "sim-chat"), viewModel.Composer.CurrentModel);
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task SelectingModelOptionEchoesThroughFollowAndSwitchesPerSession()
     {
         var sessionService = new SimulatedSessionService();
@@ -388,19 +391,19 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
 
         // 选型经 follow 流的 model/selection 回声生效（后端权威）。
         await WaitUntilAsync(() => viewModel.Composer.CurrentModel is { Provider: "sim-alt", Model: "alt-chat" });
-        Assert.Same(reasoner, viewModel.Composer.SelectedModelOption);
-        Assert.False(viewModel.HasError);
+        ClassicAssert.AreSame(reasoner, viewModel.Composer.SelectedModelOption);
+        ClassicAssert.IsFalse(viewModel.HasError);
 
         // 切换会话：另一会话的快照携带各自的当前选型。
         viewModel.SelectedSession = viewModel.Sidebar.Sessions.First(session => session.Id == "session-native");
         await WaitUntilAsync(() => viewModel.SelectedSession!.Id == "session-native" &&
                                    viewModel.Composer.CurrentModel is { Provider: "sim", Model: "sim-reasoner" });
-        Assert.False(viewModel.HasError);
+        ClassicAssert.IsFalse(viewModel.HasError);
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task FailedModelSelectionRevertsPickerAndReportsError()
     {
         var sessionService = new FailingSelectSessionService();
@@ -416,12 +419,12 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
 
         // 失败后回退到当前生效选型的显示，不停留在失败项。
         await WaitUntilAsync(() => viewModel.Composer.SelectedModelOption is { Model: "sim-chat" });
-        Assert.Contains("选型失败", viewModel.ErrorText, StringComparison.Ordinal);
+        Assert.That(viewModel.ErrorText, Does.Contain("选型失败"));
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task SessionUsageAndStatsFollowSelectedSession()
     {
         var sessionService = new SimulatedSessionService();
@@ -432,29 +435,29 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         // 选中长会话（4 轮 8 条助手消息）：快照统计基线到达，文案带真实数值。
         await SelectFirstSessionAsync(viewModel);
         await WaitUntilAsync(() => viewModel.Composer is { Usage : { OutputTokens: > 0 }, Stats.Steps: > 0 });
-        Assert.DoesNotContain("—", viewModel.Composer.UsageValueText, StringComparison.Ordinal);
-        Assert.DoesNotContain("—", viewModel.Composer.SpeedValueText, StringComparison.Ordinal);
+        Assert.That(viewModel.Composer.UsageValueText, Does.Not.Contain("—"));
+        Assert.That(viewModel.Composer.SpeedValueText, Does.Not.Contain("—"));
         var longUsage = viewModel.Composer.Usage!;
 
         // 切到单条助手消息的会话：统计按会话重置并携带该会话的累计值。
         viewModel.SelectedSession = viewModel.Sidebar.Sessions.First(session => session.Id == "session-design");
         await WaitUntilAsync(() => viewModel.SelectedSession!.Id == "session-design" &&
                                    viewModel.Composer.Usage is { OutputTokens: > 0 });
-        Assert.True(viewModel.Composer.Usage!.OutputTokens < longUsage.OutputTokens);
-        Assert.Equal(viewModel.Composer.Usage.UncachedInputTokens + viewModel.Composer.Usage.CacheReadTokens +
-                     viewModel.Composer.Usage.CacheWriteTokens    + viewModel.Composer.Usage.OutputTokens > 0,
-                     !viewModel.Composer.UsageValueText.Contains('—'));
+        ClassicAssert.IsTrue(viewModel.Composer.Usage!.OutputTokens < longUsage.OutputTokens);
+        ClassicAssert.AreEqual(viewModel.Composer.Usage.UncachedInputTokens + viewModel.Composer.Usage.CacheReadTokens +
+                               viewModel.Composer.Usage.CacheWriteTokens    + viewModel.Composer.Usage.OutputTokens > 0,
+                               !viewModel.Composer.UsageValueText.Contains('—'));
 
         // 新增一步计费后统计整值更新。
         var before = viewModel.Composer.Usage!.OutputTokens;
         sessionService.PushAssistantReply("session-design", "累计一步计费的回复");
         await WaitUntilAsync(() => viewModel.Composer.Usage is { } usage && usage.OutputTokens > before);
-        Assert.False(viewModel.HasError);
+        ClassicAssert.IsFalse(viewModel.HasError);
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task StatsStripStaysHiddenForBlankSessionUntilUsageArrives()
     {
         var sessionService = new SimulatedSessionService();
@@ -480,13 +483,13 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         await WaitOrDumpAsync(viewModel,
                               () => viewModel.Composer is
                                   { Usage : { OutputTokens: 0, UncachedInputTokens: 0 }, Stats.Steps: 0 }, 5000);
-        Assert.False(viewModel.Composer.HasStatsData);
+        ClassicAssert.IsFalse(viewModel.Composer.HasStatsData);
 
         // 首条助手回复落地：投影转为非零，统计条出现。
         var blankSessionId = viewModel.SelectedSession!.Id;
         sessionService.PushAssistantReply(blankSessionId, "空会话的第一条回复");
         await WaitUntilAsync(() => viewModel.Composer.HasStatsData);
-        Assert.False(viewModel.HasError);
+        ClassicAssert.IsFalse(viewModel.HasError);
 
         // 再次经草稿页首发送进入另一个空会话：按会话重置后重新隐藏。
         viewModel.Sidebar.NewSessionCommand.Execute(null);
@@ -501,12 +504,12 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         await WaitOrDumpAsync(viewModel,
                               () => viewModel.Composer is
                                   { Usage : { OutputTokens: 0, UncachedInputTokens: 0 }, Stats.Steps: 0 }, 5000);
-        Assert.False(viewModel.Composer.HasStatsData);
+        ClassicAssert.IsFalse(viewModel.Composer.HasStatsData);
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task SessionListRefreshKeepsSelectedInstanceAndStreamingBubble()
     {
         var sessionService = new SimulatedSessionService();
@@ -527,19 +530,19 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         await Task.Delay(1200); // 400ms 事件合并 + 列表刷新完成。
 
         // 选中实例未被替换：不重开订阅，流式气泡不被新快照清掉。
-        Assert.Same(selected, viewModel.SelectedSession);
-        Assert.Contains(viewModel.ConversationItems.OfType<MessageItemViewModel>(),
-                        message => message is { IsStreaming: true, Content: "正在生成的内容" });
-        Assert.Equal(messageCountBefore + 2, viewModel.ConversationItems.Count);
+        ClassicAssert.AreSame(selected, viewModel.SelectedSession);
+        Assert.That(viewModel.ConversationItems.OfType<MessageItemViewModel>()
+                             .Any(message => message is { IsStreaming: true, Content: "正在生成的内容" }), Is.True);
+        ClassicAssert.AreEqual(messageCountBefore + 2, viewModel.ConversationItems.Count);
         // 流式增量路径：渲染源跟随 AppendText 同步增长。
         var streaming = viewModel.ConversationItems.OfType<MessageItemViewModel>()
                                  .Single(message => message.IsStreaming);
-        Assert.Equal(streaming.Content, streaming.MarkdownBuilder.ToString());
+        ClassicAssert.AreEqual(streaming.Content, streaming.MarkdownBuilder.ToString());
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task LoadingOlderPrependsEntriesAndFoldsCompleteTurnsAtTheTop()
     {
         var sessionService = new SimulatedSessionService();
@@ -552,21 +555,21 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         await WaitUntilAsync(() => viewModel.ConversationItems.Count == 5);
 
         // 首轮被窗口截断（turn 4 的用户消息与首个思考在窗口之外）：起点未观察到，不折叠。
-        Assert.True(viewModel.HasMoreHistory);
-        Assert.Equal(27, viewModel.ConversationItems[0].Seq);
-        Assert.DoesNotContain(viewModel.ConversationItems, item => item is TurnProcessGroupViewModel);
+        ClassicAssert.IsTrue(viewModel.HasMoreHistory);
+        ClassicAssert.AreEqual(27, viewModel.ConversationItems[0].Seq);
+        Assert.That(viewModel.ConversationItems.Any(item => item is TurnProcessGroupViewModel), Is.False);
 
         viewModel.LoadOlderCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.ConversationItems[0].Seq == 23 && !viewModel.IsLoadingOlder);
-        Assert.True(viewModel.HasMoreHistory);
+        ClassicAssert.IsTrue(viewModel.HasMoreHistory);
 
         // 窗口补全后 turn 4 的用户消息已可见：尽管更早历史未读，该轮即折叠——
         // 对齐 WebUI 实时会话的形态（其已加载窗口天然是全量，读全前也能折叠完整轮次）。
         var recentGroup = viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>()
                                    .Single(item => item.Seq == 26);
-        Assert.Equal(2, recentGroup.ToolCallCount);
-        Assert.Equal(1, recentGroup.MessageCount);
-        Assert.Equal("2 次工具调用 · 1 条消息", recentGroup.SummaryText);
+        ClassicAssert.AreEqual(2, recentGroup.ToolCallCount);
+        ClassicAssert.AreEqual(1, recentGroup.MessageCount);
+        ClassicAssert.AreEqual("2 次工具调用 · 1 条消息", recentGroup.SummaryText);
 
         // 逐页点击「加载更早」直到读全：每次前插一页（首条 Seq 前移），折叠状态随 HasMoreHistory 变化。
         var guard = 0;
@@ -580,28 +583,30 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
 
         // 读全后整体折叠：每轮「用户、过程组、带思考的总结」三项。
         await WaitUntilAsync(() => viewModel.ConversationItems.Count == 12 && !viewModel.HasMoreHistory);
-        Assert.Equal([1, 2, 7, 9, 10, 15, 17, 18, 23, 25, 26, 31],
-                     viewModel.ConversationItems.Select(item => item.Seq));
+        ClassicAssert.AreEqual(new[] { 1, 2, 7, 9, 10, 15, 17, 18, 23, 25, 26, 31 },
+                               viewModel.ConversationItems.Select(item => item.Seq));
         var group = viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>()
                              .Single(item => item.Seq == 2);
-        Assert.Equal(2, group.ToolCallCount);
-        Assert.Equal(1, group.MessageCount);
-        Assert.Equal("2 次工具调用 · 1 条消息", group.SummaryText);
+        ClassicAssert.AreEqual(2, group.ToolCallCount);
+        ClassicAssert.AreEqual(1, group.MessageCount);
+        ClassicAssert.AreEqual("2 次工具调用 · 1 条消息", group.SummaryText);
         // 过程组内的条目：两段思考、中间说明与两枚工具；思考条目不算「消息」。
-        Assert.Equal(5, group.Process.Count);
-        Assert.Equal(2, group.Process.OfType<MessageItemViewModel>()
-                             .Count(message => message.HasReasoning && string.IsNullOrWhiteSpace(message.Content)));
-        Assert.Contains(group.Process, item => item is MessageItemViewModel { Content: "先查看第 1 轮的相关记录，再做定点更新。" });
+        ClassicAssert.AreEqual(5, group.Process.Count);
+        ClassicAssert.AreEqual(2, group.Process.OfType<MessageItemViewModel>()
+                                       .Count(message => message.HasReasoning &&
+                                                         string.IsNullOrWhiteSpace(message.Content)));
+        Assert.That(group.Process.Any(item => item is MessageItemViewModel { Content: "先查看第 1 轮的相关记录，再做定点更新。" }),
+                    Is.True);
         // 最终回复保持独立气泡，且自带可折叠的思考行。
         var answer = viewModel.ConversationItems.OfType<MessageItemViewModel>()
                               .Single(item => item.Content == "历史回答 0：基于第 1 轮工具结果的整理。");
-        Assert.Equal(7, answer.Seq);
-        Assert.True(answer.HasReasoning);
+        ClassicAssert.AreEqual(7, answer.Seq);
+        ClassicAssert.IsTrue(answer.HasReasoning);
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task SnapshotTailInterruptedBoundaryKeepsOpenTurnUnfoldedUntilRealEnd()
     {
         var sessionService = new SyntheticBoundarySessionService();
@@ -614,7 +619,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         // 持久日志中不存在）。该边界不得结算当前轮——条目保持逐项显示，无过程组。
         await WaitUntilAsync(() => viewModel.ConversationItems.OfType<MessageItemViewModel>()
                                             .Any(message => message.Content == "阶段性回复"));
-        Assert.DoesNotContain(viewModel.ConversationItems, item => item is TurnProcessGroupViewModel);
+        Assert.That(viewModel.ConversationItems.Any(item => item is TurnProcessGroupViewModel), Is.False);
 
         // 生成继续：新工具与真正的最终回复落地，随后真实的 turn/end 到达——此时才折叠，
         // 且只折叠一次（合成边界若被结算会出现两个过程组/错误的最终回复）。
@@ -625,18 +630,18 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         await WaitUntilAsync(() => viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>().Any());
 
         var group = viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>().Single();
-        Assert.Equal(2, group.ToolCallCount);
-        Assert.Equal(2, group.MessageCount);
-        Assert.Contains(group.Process, item => item is ToolActivityItemViewModel { Name: "fs.read" });
+        ClassicAssert.AreEqual(2, group.ToolCallCount);
+        ClassicAssert.AreEqual(2, group.MessageCount);
+        Assert.That(group.Process.Any(item => item is ToolActivityItemViewModel { Name: "fs.read" }), Is.True);
         var answer = viewModel.ConversationItems.OfType<MessageItemViewModel>()
                               .Single(message => message.Content == "真正的最终回复");
-        Assert.Equal(7, answer.Seq);
-        Assert.False(viewModel.HasError);
+        ClassicAssert.AreEqual(7, answer.Seq);
+        ClassicAssert.IsFalse(viewModel.HasError);
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task SwitchingAwayFromSessionResetsHistoryWindow()
     {
         var sessionService = new SimulatedSessionService();
@@ -650,12 +655,12 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         viewModel.SelectedSession = viewModel.Sidebar.Sessions.First(session => session.Id == "session-welcome");
         await WaitUntilAsync(() => viewModel.ConversationItems.OfType<MessageItemViewModel>().Count() == 2);
 
-        Assert.False(viewModel.HasMoreHistory);
+        ClassicAssert.IsFalse(viewModel.HasMoreHistory);
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task ToolActivityRendersCardAndSettlesInPlace()
     {
         var sessionService = new SimulatedSessionService();
@@ -674,15 +679,15 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
                                             .Any(tool => tool.Status == ToolActivityStatus.Succeeded));
         var card = viewModel.ConversationItems.OfType<ToolActivityItemViewModel>()
                             .Single(tool => tool.Name == "fs.read");
-        Assert.Equal(before + 1, viewModel.ConversationItems.Count);
-        Assert.False(card.IsRunning);
-        Assert.Equal("文件内容摘要", card.ResultText);
-        Assert.True(card.HasDetails);
+        ClassicAssert.AreEqual(before + 1, viewModel.ConversationItems.Count);
+        ClassicAssert.IsFalse(card.IsRunning);
+        ClassicAssert.AreEqual("文件内容摘要", card.ResultText);
+        ClassicAssert.IsTrue(card.HasDetails);
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task FailedToolActivitySurfacesErrorState()
     {
         var sessionService = new SimulatedSessionService();
@@ -698,13 +703,13 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
                                             .Any(tool => tool.IsFailed));
         var card = viewModel.ConversationItems.OfType<ToolActivityItemViewModel>()
                             .Single(tool => tool.IsFailed);
-        Assert.Equal("失败", card.StatusText);
-        Assert.Contains("simulated", card.ErrorReason);
+        ClassicAssert.AreEqual("失败", card.StatusText);
+        Assert.That(card.ErrorReason, Does.Contain("simulated"));
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task TurnEndFoldsProcessIntoGroupAndKeepsFinalAnswer()
     {
         var sessionService = new SimulatedSessionService();
@@ -731,44 +736,46 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         await WaitUntilAsync(() => viewModel.ConversationItems.OfType<MessageItemViewModel>()
                                             .Any(message => message.Content == "总结回答"));
         // turn/end 之前条目逐项显示（生成中的轮次不折叠）；思考条目与工具卡片一样逐项出现。
-        Assert.DoesNotContain(viewModel.ConversationItems, item => item is TurnProcessGroupViewModel);
-        Assert.Equal(2, viewModel.ConversationItems.OfType<MessageItemViewModel>()
-                                 .Count(message => message.HasReasoning && string.IsNullOrWhiteSpace(message.Content)));
+        Assert.That(viewModel.ConversationItems.Any(item => item is TurnProcessGroupViewModel), Is.False);
+        ClassicAssert.AreEqual(2, viewModel.ConversationItems.OfType<MessageItemViewModel>()
+                                           .Count(message => message.HasReasoning &&
+                                                             string.IsNullOrWhiteSpace(message.Content)));
         // 无正文助手提交不产生空气泡。
-        Assert.DoesNotContain(viewModel.ConversationItems.OfType<MessageItemViewModel>(),
-                              message => message is { Role: MessageRole.Assistant } &&
-                                         string.IsNullOrWhiteSpace(message.Content) && !message.HasReasoning);
+        Assert.That(viewModel.ConversationItems.OfType<MessageItemViewModel>()
+                             .Any(message => message is { Role: MessageRole.Assistant } &&
+                                             string.IsNullOrWhiteSpace(message.Content) && !message.HasReasoning),
+                    Is.False);
 
         sessionService.PushTurnEnded(sessionId, 2);
 
         await WaitUntilAsync(() => viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>().Any());
         var group = viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>().Single();
-        Assert.Equal(2, group.ToolCallCount);
-        Assert.Equal(1, group.MessageCount);
-        Assert.Equal("2 次工具调用 · 1 条消息", group.SummaryText);
-        Assert.False(group.IsExpanded);
+        ClassicAssert.AreEqual(2, group.ToolCallCount);
+        ClassicAssert.AreEqual(1, group.MessageCount);
+        ClassicAssert.AreEqual("2 次工具调用 · 1 条消息", group.SummaryText);
+        ClassicAssert.IsFalse(group.IsExpanded);
         // 过程组包含两段思考、中间说明与工具卡片；最终回复保持独立气泡。
-        Assert.Equal(5, group.Process.Count);
-        Assert.Contains(group.Process, item => item is MessageItemViewModel
+        ClassicAssert.AreEqual(5, group.Process.Count);
+        Assert.That(group.Process.Any(item => item is MessageItemViewModel
         {
             Content: "先重读当前文件，再做定点替换。"
-        });
+        }), Is.True);
         var answer = viewModel.ConversationItems.OfType<MessageItemViewModel>()
                               .Single(message => message.Content == "总结回答");
-        Assert.True(answer.HasReasoning);
-        Assert.False(answer.IsReasoningExpanded);
+        ClassicAssert.IsTrue(answer.HasReasoning);
+        ClassicAssert.IsFalse(answer.IsReasoningExpanded);
 
         // 用户消息开新一轮：之后的工具调用属于未收束的新轮次，另起显示不并入旧组。
         await sessionService.SendPromptAsync(sessionId, Guid.NewGuid().ToString(), "下一轮问题");
         sessionService.PushToolActivity(sessionId, "fs.read", "再次读取", false, 3);
         await WaitUntilAsync(() => viewModel.ConversationItems.OfType<ToolActivityItemViewModel>()
                                             .Any(tool => tool.ResultText == "再次读取"));
-        Assert.Single(viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>());
+        Assert.That(viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>().Count(), Is.EqualTo(1));
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task InterruptedTurnWithoutReplyStaysUnfoldedAfterBoundary()
     {
         var sessionService = new SimulatedSessionService();
@@ -789,12 +796,12 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
 
         await WaitUntilAsync(() => viewModel.ConversationItems.OfType<MessageItemViewModel>()
                                             .Any(message => message.IsInterrupted));
-        Assert.DoesNotContain(viewModel.ConversationItems, item => item is TurnProcessGroupViewModel);
+        Assert.That(viewModel.ConversationItems.Any(item => item is TurnProcessGroupViewModel), Is.False);
         // 中断标注在思考条目上，不产生只有「已中断」的空气泡。
         var interrupted = viewModel.ConversationItems.OfType<MessageItemViewModel>()
                                    .Single(message => message.IsInterrupted);
-        Assert.True(interrupted.HasReasoning);
-        Assert.True(string.IsNullOrWhiteSpace(interrupted.Content));
+        ClassicAssert.IsTrue(interrupted.HasReasoning);
+        ClassicAssert.IsTrue(string.IsNullOrWhiteSpace(interrupted.Content));
 
         // 之后正常完成的轮次照常折叠。
         sessionService.PushCommittedAssistantMessage(sessionId, string.Empty, 3,
@@ -805,14 +812,14 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
 
         await WaitUntilAsync(() => viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>().Any());
         var group = viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>().Single();
-        Assert.Equal(1, group.ToolCallCount);
-        Assert.Contains(viewModel.ConversationItems.OfType<MessageItemViewModel>(),
-                        message => message.Content == "恢复正常后的回答。");
+        ClassicAssert.AreEqual(1, group.ToolCallCount);
+        Assert.That(viewModel.ConversationItems.OfType<MessageItemViewModel>()
+                             .Any(message => message.Content == "恢复正常后的回答。"), Is.True);
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task TurnWithoutFinalAnswerStaysUnfoldedAfterBoundary()
     {
         var sessionService = new SimulatedSessionService();
@@ -828,13 +835,13 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         sessionService.PushTurnEnded(sessionId, 2);
         await WaitUntilAsync(() => viewModel.ConversationItems.OfType<ToolActivityItemViewModel>()
                                             .Any(tool => tool.Status == ToolActivityStatus.Succeeded));
-        Assert.DoesNotContain(viewModel.ConversationItems, item => item is TurnProcessGroupViewModel);
-        Assert.Contains(viewModel.ConversationItems, item => item is ToolActivityItemViewModel);
+        Assert.That(viewModel.ConversationItems.Any(item => item is TurnProcessGroupViewModel), Is.False);
+        Assert.That(viewModel.ConversationItems.Any(item => item is ToolActivityItemViewModel), Is.True);
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task RunningToolsStayAsIndividualCardsAndSettleInPlace()
     {
         var sessionService = new SimulatedSessionService();
@@ -847,18 +854,18 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
 
         var first  = sessionService.BeginToolActivity(sessionId, "fs.read", 2);
         var second = sessionService.BeginToolActivity(sessionId, "fs.edit", 2);
-        Assert.NotNull(first);
-        Assert.NotNull(second);
+        ClassicAssert.IsNotNull(first);
+        ClassicAssert.IsNotNull(second);
         await WaitUntilAsync(() => viewModel.ConversationItems.OfType<ToolActivityItemViewModel>().Count() == 2);
         var cards = viewModel.ConversationItems.OfType<ToolActivityItemViewModel>().ToList();
         // 生成中的轮次不折叠：运行中的卡片逐项显示。
-        Assert.DoesNotContain(viewModel.ConversationItems, item => item is TurnProcessGroupViewModel);
-        Assert.All(cards, card => Assert.True(card.IsRunning));
+        Assert.That(viewModel.ConversationItems.Any(item => item is TurnProcessGroupViewModel), Is.False);
+        foreach (var card in cards) ClassicAssert.IsTrue(card.IsRunning);
 
         sessionService.SettleToolActivity(sessionId, first!.CallId, "文件内容摘要", false);
         sessionService.SettleToolActivity(sessionId, second!.CallId, null, true);
         await WaitUntilAsync(() => cards.All(card => !card.IsRunning));
-        Assert.True(cards.Single(card => card.CallId == second.CallId).IsFailed);
+        ClassicAssert.IsTrue(cards.Single(card => card.CallId == second.CallId).IsFailed);
 
         await viewModel.DisposeAsync();
     }
@@ -869,7 +876,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
                                        new SimulatedWorkspaceService());
     }
 
-    [Fact]
+    [Test]
     public async Task SessionListDefaultsToGroupedViewWithCurrentHighlight()
     {
         var viewModel = CreateViewModel();
@@ -877,22 +884,25 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         await SelectFirstSessionAsync(viewModel);
 
         // 默认对齐参考客户端：按工作区分组（模拟服务登记了两个工作区）。
-        Assert.Equal(1, viewModel.Sidebar.SessionListModeIndex);
-        Assert.Contains(viewModel.Sidebar.SessionRows,
-                        row => row is SessionGroupHeaderViewModel { TitleText: "示例工作区" });
-        Assert.True(viewModel.SelectedSession!.IsCurrent);
-        Assert.All(viewModel.Sidebar.Sessions.Where(session => !ReferenceEquals(session, viewModel.SelectedSession)),
-                   session => Assert.False(session.IsCurrent));
+        ClassicAssert.AreEqual(1, viewModel.Sidebar.SessionListModeIndex);
+        Assert.That(viewModel.Sidebar.SessionRows.Any(row => row is SessionGroupHeaderViewModel { TitleText: "示例工作区" }),
+                    Is.True);
+        ClassicAssert.IsTrue(viewModel.SelectedSession!.IsCurrent);
+        foreach (var session in viewModel.Sidebar.Sessions.Where(session =>
+                                                                     !ReferenceEquals(session,
+                                                                              viewModel.SelectedSession)))
+            ClassicAssert.IsFalse(session.IsCurrent);
 
         // 切回单列表：行投影就是会话顺序本身，无分组头。
         viewModel.Sidebar.SessionListModeIndex = 0;
-        Assert.Equal(viewModel.Sidebar.Sessions, viewModel.Sidebar.SessionRows.OfType<SessionItemViewModel>());
-        Assert.Empty(viewModel.Sidebar.SessionRows.OfType<SessionGroupHeaderViewModel>());
+        ClassicAssert.AreEqual(viewModel.Sidebar.Sessions,
+                               viewModel.Sidebar.SessionRows.OfType<SessionItemViewModel>());
+        ClassicAssert.IsEmpty(viewModel.Sidebar.SessionRows.OfType<SessionGroupHeaderViewModel>());
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task GroupingByWorkspaceProjectsHeadersMembersAndUngrouped()
     {
         var workspaces = new StaticWorkspaceService([
@@ -916,17 +926,19 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
                                   _                                  => "other"
                               })
                              .ToArray();
-        Assert.Equal([
-            "header:工作区", "header:主工作区", "session:session-history", "session:session-native", "header:空工作区",
+        ClassicAssert.AreEqual(new[]
+        {
+            "header:工作区", "header:主工作区", "session:session-history", "session:session-native",
+            "header:空工作区",
             "header:未分组", "session:session-welcome", "session:session-design"
-        ], shape);
+        }, shape);
         // 模式切换不重建会话实例：选中与高亮保持。
-        Assert.True(viewModel.SelectedSession!.IsCurrent);
+        ClassicAssert.IsTrue(viewModel.SelectedSession!.IsCurrent);
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task TogglingGroupCollapsesMembersOnlyForThatGroup()
     {
         var workspaces = new StaticWorkspaceService([
@@ -943,27 +955,27 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
                                   .Single(header => header.Key == "ws-main");
         viewModel.Sidebar.ToggleGroupCommand.Execute(mainHeader);
 
-        Assert.DoesNotContain(viewModel.Sidebar.SessionRows.OfType<SessionItemViewModel>(),
-                              session => session.Id is "session-native" or "session-history");
+        Assert.That(viewModel.Sidebar.SessionRows.OfType<SessionItemViewModel>()
+                             .Any(session => session.Id is "session-native" or "session-history"), Is.False);
         // 其他组的成员不受影响。
-        Assert.Contains(viewModel.Sidebar.SessionRows.OfType<SessionItemViewModel>(),
-                        session => session.Id == "session-welcome");
+        Assert.That(viewModel.Sidebar.SessionRows.OfType<SessionItemViewModel>()
+                             .Any(session => session.Id == "session-welcome"), Is.True);
         var collapsedHeader = viewModel.Sidebar.SessionRows.OfType<SessionGroupHeaderViewModel>()
                                        .Single(header => header.Key == "ws-main");
-        Assert.False(collapsedHeader.IsExpanded);
-        Assert.Equal(2, collapsedHeader.SessionCount);
+        ClassicAssert.IsFalse(collapsedHeader.IsExpanded);
+        ClassicAssert.AreEqual(2, collapsedHeader.SessionCount);
 
         // 切回单列表再切回分组：收起状态按分组键保留。
         viewModel.Sidebar.SessionListModeIndex = 0;
         viewModel.Sidebar.SessionListModeIndex = 1;
-        Assert.False(viewModel.Sidebar.SessionRows.OfType<SessionGroupHeaderViewModel>()
-                              .Single(header => header.Key == "ws-main")
-                              .IsExpanded);
+        ClassicAssert.IsFalse(viewModel.Sidebar.SessionRows.OfType<SessionGroupHeaderViewModel>()
+                                       .Single(header => header.Key == "ws-main")
+                                       .IsExpanded);
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task FirstSendFromDraftPageAppearsUnderUngroupedAndStaysSelected()
     {
         var workspaces = new StaticWorkspaceService([
@@ -979,8 +991,9 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         // 新会话落入未分组顶部且实例即当前选中。
         viewModel.Sidebar.NewSessionCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
-        Assert.DoesNotContain(viewModel.Sidebar.SessionRows.OfType<SessionItemViewModel>(),
-                              session => session is { BlankState: SessionBlankState.ConfirmedBlank, IsCurrent: false });
+        ClassicAssert.IsEmpty(viewModel.Sidebar.SessionRows.OfType<SessionItemViewModel>()
+                                       .Where(session => session is
+                                                  { BlankState: SessionBlankState.ConfirmedBlank, IsCurrent: false }));
         viewModel.SelectWorkspaceCommand.Execute(
                                                  viewModel.WorkspaceOptions
                                                           .Single(option => option.IsWithoutWorkspace));
@@ -993,15 +1006,15 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
                                        .Single(header => header.Key == "$ungrouped");
         var firstUngrouped = viewModel.Sidebar.SessionRows.OfType<SessionItemViewModel>()
                                       .First(session => session.Id == viewModel.SelectedSession!.Id);
-        Assert.Same(viewModel.SelectedSession, firstUngrouped);
-        Assert.Equal(0, viewModel.Sidebar.SessionRows.IndexOf(firstUngrouped)  -
-                        viewModel.Sidebar.SessionRows.IndexOf(ungroupedHeader) - 1);
-        Assert.True(firstUngrouped.IsCurrent);
+        ClassicAssert.AreSame(viewModel.SelectedSession, firstUngrouped);
+        ClassicAssert.AreEqual(0, viewModel.Sidebar.SessionRows.IndexOf(firstUngrouped)  -
+                                  viewModel.Sidebar.SessionRows.IndexOf(ungroupedHeader) - 1);
+        ClassicAssert.IsTrue(firstUngrouped.IsCurrent);
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task WorkspacesChangedRebuildsGroupProjection()
     {
         var workspaces = new StaticWorkspaceService([]);
@@ -1012,8 +1025,8 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         viewModel.Sidebar.SessionListModeIndex = 1;
 
         // 基线未到达时只有未分组一组。
-        Assert.Single(viewModel.Sidebar.SessionRows.OfType<SessionGroupHeaderViewModel>(),
-                      header => header.TitleText == "未分组");
+        Assert.That(viewModel.Sidebar.SessionRows.OfType<SessionGroupHeaderViewModel>()
+                             .Count(header => header.TitleText == "未分组"), Is.EqualTo(1));
 
         workspaces.Replace([
             new WorkspaceSummary("ws-late", "后到的工作区", "C:/Code/Late", ["session-welcome"], DateTimeOffset.Now)
@@ -1029,16 +1042,18 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
                                   _                                  => "other"
                               })
                              .ToArray();
-        Assert.Equal([
+        ClassicAssert.AreEqual(new[]
+        {
             "header:工作区",
             "header:后到的工作区", "session:session-welcome",
-            "header:未分组", "session:session-history", "session:session-native", "session:session-design"
-        ], shape);
+            "header:未分组", "session:session-history", "session:session-native",
+            "session:session-design"
+        }, shape);
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task BackgroundSessionAddRefreshesRowsWhileSelectionStays()
     {
         var sessionService = new SimulatedSessionService();
@@ -1054,13 +1069,13 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         await sessionService.SendPromptAsync(created.Id, "background-request", "后台消息");
         await WaitUntilAsync(() => viewModel.Sidebar.SessionRows.OfType<SessionItemViewModel>()
                                             .Any(session => session.Id == created.Id));
-        Assert.Same(selectedBefore, viewModel.SelectedSession);
-        Assert.True(selectedBefore!.IsCurrent);
+        ClassicAssert.AreSame(selectedBefore, viewModel.SelectedSession);
+        ClassicAssert.IsTrue(selectedBefore!.IsCurrent);
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task NewConversationPageCreatesSessionOnlyOnFirstSend()
     {
         var sessionService = new SimulatedSessionService();
@@ -1076,25 +1091,25 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         var createsBefore = sessionService.CreatedSessionCount;
         viewModel.Sidebar.NewSessionCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
-        Assert.Equal(createsBefore, sessionService.CreatedSessionCount);
+        ClassicAssert.AreEqual(createsBefore, sessionService.CreatedSessionCount);
         viewModel.SelectWorkspaceCommand.Execute(viewModel.WorkspaceOptions
                                                           .Single(option => option.IsWithoutWorkspace));
         viewModel.Composer.DraftMessage = "第一条消息";
         viewModel.SendDraftCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.SelectedSession is not null &&
                                    !ReferenceEquals(viewModel.SelectedSession, previousSelection));
-        Assert.Equal(createsBefore + 1, sessionService.CreatedSessionCount);
+        ClassicAssert.AreEqual(createsBefore + 1, sessionService.CreatedSessionCount);
         var current = viewModel.SelectedSession!;
-        Assert.Contains(viewModel.Sidebar.Sessions, session => session.Id == current.Id);
-        Assert.Equal(SessionBlankState.Engaged, current.BlankState);
+        Assert.That(viewModel.Sidebar.Sessions.Any(session => session.Id == current.Id), Is.True);
+        ClassicAssert.AreEqual(SessionBlankState.Engaged, current.BlankState);
 
         var currentSummary = (await sessionService.GetSessionsAsync()).Single(summary => summary.Id == current.Id);
-        Assert.Equal(SessionBlankState.Engaged, currentSummary.BlankState);
+        ClassicAssert.AreEqual(SessionBlankState.Engaged, currentSummary.BlankState);
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task DraftPageWorkspaceSelectionIsLocalOnlyAndDoesNotCreate()
     {
         var workspaces = new StaticWorkspaceService([
@@ -1112,24 +1127,24 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         // 不产生侧栏行；可随时改选（含显式「不使用工作区」）。
         var createsBefore = sessionService.CreatedSessionCount;
         viewModel.SelectWorkspaceCommand.Execute(viewModel.WorkspaceOptions.Single(option => option.Id == "ws-1"));
-        Assert.Equal("工作区一", viewModel.WorkspacePickerLabel);
+        ClassicAssert.AreEqual("工作区一", viewModel.WorkspacePickerLabel);
         viewModel.Composer.DraftMessage = "未发送的草稿";
         await WaitUntilAsync(() => viewModel.CanSendDraft);
-        Assert.Equal(createsBefore, sessionService.CreatedSessionCount);
-        Assert.Empty(sessionService.CreateRequests);
-        Assert.True(viewModel.ShowNewConversationPage);
-        Assert.DoesNotContain(viewModel.Sidebar.Sessions, session => session.Id == "blank-a");
+        ClassicAssert.AreEqual(createsBefore, sessionService.CreatedSessionCount);
+        ClassicAssert.IsEmpty(sessionService.CreateRequests);
+        ClassicAssert.IsTrue(viewModel.ShowNewConversationPage);
+        Assert.That(viewModel.Sidebar.Sessions.Any(session => session.Id == "blank-a"), Is.False);
 
         viewModel.SelectWorkspaceCommand.Execute(viewModel.WorkspaceOptions
                                                           .Single(option => option.IsWithoutWorkspace));
-        Assert.Equal("不使用工作区", viewModel.WorkspacePickerLabel);
-        Assert.True(viewModel.CanSendDraft);
-        Assert.Equal(createsBefore, sessionService.CreatedSessionCount);
+        ClassicAssert.AreEqual("不使用工作区", viewModel.WorkspacePickerLabel);
+        ClassicAssert.IsTrue(viewModel.CanSendDraft);
+        ClassicAssert.AreEqual(createsBefore, sessionService.CreatedSessionCount);
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task GroupHeaderPlusEntersDraftPageWithWorkspacePreselected()
     {
         var workspaces = new StaticWorkspaceService([
@@ -1147,16 +1162,16 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
                               .Single(item => item.Key == "ws-2");
         viewModel.Sidebar.CreateWorkspaceSessionCommand.Execute(header);
         await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
-        Assert.Equal("工作区二", viewModel.WorkspacePickerLabel);
-        Assert.Equal(createsBefore, sessionService.CreatedSessionCount);
-        Assert.Empty(sessionService.CreateRequests);
+        ClassicAssert.AreEqual("工作区二", viewModel.WorkspacePickerLabel);
+        ClassicAssert.AreEqual(createsBefore, sessionService.CreatedSessionCount);
+        ClassicAssert.IsEmpty(sessionService.CreateRequests);
         viewModel.Composer.DraftMessage = "草稿文本";
-        Assert.True(viewModel.CanSendDraft);
+        ClassicAssert.IsTrue(viewModel.CanSendDraft);
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task DraftPagePresetSelectionIsLocalOnlyAndSentWithCreate()
     {
         var sessionService = new AdoptionSessionService();
@@ -1168,14 +1183,14 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         // 模式始终有内置默认「标准模式」：初始勾选态与按钮文案对齐；下拉点选只改本地
         // 草稿预选，不调用 session/create；勾选随预选迁移。
         var presets = viewModel.AgentPresetOptions;
-        Assert.Equal(4, presets.Count);
-        Assert.Equal("标准模式", viewModel.PresetPickerLabel);
-        Assert.True(presets.Single(option => option.Id                           == "standard").IsSelected);
+        ClassicAssert.AreEqual(4, presets.Count);
+        ClassicAssert.AreEqual("标准模式", viewModel.PresetPickerLabel);
+        ClassicAssert.IsTrue(presets.Single(option => option.Id                  == "standard").IsSelected);
         viewModel.SelectPresetCommand.Execute(presets.Single(option => option.Id == "ptc"));
-        Assert.Equal("PTC 模式", viewModel.PresetPickerLabel);
-        Assert.True(presets.Single(option => option.Id  == "ptc").IsSelected);
-        Assert.False(presets.Single(option => option.Id == "standard").IsSelected);
-        Assert.Empty(sessionService.CreateRequests);
+        ClassicAssert.AreEqual("PTC 模式", viewModel.PresetPickerLabel);
+        ClassicAssert.IsTrue(presets.Single(option => option.Id  == "ptc").IsSelected);
+        ClassicAssert.IsFalse(presets.Single(option => option.Id == "standard").IsSelected);
+        ClassicAssert.IsEmpty(sessionService.CreateRequests);
 
         // 发送前须显式选定工作区去向（含「不使用工作区」）；首发送把预选模式传入
         // session/create，成功后被整份消费——预选回到内置默认。
@@ -1185,17 +1200,18 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         await WaitUntilAsync(() => viewModel.CanSendDraft);
         viewModel.SendDraftCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.SelectedSession is { BlankState: SessionBlankState.Engaged });
-        var (workspaceId, sessionId, agentPreset) = Assert.Single(sessionService.CreateRequests);
-        Assert.Null(workspaceId);
-        Assert.Null(sessionId);
-        Assert.Equal("ptc", agentPreset);
-        Assert.Equal("标准模式", viewModel.PresetPickerLabel);
-        Assert.True(presets.Single(option => option.Id == "standard").IsSelected);
+        Assert.That(sessionService.CreateRequests, Has.Count.EqualTo(1));
+        var (workspaceId, sessionId, agentPreset) = sessionService.CreateRequests.Single();
+        ClassicAssert.IsNull(workspaceId);
+        ClassicAssert.IsNull(sessionId);
+        ClassicAssert.AreEqual("ptc", agentPreset);
+        ClassicAssert.AreEqual("标准模式", viewModel.PresetPickerLabel);
+        ClassicAssert.IsTrue(presets.Single(option => option.Id == "standard").IsSelected);
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task DraftPresetChangeAfterFailedSendInvalidatesPendingSession()
     {
         var sessionService = new AdoptionSessionService();
@@ -1212,8 +1228,8 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         sessionService.EnqueueSendError(new InvalidOperationException("发送失败"));
         viewModel.SendDraftCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.HasError);
-        Assert.Equal(1, sessionService.CreatedSessionCount);
-        Assert.Equal((null, null, "standard"), sessionService.CreateRequests[0]);
+        ClassicAssert.AreEqual(1, sessionService.CreatedSessionCount);
+        ClassicAssert.AreEqual(((string?, string?, string?))(null, null, "standard"), sessionService.CreateRequests[0]);
 
         // 改选模式后待复用失配失效（其 preset 已在创建时固定）：重试按新选择全新创建，
         // 不把首条消息送进旧模式会话。
@@ -1221,14 +1237,14 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
                                                        .Single(option => option.Id == "minimal"));
         viewModel.SendDraftCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.SelectedSession is { BlankState: SessionBlankState.Engaged });
-        Assert.Equal(2, sessionService.CreatedSessionCount);
-        Assert.Equal(2, sessionService.CreateRequests.Count);
-        Assert.Equal((null, null, "minimal"), sessionService.CreateRequests[1]);
+        ClassicAssert.AreEqual(2, sessionService.CreatedSessionCount);
+        ClassicAssert.AreEqual(2, sessionService.CreateRequests.Count);
+        ClassicAssert.AreEqual(((string?, string?, string?))(null, null, "minimal"), sessionService.CreateRequests[1]);
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task FirstSendCreatesSessionAppliesPreselectedModelAndShowsRow()
     {
         var workspaces = new StaticWorkspaceService([
@@ -1245,8 +1261,8 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         viewModel.SelectWorkspaceCommand.Execute(viewModel.WorkspaceOptions.Single(option => option.Id == "ws-1"));
         viewModel.Composer.SelectedModelOption =
             viewModel.Composer.ModelOptions.Single(option => option.Model == "alt-chat");
-        Assert.Equal(new ModelSelection("sim-alt", "alt-chat"), viewModel.Composer.CurrentModel);
-        Assert.Empty(sessionService.ModelSelectionRequests);
+        ClassicAssert.AreEqual(new ModelSelection("sim-alt", "alt-chat"), viewModel.Composer.CurrentModel);
+        ClassicAssert.IsEmpty(sessionService.ModelSelectionRequests);
 
         viewModel.Composer.DraftMessage = "首条消息";
         viewModel.SendDraftCommand.Execute(null);
@@ -1255,13 +1271,14 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
 
         // 创建携带工作区归属、无收养 id；预选模型在创建后对该 SessionId 应用；
         // 后端接受首条消息后才出现侧栏行（已开始），输入文本清空。
-        var (workspaceId, adoptId, _) = Assert.Single(sessionService.CreateRequests);
-        Assert.Equal("ws-1", workspaceId);
-        Assert.Null(adoptId);
-        Assert.Equal(new[] { created.Id }, sessionService.ModelSelectionRequests);
-        Assert.Contains(viewModel.Sidebar.Sessions, session => session.Id == created.Id);
-        Assert.False(viewModel.HasError);
-        Assert.Equal(string.Empty, viewModel.Composer.DraftMessage);
+        Assert.That(sessionService.CreateRequests, Has.Count.EqualTo(1));
+        var (workspaceId, adoptId, _) = sessionService.CreateRequests.Single();
+        ClassicAssert.AreEqual("ws-1", workspaceId);
+        ClassicAssert.IsNull(adoptId);
+        ClassicAssert.AreEqual(new[] { created.Id }, sessionService.ModelSelectionRequests);
+        Assert.That(viewModel.Sidebar.Sessions.Any(session => session.Id == created.Id), Is.True);
+        ClassicAssert.IsFalse(viewModel.HasError);
+        ClassicAssert.AreEqual(string.Empty, viewModel.Composer.DraftMessage);
 
         // 插入行后按工作区记账核对分组：新会话落在 ws-1 组内（默认分组视图）。
         var groupedRows = viewModel.Sidebar.SessionRows;
@@ -1269,12 +1286,12 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
                                                          .Single(header => header.Key == "ws-1"));
         var rowIndex = groupedRows.IndexOf(groupedRows.OfType<SessionItemViewModel>()
                                                       .Single(session => session.Id == created.Id));
-        Assert.True(headerIndex >= 0 && rowIndex == headerIndex + 1);
+        ClassicAssert.IsTrue(headerIndex >= 0 && rowIndex == headerIndex + 1);
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task DraftSendCreateFailureKeepsDraftAndSelections()
     {
         var workspaces = new StaticWorkspaceService([
@@ -1294,25 +1311,25 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         // 创建失败：文本与预选保留、停留草稿页、无新侧栏行。
         viewModel.SendDraftCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.HasError);
-        Assert.Null(viewModel.SelectedSession);
-        Assert.True(viewModel.ShowNewConversationPage);
-        Assert.True(viewModel.CanSendDraft);
-        Assert.Equal("失败保留草稿", viewModel.Composer.DraftMessage);
-        Assert.Equal("工作区一", viewModel.WorkspacePickerLabel);
-        Assert.Equal(rowsBefore, viewModel.Sidebar.Sessions.Count);
-        Assert.Single(sessionService.CreateRequests);
+        ClassicAssert.IsNull(viewModel.SelectedSession);
+        ClassicAssert.IsTrue(viewModel.ShowNewConversationPage);
+        ClassicAssert.IsTrue(viewModel.CanSendDraft);
+        ClassicAssert.AreEqual("失败保留草稿", viewModel.Composer.DraftMessage);
+        ClassicAssert.AreEqual("工作区一", viewModel.WorkspacePickerLabel);
+        ClassicAssert.AreEqual(rowsBefore, viewModel.Sidebar.Sessions.Count);
+        Assert.That(sessionService.CreateRequests, Has.Count.EqualTo(1));
 
         // 重试按同一草稿再次创建（恰好一次成功），后端接受后进入普通会话。
         viewModel.SendDraftCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.SelectedSession is { BlankState: SessionBlankState.Engaged });
-        Assert.Equal(1, sessionService.CreatedSessionCount);
-        Assert.Equal(2, sessionService.CreateRequests.Count);
-        Assert.False(viewModel.HasError);
+        ClassicAssert.AreEqual(1, sessionService.CreatedSessionCount);
+        ClassicAssert.AreEqual(2, sessionService.CreateRequests.Count);
+        ClassicAssert.IsFalse(viewModel.HasError);
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task WorkspaceAttachFailureKeepsPendingSessionIdAndRetryReusesIt()
     {
         var workspaces = new StaticWorkspaceService([
@@ -1334,29 +1351,29 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
 
         viewModel.SendDraftCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.HasError);
-        Assert.Contains("工作区关联失败", viewModel.ErrorText, StringComparison.Ordinal);
+        Assert.That(viewModel.ErrorText, Does.Contain("工作区关联失败"));
         // 保留已知 id：不导航、不重试创建，草稿文本保留。
-        Assert.True(viewModel.ShowNewConversationPage);
-        Assert.Null(viewModel.SelectedSession);
-        Assert.Equal("首条消息", viewModel.Composer.DraftMessage);
-        Assert.Single(sessionService.CreateRequests);
+        ClassicAssert.IsTrue(viewModel.ShowNewConversationPage);
+        ClassicAssert.IsNull(viewModel.SelectedSession);
+        ClassicAssert.AreEqual("首条消息", viewModel.Composer.DraftMessage);
+        Assert.That(sessionService.CreateRequests, Has.Count.EqualTo(1));
 
         // 重试先经 session/create 收养（同一 sessionId + workspaceId）恢复关联，再发送；
         // 不产生第二个会话，发送成功后进入普通会话。
         viewModel.SendDraftCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.SelectedSession?.Id == "created-9");
-        Assert.Equal(SessionBlankState.Engaged, viewModel.SelectedSession!.BlankState);
-        Assert.Equal(2, sessionService.CreateRequests.Count);
-        Assert.Equal(("ws-2", (string?)null, "standard"), sessionService.CreateRequests[0]);
-        Assert.Equal(("ws-2", "created-9", "standard"), sessionService.CreateRequests[1]);
-        Assert.Equal(0, sessionService.CreatedSessionCount);
-        Assert.Equal(new[] { "created-9" }, sessionService.SendRequests);
-        Assert.False(viewModel.HasError);
+        ClassicAssert.AreEqual(SessionBlankState.Engaged, viewModel.SelectedSession!.BlankState);
+        ClassicAssert.AreEqual(2, sessionService.CreateRequests.Count);
+        ClassicAssert.AreEqual(("ws-2", (string?)null, "standard"), sessionService.CreateRequests[0]);
+        ClassicAssert.AreEqual(("ws-2", "created-9", "standard"), sessionService.CreateRequests[1]);
+        ClassicAssert.AreEqual(0, sessionService.CreatedSessionCount);
+        ClassicAssert.AreEqual(new[] { "created-9" }, sessionService.SendRequests);
+        ClassicAssert.IsFalse(viewModel.HasError);
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task LateDraftSendCompletionDoesNotStealNavigation()
     {
         var workspaces = new StaticWorkspaceService([
@@ -1382,20 +1399,20 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         gate.TrySetResult();
         // 等待首发送编排与一次列表合并刷新完全落定（400ms 合并窗 + 余量）。
         await Task.Delay(900);
-        Assert.Same(selectedBefore, viewModel.SelectedSession);
-        Assert.False(viewModel.HasError);
+        ClassicAssert.AreSame(selectedBefore, viewModel.SelectedSession);
+        ClassicAssert.IsFalse(viewModel.HasError);
         var lateRow = viewModel.Sidebar.Sessions.FirstOrDefault(session => !knownIds.Contains(session.Id));
-        Assert.NotNull(lateRow);
-        Assert.Equal(SessionBlankState.Engaged, lateRow!.BlankState);
+        ClassicAssert.IsNotNull(lateRow);
+        ClassicAssert.AreEqual(SessionBlankState.Engaged, lateRow!.BlankState);
         // 草稿已被消费：重新进入草稿页不再有未发送文本，也不复用已发送内容。
         viewModel.Sidebar.NewSessionCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
-        Assert.Equal(string.Empty, viewModel.Composer.DraftMessage);
+        ClassicAssert.AreEqual(string.Empty, viewModel.Composer.DraftMessage);
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task DraftSelectionsAndTextPersistAcrossSessionSwitches()
     {
         var workspaces = new StaticWorkspaceService([
@@ -1415,23 +1432,23 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         viewModel.Composer.SelectedModelOption =
             viewModel.Composer.ModelOptions.Single(option => option.Model == "alt-chat");
         var createsBefore = sessionService.CreatedSessionCount;
-        Assert.Empty(sessionService.CreateRequests);
+        ClassicAssert.IsEmpty(sessionService.CreateRequests);
 
         // 切到旧会话再返回：文本、预选工作区与预选模型都恢复；已有会话各自草稿不受影响。
         viewModel.Sidebar.SelectSessionCommand.Execute(selectedBefore);
         await WaitUntilAsync(() => !viewModel.ShowNewConversationPage);
-        Assert.Equal(string.Empty, viewModel.Composer.DraftMessage);
+        ClassicAssert.AreEqual(string.Empty, viewModel.Composer.DraftMessage);
         viewModel.Sidebar.NewSessionCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
-        Assert.Equal("新对话草稿", viewModel.Composer.DraftMessage);
-        Assert.Equal("工作区一", viewModel.WorkspacePickerLabel);
-        Assert.Equal(new ModelSelection("sim-alt", "alt-chat"), viewModel.Composer.CurrentModel);
-        Assert.Equal(createsBefore, sessionService.CreatedSessionCount);
+        ClassicAssert.AreEqual("新对话草稿", viewModel.Composer.DraftMessage);
+        ClassicAssert.AreEqual("工作区一", viewModel.WorkspacePickerLabel);
+        ClassicAssert.AreEqual(new ModelSelection("sim-alt", "alt-chat"), viewModel.Composer.CurrentModel);
+        ClassicAssert.AreEqual(createsBefore, sessionService.CreatedSessionCount);
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task NewConversationPageVisibilityFollowsSelection()
     {
         var workspaces = new StaticWorkspaceService([
@@ -1451,15 +1468,15 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         viewModel.SelectedSession = viewModel.Sidebar.Sessions.First(session => session.Id == unknownId);
 
         // 未知状态的历史会话（元数据缺失）：可见但绝不显示新对话草稿页。
-        Assert.Equal(unknownId, viewModel.SelectedSession!.Id);
-        Assert.Contains(viewModel.Sidebar.Sessions, session => session.Id == unknownId);
-        Assert.False(viewModel.ShowNewConversationPage);
+        ClassicAssert.AreEqual(unknownId, viewModel.SelectedSession!.Id);
+        Assert.That(viewModel.Sidebar.Sessions.Any(session => session.Id == unknownId), Is.True);
+        ClassicAssert.IsFalse(viewModel.ShowNewConversationPage);
 
         // 顶部新建：进入草稿页（不创建会话）；工作区下拉含「不使用工作区」显式兼容项。
         viewModel.Sidebar.NewSessionCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
-        Assert.Equal(0, sessionService.CreatedSessionCount);
-        Assert.Contains(viewModel.WorkspaceOptions, option => option.IsWithoutWorkspace);
+        ClassicAssert.AreEqual(0, sessionService.CreatedSessionCount);
+        Assert.That(viewModel.WorkspaceOptions.Any(option => option.IsWithoutWorkspace), Is.True);
 
         // 选中任一会话：草稿页整体隐藏。
         var anySession = viewModel.Sidebar.Sessions.First(session => session.Id != unknownId);
@@ -1472,7 +1489,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
     /// <summary>
     ///     创建/收养可控桩：记录每次 session/create 请求（workspaceId, sessionId），可注入
     ///     业务错误与阻塞门；会话列表可整体接管（SessionsOverride）。其余行为委托模拟实现。
-    [Fact]
+    [Test]
     public async Task ListRefreshKeepsIntentionalDraftPageInsteadOfFallingBack()
     {
         var sessionService = new SimulatedSessionService();
@@ -1481,16 +1498,16 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         await viewModel.InitializeAsync();
         // 启动即停留在新对话草稿页（守卫已生效），后台列表刷新不得把页面抢回旧会话。
         await WaitUntilAsync(() => viewModel.Sidebar.Sessions.Count > 0);
-        Assert.Null(viewModel.SelectedSession);
-        Assert.True(viewModel.ShowNewConversationPage);
+        ClassicAssert.IsNull(viewModel.SelectedSession);
+        ClassicAssert.IsTrue(viewModel.ShowNewConversationPage);
 
         // 创建会话触发的列表刷新（SessionsChanged → 400ms 合并）同样不得抢回旧会话；
         // 草稿文本保持。
         viewModel.Composer.DraftMessage = "草稿文本";
         var created = await sessionService.CreateSessionAsync();
         await Task.Delay(900);
-        Assert.Null(viewModel.SelectedSession);
-        Assert.True(viewModel.ShowNewConversationPage);
+        ClassicAssert.IsNull(viewModel.SelectedSession);
+        ClassicAssert.IsTrue(viewModel.ShowNewConversationPage);
 
         // 手动点击行不受守卫影响；再进草稿页文本仍在。
         viewModel.Sidebar.SelectSessionCommand.Execute(viewModel.Sidebar.Sessions.First(session => session.Id !=
@@ -1498,12 +1515,12 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         await WaitUntilAsync(() => !viewModel.ShowNewConversationPage);
         viewModel.Sidebar.NewSessionCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
-        Assert.Equal("草稿文本", viewModel.Composer.DraftMessage);
+        ClassicAssert.AreEqual("草稿文本", viewModel.Composer.DraftMessage);
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task TargetChangeDuringFirstSendKeepsNewDraftAndSkipsStaleNavigation()
     {
         var workspaces = new StaticWorkspaceService([
@@ -1532,25 +1549,25 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
                               () => viewModel.Sidebar.Sessions.Any(session => !knownIds.Contains(session.Id) &&
                                                                               session.BlankState ==
                                                                               SessionBlankState.Engaged), 5000);
-        Assert.True(viewModel.ShowNewConversationPage);
-        Assert.Equal("工作区二", viewModel.WorkspacePickerLabel);
-        Assert.Equal("发送快照文本", viewModel.Composer.DraftMessage);
+        ClassicAssert.IsTrue(viewModel.ShowNewConversationPage);
+        ClassicAssert.AreEqual("工作区二", viewModel.WorkspacePickerLabel);
+        ClassicAssert.AreEqual("发送快照文本", viewModel.Composer.DraftMessage);
         var staleRow = viewModel.Sidebar.Sessions.Single(session => !knownIds.Contains(session.Id));
-        Assert.Equal(SessionBlankState.Engaged, staleRow.BlankState);
+        ClassicAssert.AreEqual(SessionBlankState.Engaged, staleRow.BlankState);
 
         // 迟到会话未记为待复用：按新目标重试会创建新会话（ws-2）并正常导航收束。
         viewModel.SendDraftCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.SelectedSession is { BlankState: SessionBlankState.Engaged } &&
                                    viewModel.SelectedSession.Id != staleRow.Id);
-        Assert.Equal(2, sessionService.CreatedSessionCount);
-        Assert.Equal(2, sessionService.CreateRequests.Count);
-        Assert.Equal("ws-2", sessionService.CreateRequests[1].WorkspaceId);
-        Assert.False(viewModel.HasError);
+        ClassicAssert.AreEqual(2, sessionService.CreatedSessionCount);
+        ClassicAssert.AreEqual(2, sessionService.CreateRequests.Count);
+        ClassicAssert.AreEqual("ws-2", sessionService.CreateRequests[1].WorkspaceId);
+        ClassicAssert.IsFalse(viewModel.HasError);
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task LateDraftSendDoesNotClearSwitchedSessionDraftWithIdenticalText()
     {
         var workspaces = new StaticWorkspaceService([
@@ -1577,22 +1594,22 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         viewModel.Sidebar.SelectSessionCommand.Execute(otherSession);
         gate.TrySetResult();
         await Task.Delay(900);
-        Assert.Same(otherSession, viewModel.SelectedSession);
-        Assert.Equal("相同文本", viewModel.Composer.DraftMessage);
-        Assert.False(viewModel.HasError);
+        ClassicAssert.AreSame(otherSession, viewModel.SelectedSession);
+        ClassicAssert.AreEqual("相同文本", viewModel.Composer.DraftMessage);
+        ClassicAssert.IsFalse(viewModel.HasError);
         var lateRow = viewModel.Sidebar.Sessions.FirstOrDefault(session => !knownIds.Contains(session.Id));
-        Assert.NotNull(lateRow);
-        Assert.Equal(SessionBlankState.Engaged, lateRow!.BlankState);
+        ClassicAssert.IsNotNull(lateRow);
+        ClassicAssert.AreEqual(SessionBlankState.Engaged, lateRow!.BlankState);
 
         // 原草稿缓存已消费：再进草稿页不再有未发送文本。
         viewModel.Sidebar.NewSessionCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
-        Assert.Equal(string.Empty, viewModel.Composer.DraftMessage);
+        ClassicAssert.AreEqual(string.Empty, viewModel.Composer.DraftMessage);
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task EmptySessionListStartupKeepsDraftModelPickerEnabledWithoutCreate()
     {
         var sessionService = new AdoptionSessionService { SessionsOverride = () => [] };
@@ -1603,25 +1620,25 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         // 无历史会话启动：初始即草稿页（SelectedSession null→null 不触发 setter），模型
         // 目录加载完成后菜单即可用并支持本地预选（不发 RPC）；不发起任何创建/收养请求，
         // 再点「新建」也保持可用。
-        Assert.Null(viewModel.SelectedSession);
-        Assert.True(viewModel.ShowNewConversationPage);
+        ClassicAssert.IsNull(viewModel.SelectedSession);
+        ClassicAssert.IsTrue(viewModel.ShowNewConversationPage);
         await WaitUntilAsync(() => viewModel.Composer.ModelOptions.Count > 0);
-        Assert.True(viewModel.Composer.IsModelPickerEnabled);
+        ClassicAssert.IsTrue(viewModel.Composer.IsModelPickerEnabled);
         viewModel.Composer.SelectedModelOption =
             viewModel.Composer.ModelOptions.Single(option => option.Model == "alt-chat");
-        Assert.Equal(new ModelSelection("sim-alt", "alt-chat"), viewModel.Composer.CurrentModel);
-        Assert.Empty(sessionService.ModelSelectionRequests);
+        ClassicAssert.AreEqual(new ModelSelection("sim-alt", "alt-chat"), viewModel.Composer.CurrentModel);
+        ClassicAssert.IsEmpty(sessionService.ModelSelectionRequests);
 
         viewModel.Sidebar.NewSessionCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
-        Assert.True(viewModel.Composer.IsModelPickerEnabled);
-        Assert.Empty(sessionService.CreateRequests);
-        Assert.Equal(0, sessionService.CreatedSessionCount);
+        ClassicAssert.IsTrue(viewModel.Composer.IsModelPickerEnabled);
+        ClassicAssert.IsEmpty(sessionService.CreateRequests);
+        ClassicAssert.AreEqual(0, sessionService.CreatedSessionCount);
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task RepeatedNewPageEntryFromNullStatePreservesDraftAndPreselection()
     {
         var workspaces = new StaticWorkspaceService([
@@ -1639,24 +1656,24 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         viewModel.SelectWorkspaceCommand.Execute(viewModel.WorkspaceOptions.Single(option => option.Id == "ws-1"));
         viewModel.Composer.SelectedModelOption =
             viewModel.Composer.ModelOptions.Single(option => option.Model == "alt-chat");
-        Assert.True(viewModel.Composer.IsModelPickerEnabled);
+        ClassicAssert.IsTrue(viewModel.Composer.IsModelPickerEnabled);
 
         // 已处于 null（草稿页）状态再次点「新建」：草稿页初始化可重入，草稿文本、工作区
         // 与模型预选全部保留，不触发任何 RPC。
         viewModel.Sidebar.NewSessionCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
-        Assert.Null(viewModel.SelectedSession);
-        Assert.Equal("重复进入的草稿", viewModel.Composer.DraftMessage);
-        Assert.Equal("工作区一", viewModel.WorkspacePickerLabel);
-        Assert.Equal(new ModelSelection("sim-alt", "alt-chat"), viewModel.Composer.CurrentModel);
-        Assert.True(viewModel.Composer.IsModelPickerEnabled);
-        Assert.Empty(sessionService.CreateRequests);
-        Assert.Empty(sessionService.ModelSelectionRequests);
+        ClassicAssert.IsNull(viewModel.SelectedSession);
+        ClassicAssert.AreEqual("重复进入的草稿", viewModel.Composer.DraftMessage);
+        ClassicAssert.AreEqual("工作区一", viewModel.WorkspacePickerLabel);
+        ClassicAssert.AreEqual(new ModelSelection("sim-alt", "alt-chat"), viewModel.Composer.CurrentModel);
+        ClassicAssert.IsTrue(viewModel.Composer.IsModelPickerEnabled);
+        ClassicAssert.IsEmpty(sessionService.CreateRequests);
+        ClassicAssert.IsEmpty(sessionService.ModelSelectionRequests);
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task LateSendCompletionAfterReturningToDraftPageClearsSentText()
     {
         var workspaces = new StaticWorkspaceService([
@@ -1682,23 +1699,23 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         await WaitUntilAsync(() => !viewModel.ShowNewConversationPage);
         viewModel.Sidebar.NewSessionCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
-        Assert.Equal("切走又回来的草稿", viewModel.Composer.DraftMessage);
+        ClassicAssert.AreEqual("切走又回来的草稿", viewModel.Composer.DraftMessage);
         gate.TrySetResult();
         await WaitOrDumpAsync(viewModel,
                               () => viewModel.Sidebar.Sessions.Any(session => !knownIds.Contains(session.Id) &&
                                                                               session.BlankState ==
                                                                               SessionBlankState.Engaged), 5000);
         // 迟到结果不抢回页面：仍停留草稿页，输入框与工作区预选均已清空。
-        Assert.Null(viewModel.SelectedSession);
-        Assert.True(viewModel.ShowNewConversationPage);
-        Assert.Equal(string.Empty, viewModel.Composer.DraftMessage);
-        Assert.Equal("选择工作区", viewModel.WorkspacePickerLabel);
-        Assert.False(viewModel.HasError);
+        ClassicAssert.IsNull(viewModel.SelectedSession);
+        ClassicAssert.IsTrue(viewModel.ShowNewConversationPage);
+        ClassicAssert.AreEqual(string.Empty, viewModel.Composer.DraftMessage);
+        ClassicAssert.AreEqual("选择工作区", viewModel.WorkspacePickerLabel);
+        ClassicAssert.IsFalse(viewModel.HasError);
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task RegisterWorkspaceAddsDraftMenuOptionWithoutError()
     {
         var viewModel = CreateViewModel();
@@ -1707,15 +1724,15 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         await viewModel.RegisterWorkspaceAsync("C:/Code/NewProject");
 
         // 登记成功无错误呈现；模拟服务经状态流回流投影，下拉选项随之包含新工作区。
-        Assert.False(viewModel.HasError);
+        ClassicAssert.IsFalse(viewModel.HasError);
         var added = viewModel.WorkspaceOptions.Single(option => option.Path == "C:/Code/NewProject");
-        Assert.Equal("NewProject", added.TitleText);
-        Assert.Contains(added, viewModel.WorkspaceMenuOptions);
+        ClassicAssert.AreEqual("NewProject", added.TitleText);
+        Assert.That(viewModel.WorkspaceMenuOptions, Does.Contain(added));
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task RegisterWorkspaceFailureSurfacesWindowError()
     {
         var workspaces = new StaticWorkspaceService();
@@ -1727,13 +1744,13 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         await viewModel.RegisterWorkspaceAsync("C:/Not/A/Directory");
 
         // 登记失败呈现到窗口级错误条，选项集合不出现失败路径。
-        Assert.Contains("添加工作区失败", viewModel.ErrorText);
-        Assert.DoesNotContain(viewModel.WorkspaceOptions, option => option.Path == "C:/Not/A/Directory");
+        Assert.That(viewModel.ErrorText, Does.Contain("添加工作区失败"));
+        Assert.That(viewModel.WorkspaceOptions.Any(option => option.Path == "C:/Not/A/Directory"), Is.False);
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task TextEditedDuringSendThenSwitchAwayPreservesNewDraftSelections()
     {
         var workspaces = new StaticWorkspaceService([
@@ -1766,19 +1783,19 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
                               () => viewModel.Sidebar.Sessions.Any(session => !knownIds.Contains(session.Id) &&
                                                                               session.BlankState ==
                                                                               SessionBlankState.Engaged), 5000);
-        Assert.Same(selectedBefore, viewModel.SelectedSession);
+        ClassicAssert.AreSame(selectedBefore, viewModel.SelectedSession);
 
         viewModel.Sidebar.NewSessionCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
-        Assert.Equal("改写后的新草稿", viewModel.Composer.DraftMessage);
-        Assert.Equal("工作区一", viewModel.WorkspacePickerLabel);
-        Assert.Equal(new ModelSelection("sim-alt", "alt-chat"), viewModel.Composer.CurrentModel);
-        Assert.False(viewModel.HasError);
+        ClassicAssert.AreEqual("改写后的新草稿", viewModel.Composer.DraftMessage);
+        ClassicAssert.AreEqual("工作区一", viewModel.WorkspacePickerLabel);
+        ClassicAssert.AreEqual(new ModelSelection("sim-alt", "alt-chat"), viewModel.Composer.CurrentModel);
+        ClassicAssert.IsFalse(viewModel.HasError);
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task ModelChangeDuringSendKeepsNewSelectionAndSkipsStaleNavigation()
     {
         var workspaces = new StaticWorkspaceService([
@@ -1811,21 +1828,22 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
                                                                               session.BlankState ==
                                                                               SessionBlankState.Engaged), 5000);
         var createdRow = viewModel.Sidebar.Sessions.Single(session => !knownIds.Contains(session.Id));
-        Assert.Null(viewModel.SelectedSession);
-        Assert.True(viewModel.ShowNewConversationPage);
-        Assert.Equal("模型改选期间", viewModel.Composer.DraftMessage);
-        Assert.Equal("工作区一", viewModel.WorkspacePickerLabel);
-        Assert.Equal(new ModelSelection("sim", "sim-reasoner"), viewModel.Composer.CurrentModel);
+        ClassicAssert.IsNull(viewModel.SelectedSession);
+        ClassicAssert.IsTrue(viewModel.ShowNewConversationPage);
+        ClassicAssert.AreEqual("模型改选期间", viewModel.Composer.DraftMessage);
+        ClassicAssert.AreEqual("工作区一", viewModel.WorkspacePickerLabel);
+        ClassicAssert.AreEqual(new ModelSelection("sim", "sim-reasoner"), viewModel.Composer.CurrentModel);
         // 快照的选型（alt-chat）恰好应用一次到创建的会话；草稿保持新选型。
-        Assert.Equal(new[] { $"select:{createdRow.Id}:sim-alt/alt-chat" },
-                     sessionService.OperationLog.Where(log => log.StartsWith("select:", StringComparison.Ordinal))
-                                   .ToArray());
-        Assert.False(viewModel.HasError);
+        ClassicAssert.AreEqual(new[] { $"select:{createdRow.Id}:sim-alt/alt-chat" },
+                               sessionService.OperationLog
+                                             .Where(log => log.StartsWith("select:", StringComparison.Ordinal))
+                                             .ToArray());
+        ClassicAssert.IsFalse(viewModel.HasError);
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task AttachFailureRetryRecoversAssociationWithSameIdsBeforeSending()
     {
         var workspaces = new StaticWorkspaceService([
@@ -1853,25 +1871,25 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         sessionService.BlockNextCreate = gate;
         viewModel.SendDraftCommand.Execute(null);
         await WaitUntilAsync(() => sessionService.CreateRequests.Count == 2);
-        Assert.Equal(("ws-2", "created-9", "standard"), sessionService.CreateRequests[1]);
-        Assert.Empty(sessionService.SendRequests);
+        ClassicAssert.AreEqual(("ws-2", "created-9", "standard"), sessionService.CreateRequests[1]);
+        ClassicAssert.IsEmpty(sessionService.SendRequests);
         gate.TrySetResult();
         await WaitUntilAsync(() => viewModel.SelectedSession?.Id == "created-9");
-        Assert.Equal(SessionBlankState.Engaged, viewModel.SelectedSession!.BlankState);
+        ClassicAssert.AreEqual(SessionBlankState.Engaged, viewModel.SelectedSession!.BlankState);
 
         // 顺序与记账：收养先于发送；关联确实写入工作区投影（非仅导航成功）。
         var attachIndex = sessionService.OperationLog.IndexOf("create:ws-2|created-9");
         var sendIndex   = sessionService.OperationLog.IndexOf("send:created-9");
-        Assert.True(attachIndex >= 0 && sendIndex >= 0 && attachIndex < sendIndex);
+        ClassicAssert.IsTrue(attachIndex >= 0 && sendIndex >= 0 && attachIndex < sendIndex);
         var accounted = (await workspaces.GetWorkspacesAsync()).Single(workspace => workspace.Id == "ws-2");
-        Assert.Contains("created-9", accounted.SessionIds);
-        Assert.Equal(0, sessionService.CreatedSessionCount);
-        Assert.False(viewModel.HasError);
+        Assert.That(accounted.SessionIds, Does.Contain("created-9"));
+        ClassicAssert.AreEqual(0, sessionService.CreatedSessionCount);
+        ClassicAssert.IsFalse(viewModel.HasError);
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task AttachRecoveryFailureAgainKeepsRecoverableDraftWithoutSending()
     {
         var workspaces = new StaticWorkspaceService([
@@ -1900,22 +1918,22 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
                                                                               .RootElement.Clone()), false);
         viewModel.SendDraftCommand.Execute(null);
         await WaitUntilAsync(() => sessionService.CreateRequests.Count == 2 && !viewModel.IsStartingConversation);
-        Assert.Empty(sessionService.SendRequests);
-        Assert.Equal(0, sessionService.CreatedSessionCount);
-        Assert.True(viewModel.ShowNewConversationPage);
-        Assert.Equal("关联失败重试的草稿", viewModel.Composer.DraftMessage);
-        Assert.Contains("工作区关联失败", viewModel.ErrorText, StringComparison.Ordinal);
+        ClassicAssert.IsEmpty(sessionService.SendRequests);
+        ClassicAssert.AreEqual(0, sessionService.CreatedSessionCount);
+        ClassicAssert.IsTrue(viewModel.ShowNewConversationPage);
+        ClassicAssert.AreEqual("关联失败重试的草稿", viewModel.Composer.DraftMessage);
+        Assert.That(viewModel.ErrorText, Does.Contain("工作区关联失败"));
 
         // 可恢复状态未丢：再次重试从恢复关联开始并最终完成发送。
         viewModel.SendDraftCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.SelectedSession?.Id == "created-9");
-        Assert.Equal(new[] { "created-9" }, sessionService.SendRequests);
-        Assert.Equal(0, sessionService.CreatedSessionCount);
+        ClassicAssert.AreEqual(new[] { "created-9" }, sessionService.SendRequests);
+        ClassicAssert.AreEqual(0, sessionService.CreatedSessionCount);
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task SelectModelFailureAfterAttachReusesSessionOnRetry()
     {
         var workspaces = new StaticWorkspaceService([
@@ -1937,21 +1955,21 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         // 创建与关联已成功、仅选型失败：重试不得再次创建/收养，直接复用会话完成选型与发送。
         viewModel.SendDraftCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.HasError);
-        Assert.Contains("选型失败", viewModel.ErrorText, StringComparison.Ordinal);
-        Assert.Single(sessionService.CreateRequests);
+        Assert.That(viewModel.ErrorText, Does.Contain("选型失败"));
+        Assert.That(sessionService.CreateRequests, Has.Count.EqualTo(1));
         viewModel.SendDraftCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.SelectedSession is { BlankState: SessionBlankState.Engaged });
         var createdId = viewModel.SelectedSession!.Id;
-        Assert.Single(sessionService.CreateRequests);
-        Assert.Equal(1, sessionService.CreatedSessionCount);
-        Assert.Equal(new[] { createdId, createdId }, sessionService.ModelSelectionRequests);
-        Assert.Equal(new[] { createdId }, sessionService.SendRequests);
-        Assert.False(viewModel.HasError);
+        Assert.That(sessionService.CreateRequests, Has.Count.EqualTo(1));
+        ClassicAssert.AreEqual(1, sessionService.CreatedSessionCount);
+        ClassicAssert.AreEqual(new[] { createdId, createdId }, sessionService.ModelSelectionRequests);
+        ClassicAssert.AreEqual(new[] { createdId }, sessionService.SendRequests);
+        ClassicAssert.IsFalse(viewModel.HasError);
 
         await viewModel.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task SendFailureAfterAttachReusesSessionOnRetry()
     {
         var workspaces = new StaticWorkspaceService([
@@ -1970,17 +1988,17 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         // 关联已完成、仅发送失败：会话记为待复用，重试不再创建/收养，对同一会话再次发送。
         viewModel.SendDraftCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.HasError);
-        Assert.Contains("发送失败", viewModel.ErrorText, StringComparison.Ordinal);
-        Assert.Single(sessionService.CreateRequests);
-        Assert.Single(sessionService.SendRequests);
+        Assert.That(viewModel.ErrorText, Does.Contain("发送失败"));
+        Assert.That(sessionService.CreateRequests, Has.Count.EqualTo(1));
+        Assert.That(sessionService.SendRequests, Has.Count.EqualTo(1));
 
         viewModel.SendDraftCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.SelectedSession is { BlankState: SessionBlankState.Engaged });
-        Assert.Single(sessionService.CreateRequests);
-        Assert.Equal(2, sessionService.SendRequests.Count);
-        Assert.True(sessionService.SendRequests.All(id => id == viewModel.SelectedSession!.Id));
-        Assert.Equal(1, sessionService.CreatedSessionCount);
-        Assert.False(viewModel.HasError);
+        Assert.That(sessionService.CreateRequests, Has.Count.EqualTo(1));
+        ClassicAssert.AreEqual(2, sessionService.SendRequests.Count);
+        ClassicAssert.IsTrue(sessionService.SendRequests.All(id => id == viewModel.SelectedSession!.Id));
+        ClassicAssert.AreEqual(1, sessionService.CreatedSessionCount);
+        ClassicAssert.IsFalse(viewModel.HasError);
 
         await viewModel.DisposeAsync();
     }
@@ -2009,7 +2027,7 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
             await Task.Delay(10);
         }
 
-        Assert.True(TryCondition(condition), "预期的异步 ViewModel 状态未在超时前出现。");
+        ClassicAssert.IsTrue(TryCondition(condition), "预期的异步 ViewModel 状态未在超时前出现。");
     }
 
     /// <summary>条件枚举集合时可能撞上更新线程的并发修改：视为未满足，下一轮重试。</summary>
@@ -2347,15 +2365,6 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
             return Task.FromResult(workspace);
         }
 
-        /// <summary>模拟创建后的工作区记账（对齐 SimulatedWorkspaceService.AddSession 语义）。</summary>
-        public void AddSession(string workspaceId, string sessionId)
-        {
-            _items = _items.Select(workspace => workspace.Id == workspaceId
-                                       ? workspace with { SessionIds = [.. workspace.SessionIds, sessionId] }
-                                       : workspace)
-                           .ToArray();
-        }
-
         /// <summary>模拟 workspace/rename 回流：本地改标题并广播（follow upsert 幂等对齐）。</summary>
         public Task<WorkspaceSummary> RenameWorkspaceAsync(
             string workspaceId, string title, CancellationToken cancellationToken = default)
@@ -2383,6 +2392,24 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
             return Task.CompletedTask;
         }
 
+        /// <summary>模拟 workspace/archiveSession 回流：并入归档并广播。</summary>
+        public Task ArchiveSessionAsync(string sessionId, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            ArchivedSessionIds = new HashSet<string>(ArchivedSessionIds) { sessionId };
+            RaiseChanged();
+            return Task.CompletedTask;
+        }
+
+        /// <summary>模拟创建后的工作区记账（对齐 SimulatedWorkspaceService.AddSession 语义）。</summary>
+        public void AddSession(string workspaceId, string sessionId)
+        {
+            _items = _items.Select(workspace => workspace.Id == workspaceId
+                                       ? workspace with { SessionIds = [.. workspace.SessionIds, sessionId] }
+                                       : workspace)
+                           .ToArray();
+        }
+
         public void Replace(IReadOnlyList<WorkspaceSummary> next)
         {
             _items = next;
@@ -2391,15 +2418,6 @@ public sealed class MainWindowViewModelTests(ITestOutputHelper output)
         public void ReplaceArchived(IReadOnlySet<string> archived)
         {
             ArchivedSessionIds = archived;
-        }
-
-        /// <summary>模拟 workspace/archiveSession 回流：并入归档并广播。</summary>
-        public Task ArchiveSessionAsync(string sessionId, CancellationToken cancellationToken = default)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            ArchivedSessionIds = new HashSet<string>(ArchivedSessionIds) { sessionId };
-            RaiseChanged();
-            return Task.CompletedTask;
         }
 
         public void RaiseChanged()

@@ -2,8 +2,8 @@ using DshDesktop.Harness.Services.Connection;
 using DshDesktop.Harness.Services.Sessions;
 using DshDesktop.Harness.Services.Settings;
 using DshDesktop.Infrastructure.Services.Backend;
-using Xunit;
-using Xunit.Abstractions;
+using NUnit.Framework;
+using NUnit.Framework.Legacy;
 
 namespace DshDesktop.Tests;
 
@@ -14,29 +14,29 @@ namespace DshDesktop.Tests;
 ///     运行条件：DSH_E2E_RUNTIME_DIR 指向开发 runtime 且 DSH_E2E_REAL_HOME=1，缺失时明确跳过。
 ///     注意：本测试会在真实 home 中创建一个新会话。
 /// </summary>
-public sealed class RealModelConfigurationTests(ITestOutputHelper output)
+public sealed class RealModelConfigurationTests
 {
-    [SkippableFact]
+    [Test]
     public async Task CatalogListsProviderSelectionEchoesAndCredentialStateIsQueryable()
     {
         var runtimeDir     = Environment.GetEnvironmentVariable(RealBackendTestSupport.RuntimeDirVariable);
         var realHome       = Environment.GetEnvironmentVariable(RealBackendTestSupport.RealHomeVariable);
         var node           = RealBackendTestSupport.FindNodeExecutable();
         var launcherScript = RealBackendTestSupport.FindLauncherScript();
-        Skip.If(string.IsNullOrWhiteSpace(runtimeDir),
-                $"未设置 {RealBackendTestSupport.RuntimeDirVariable}，跳过真实 home 配置验证。");
-        Skip.If(!string.Equals(realHome, "1", StringComparison.Ordinal),
-                $"未设置 {RealBackendTestSupport.RealHomeVariable}=1，跳过真实 home 配置验证。");
-        Skip.If(node is null, "PATH 中找不到 Node 可执行文件，跳过。");
-        Skip.If(launcherScript is null, "找不到 launcher 脚本，跳过。");
+        if (string.IsNullOrWhiteSpace(runtimeDir))
+            Assert.Ignore($"未设置 {RealBackendTestSupport.RuntimeDirVariable}，跳过真实 home 配置验证。");
+        if (!string.Equals(realHome, "1", StringComparison.Ordinal))
+            Assert.Ignore($"未设置 {RealBackendTestSupport.RealHomeVariable}=1，跳过真实 home 配置验证。");
+        if (node is null) Assert.Ignore("PATH 中找不到 Node 可执行文件，跳过。");
+        if (launcherScript is null) Assert.Ignore("找不到 launcher 脚本，跳过。");
 
         var dshHome = RealBackendTestSupport.ResolveSharedDshHome();
-        Skip.If(!File.Exists(Path.Combine(dshHome, "settings.yaml")),
-                $"未找到 {Path.Combine(dshHome, "settings.yaml")}，跳过。");
+        if (!File.Exists(Path.Combine(dshHome, "settings.yaml")))
+            Assert.Ignore($"未找到 {Path.Combine(dshHome, "settings.yaml")}，跳过。");
 
         var (provider, model) =
             RealBackendTestSupport.ParseModel(Environment.GetEnvironmentVariable(RealBackendTestSupport
-                                                          .ModelOverrideVariable) ?? "glm/glm-5.3-flash");
+                                                 .ModelOverrideVariable) ?? "glm/glm-5.3-flash");
         var credentialRef = Environment.GetEnvironmentVariable(RealBackendTestSupport.CredentialRefVariable)
                          ?? "GLM_API_KEY";
         var root    = Path.Combine(Path.GetTempPath(), $"dsh-config-e2e-{Guid.NewGuid():N}");
@@ -51,28 +51,28 @@ public sealed class RealModelConfigurationTests(ITestOutputHelper output)
             await hostService.StartAsync().WaitAsync(TimeSpan.FromSeconds(150));
 
             var catalog = await sessions.GetModelCatalogAsync().WaitAsync(TimeSpan.FromSeconds(30));
-            output.WriteLine($"默认模型：{catalog.Default?.Provider}/{catalog.Default?.Model}");
-            output.WriteLine($"目录提供方：{string.Join(", ", catalog.Groups.Select(group => group.Id))}");
-            Assert.Contains(catalog.Groups, group => group.Id == provider);
+            TestContext.Out.WriteLine($"默认模型：{catalog.Default?.Provider}/{catalog.Default?.Model}");
+            TestContext.Out.WriteLine($"目录提供方：{string.Join(", ", catalog.Groups.Select(group => group.Id))}");
+            Assert.That(catalog.Groups.Any(group => group.Id == provider), Is.True);
 
             var created = await sessions.CreateSessionAsync().WaitAsync(TimeSpan.FromSeconds(30));
-            output.WriteLine($"新会话：{created.Id}");
+            TestContext.Out.WriteLine($"新会话：{created.Id}");
 
             var selection = await sessions.SelectModelAsync(created.Id, provider, model)
                                           .WaitAsync(TimeSpan.FromSeconds(30));
-            Assert.Equal(provider, selection.Provider);
-            Assert.Equal(model, selection.Model);
-            output.WriteLine($"已选型：{selection.Provider}/{selection.Model}");
+            ClassicAssert.AreEqual(provider, selection.Provider);
+            ClassicAssert.AreEqual(model, selection.Model);
+            TestContext.Out.WriteLine($"已选型：{selection.Provider}/{selection.Model}");
 
             // 凭据判定交给当前 Host（credentials/describe），客户端不解析凭据文件。
             var entries = await credentials.DescribeAsync([credentialRef]).WaitAsync(TimeSpan.FromSeconds(30));
             entries.TryGetValue(credentialRef, out var status);
-            Assert.NotNull(status);
-            output.WriteLine(status!.Configured
-                                 ? $"凭据 {credentialRef}：已配置（来源 {status.Source ?? "未报告"}，可写 {status.Writable}）。"
-                                 : $"凭据 {credentialRef}：未配置（可写 {status.Writable}）。完整模型往返见 RealModelConversationTests。");
+            ClassicAssert.IsNotNull(status);
+            TestContext.Out.WriteLine(status!.Configured
+                                          ? $"凭据 {credentialRef}：已配置（来源 {status.Source ?? "未报告"}，可写 {status.Writable}）。"
+                                          : $"凭据 {credentialRef}：未配置（可写 {status.Writable}）。完整模型往返见 RealModelConversationTests。");
 
-            Assert.False(hostService.LastError is { Length: > 0 }, $"后端意外出错：{hostService.LastError}");
+            ClassicAssert.IsFalse(hostService.LastError is { Length: > 0 }, $"后端意外出错：{hostService.LastError}");
         }
         finally
         {

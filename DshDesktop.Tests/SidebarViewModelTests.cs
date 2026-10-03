@@ -1,7 +1,8 @@
 using DshDesktop.Core.Models;
 using DshDesktop.Core.Services;
 using DshDesktop.ViewModels;
-using Xunit;
+using NUnit.Framework;
+using NUnit.Framework.Legacy;
 
 namespace DshDesktop.Tests;
 
@@ -11,7 +12,7 @@ namespace DshDesktop.Tests;
 /// </summary>
 public sealed class SidebarViewModelTests
 {
-    [Fact]
+    [Test]
     public async Task UnchangedRefresh_DoesNotReplaceRowsOrNotifyCollection()
     {
         var sidebar = CreateSidebar(out var sessionService, out var workspaceService);
@@ -23,28 +24,29 @@ public sealed class SidebarViewModelTests
         await sidebar.RefreshSessionsAsync(CancellationToken.None);
         await sidebar.RefreshWorkspacesAsync(CancellationToken.None);
 
-        Assert.Equal(0, notifications);
-        Assert.Equal(rows, sidebar.SessionRows);
+        ClassicAssert.AreEqual(0, notifications);
+        ClassicAssert.AreEqual(rows, sidebar.SessionRows);
     }
 
-    [Fact]
+    [Test]
     public async Task SelectionChange_UpdatesGroupInPlaceWithoutRebuildingControls()
     {
-        var sidebar       = CreateSidebar(out var sessionService, out var workspaceService);
-        var header        = await CreateGroupedHeaderAsync(sidebar, sessionService, workspaceService);
-        var session       = Assert.Single(sidebar.Sessions);
+        var sidebar = CreateSidebar(out var sessionService, out var workspaceService);
+        var header  = await CreateGroupedHeaderAsync(sidebar, sessionService, workspaceService);
+        Assert.That(sidebar.Sessions, Has.Count.EqualTo(1));
+        var session       = sidebar.Sessions.Single();
         var notifications = 0;
         sidebar.SessionRows.CollectionChanged += (_, _) => notifications++;
 
         sidebar.ApplySelectedSession(session);
 
-        Assert.True(header.IsCurrent);
-        Assert.Equal(0, notifications);
+        ClassicAssert.IsTrue(header.IsCurrent);
+        ClassicAssert.AreEqual(0, notifications);
         // 行首为「工作区」分类头，工作区组头跟随其后。
-        Assert.Same(header, sidebar.SessionRows[1]);
+        ClassicAssert.AreSame(header, sidebar.SessionRows[1]);
     }
 
-    [Fact]
+    [Test]
     public async Task WorkspaceRenameAndCollapse_NotifyExistingHeader()
     {
         var sidebar    = CreateSidebar(out var sessionService, out var workspaceService);
@@ -62,15 +64,15 @@ public sealed class SidebarViewModelTests
         sidebar.ToggleGroupCommand.Execute(header);
 
         // 行首为「工作区」分类头，折叠后的工作区组头保持原相对位置。
-        Assert.Same(header, sidebar.SessionRows[1]);
-        Assert.Equal("改名后的工作区", header.TitleText);
-        Assert.False(header.IsExpanded);
-        Assert.Contains(nameof(header.TitleText), properties);
-        Assert.Contains(nameof(header.IsExpanded), properties);
-        Assert.DoesNotContain(sidebar.SessionRows, row => row is SessionItemViewModel);
+        ClassicAssert.AreSame(header, sidebar.SessionRows[1]);
+        ClassicAssert.AreEqual("改名后的工作区", header.TitleText);
+        ClassicAssert.IsFalse(header.IsExpanded);
+        Assert.That(properties, Does.Contain(nameof(header.TitleText)));
+        Assert.That(properties, Does.Contain(nameof(header.IsExpanded)));
+        Assert.That(sidebar.SessionRows.Any(row => row is SessionItemViewModel), Is.False);
     }
 
-    [Fact]
+    [Test]
     public async Task SearchText_FiltersTitlesCaseInsensitive()
     {
         var sidebar = CreateSidebar(out var sessionService);
@@ -85,11 +87,12 @@ public sealed class SidebarViewModelTests
 
         sidebar.SessionSearchText = "BETA";
 
-        var row = Assert.IsType<SessionItemViewModel>(Assert.Single(sidebar.SessionRows));
-        Assert.Equal("s2", row.Id);
+        Assert.That(sidebar.SessionRows.Single(), Is.TypeOf<SessionItemViewModel>());
+        var row = (SessionItemViewModel)sidebar.SessionRows.Single();
+        ClassicAssert.AreEqual("s2", row.Id);
     }
 
-    [Fact]
+    [Test]
     public async Task CloseSearch_ClearsTextAndRestoresAllRows()
     {
         var sidebar = CreateSidebar(out var sessionService);
@@ -98,16 +101,16 @@ public sealed class SidebarViewModelTests
         sidebar.SessionListModeIndex = 0;
         sidebar.OpenSearchCommand.Execute(null);
         sidebar.SessionSearchText = "Alpha";
-        Assert.Single(sidebar.SessionRows);
+        Assert.That(sidebar.SessionRows, Has.Count.EqualTo(1));
 
         sidebar.CloseSearchCommand.Execute(null);
 
-        Assert.False(sidebar.IsSearchOpen);
-        Assert.Equal(string.Empty, sidebar.SessionSearchText);
-        Assert.Equal(2, sidebar.SessionRows.Count);
+        ClassicAssert.IsFalse(sidebar.IsSearchOpen);
+        ClassicAssert.AreEqual(string.Empty, sidebar.SessionSearchText);
+        ClassicAssert.AreEqual(2, sidebar.SessionRows.Count);
     }
 
-    [Fact]
+    [Test]
     public async Task SearchText_InGroupedModeHidesEmptyGroups()
     {
         var sidebar = CreateSidebar(out var sessionService, out var workspaceService);
@@ -124,16 +127,18 @@ public sealed class SidebarViewModelTests
 
         // 「工作区」分类头 + 工作区一组头与其成员；工作区二与「未分组」不残留空组头，
         // 分类下仍有可见组，分类头保留。
-        Assert.Equal(3, sidebar.SessionRows.Count);
-        var category = Assert.IsType<SessionGroupHeaderViewModel>(sidebar.SessionRows[0]);
-        Assert.Equal("$workspaces", category.Key);
-        Assert.True(category.IsCategory);
-        var header = Assert.IsType<SessionGroupHeaderViewModel>(sidebar.SessionRows[1]);
-        Assert.Equal("ws1", header.Key);
-        Assert.IsType<SessionItemViewModel>(sidebar.SessionRows[2]);
+        ClassicAssert.AreEqual(3, sidebar.SessionRows.Count);
+        Assert.That(sidebar.SessionRows[0], Is.TypeOf<SessionGroupHeaderViewModel>());
+        var category = (SessionGroupHeaderViewModel)sidebar.SessionRows[0];
+        ClassicAssert.AreEqual("$workspaces", category.Key);
+        ClassicAssert.IsTrue(category.IsCategory);
+        Assert.That(sidebar.SessionRows[1], Is.TypeOf<SessionGroupHeaderViewModel>());
+        var header = (SessionGroupHeaderViewModel)sidebar.SessionRows[1];
+        ClassicAssert.AreEqual("ws1", header.Key);
+        ClassicAssert.IsInstanceOf<SessionItemViewModel>(sidebar.SessionRows[2]);
     }
 
-    [Fact]
+    [Test]
     public async Task GroupMenuCommands_SwitchModeAndCloseMenu()
     {
         var sidebar = CreateSidebar(out _);
@@ -141,17 +146,17 @@ public sealed class SidebarViewModelTests
 
         sidebar.SetGroupFlatCommand.Execute(null);
 
-        Assert.Equal(0, sidebar.SessionListModeIndex);
-        Assert.True(sidebar.IsGroupFlat);
-        Assert.False(sidebar.IsGroupByWorkspace);
-        Assert.False(sidebar.IsGroupMenuOpen);
+        ClassicAssert.AreEqual(0, sidebar.SessionListModeIndex);
+        ClassicAssert.IsTrue(sidebar.IsGroupFlat);
+        ClassicAssert.IsFalse(sidebar.IsGroupByWorkspace);
+        ClassicAssert.IsFalse(sidebar.IsGroupMenuOpen);
 
         sidebar.IsGroupMenuOpen = true;
         sidebar.SetGroupByWorkspaceCommand.Execute(null);
 
-        Assert.Equal(1, sidebar.SessionListModeIndex);
-        Assert.True(sidebar.IsGroupByWorkspace);
-        Assert.False(sidebar.IsGroupMenuOpen);
+        ClassicAssert.AreEqual(1, sidebar.SessionListModeIndex);
+        ClassicAssert.IsTrue(sidebar.IsGroupByWorkspace);
+        ClassicAssert.IsFalse(sidebar.IsGroupMenuOpen);
     }
 
     private static async Task<SessionGroupHeaderViewModel> CreateGroupedHeaderAsync(
@@ -169,7 +174,7 @@ public sealed class SidebarViewModelTests
         return sidebar.SessionRows.OfType<SessionGroupHeaderViewModel>().Single(header => header.Key == key);
     }
 
-    [Fact]
+    [Test]
     public async Task OpenWorkspaceRename_PrefillsDraftAndBlocksUnchangedConfirm()
     {
         var sidebar = CreateSidebar(out var sessionService, out var workspaceService);
@@ -177,13 +182,13 @@ public sealed class SidebarViewModelTests
 
         sidebar.OpenWorkspaceRenameCommand.Execute(header);
 
-        Assert.True(sidebar.IsRenameOpen);
-        Assert.Equal("工作区一", sidebar.RenameDraftText);
+        ClassicAssert.IsTrue(sidebar.IsRenameOpen);
+        ClassicAssert.AreEqual("工作区一", sidebar.RenameDraftText);
         // 未变更时确认不可用：与 DSH 重命名弹窗同一语义。
-        Assert.False(sidebar.CanConfirmRename);
+        ClassicAssert.IsFalse(sidebar.CanConfirmRename);
     }
 
-    [Fact]
+    [Test]
     public async Task ConfirmWorkspaceRename_GuardsBlankAndConflict()
     {
         Task RenameCallback(string workspaceId, string title)
@@ -197,16 +202,16 @@ public sealed class SidebarViewModelTests
 
         // 空白名与重名（忽略大小写、含同名）都被本地校验拦下，回调不触发。
         sidebar.RenameDraftText = "   ";
-        Assert.False(sidebar.CanConfirmRename);
+        ClassicAssert.IsFalse(sidebar.CanConfirmRename);
         sidebar.RenameDraftText = "工作区二";
-        Assert.False(sidebar.CanConfirmRename);
-        Assert.Equal("已存在名为“工作区二”的工作区。", sidebar.RenameErrorText);
+        ClassicAssert.IsFalse(sidebar.CanConfirmRename);
+        ClassicAssert.AreEqual("已存在名为“工作区二”的工作区。", sidebar.RenameErrorText);
 
         sidebar.RenameDraftText = "新名字";
-        Assert.True(sidebar.CanConfirmRename);
+        ClassicAssert.IsTrue(sidebar.CanConfirmRename);
     }
 
-    [Fact]
+    [Test]
     public async Task ConfirmWorkspaceRename_InvokesCallbackAndCloses()
     {
         string? renamedWorkspaceId = null;
@@ -226,12 +231,12 @@ public sealed class SidebarViewModelTests
         await WaitUntilAsync(() => !sidebar.IsRenameOpen);
 
         // 回调收到 trim 后的目标名；成功后弹窗关闭且无错误残留。
-        Assert.Equal("ws1", renamedWorkspaceId);
-        Assert.Equal("改名后", renamedTitle);
-        Assert.False(sidebar.HasRenameError);
+        ClassicAssert.AreEqual("ws1", renamedWorkspaceId);
+        ClassicAssert.AreEqual("改名后", renamedTitle);
+        ClassicAssert.IsFalse(sidebar.HasRenameError);
     }
 
-    [Fact]
+    [Test]
     public async Task ConfirmWorkspaceRename_ServiceErrorStaysOpenWithMessage()
     {
         var sidebar = CreateSidebar(out var sessionService, out var workspaceService,
@@ -244,14 +249,14 @@ public sealed class SidebarViewModelTests
         await WaitUntilAsync(() => sidebar.HasRenameError);
 
         // 服务端错误留在弹窗内呈现，弹窗保持打开供修正重试。
-        Assert.True(sidebar.IsRenameOpen);
-        Assert.Equal("重名冲突", sidebar.RenameErrorText);
+        ClassicAssert.IsTrue(sidebar.IsRenameOpen);
+        ClassicAssert.AreEqual("重名冲突", sidebar.RenameErrorText);
 
         sidebar.CancelWorkspaceRenameCommand.Execute(null);
-        Assert.False(sidebar.IsRenameOpen);
+        ClassicAssert.IsFalse(sidebar.IsRenameOpen);
     }
 
-    [Fact]
+    [Test]
     public async Task OpenWorkspaceDelete_ShowsDescriptionAndConfirmInvokesCallback()
     {
         string? deletedWorkspaceId = null;
@@ -265,19 +270,19 @@ public sealed class SidebarViewModelTests
 
         sidebar.OpenWorkspaceDeleteCommand.Execute(header);
 
-        Assert.True(sidebar.IsDeleteConfirmOpen);
+        ClassicAssert.IsTrue(sidebar.IsDeleteConfirmOpen);
         // 确认描述说明工作区名与会话去向（对齐 DSH delete.desc 语义）。
-        Assert.Contains("工作区一", sidebar.DeleteConfirmText);
-        Assert.Contains("未分组", sidebar.DeleteConfirmText);
+        Assert.That(sidebar.DeleteConfirmText, Does.Contain("工作区一"));
+        Assert.That(sidebar.DeleteConfirmText, Does.Contain("未分组"));
 
         sidebar.ConfirmWorkspaceDeleteCommand.Execute(null);
         await WaitUntilAsync(() => !sidebar.IsDeleteConfirmOpen);
 
-        Assert.Equal("ws1", deletedWorkspaceId);
-        Assert.False(sidebar.HasDeleteError);
+        ClassicAssert.AreEqual("ws1", deletedWorkspaceId);
+        ClassicAssert.IsFalse(sidebar.HasDeleteError);
     }
 
-    [Fact]
+    [Test]
     public async Task OpenWorkspaceDelete_RejectsUngroupedAndServiceErrorStaysOpen()
     {
         var sidebar = CreateSidebar(out var sessionService, out var workspaceService, null,
@@ -294,22 +299,22 @@ public sealed class SidebarViewModelTests
         var ungrouped = sidebar.SessionRows.OfType<SessionGroupHeaderViewModel>()
                                .Single(header => header.Key == "$ungrouped");
         // 未分组不是工作区：CanExecute 拒绝，Execute 也直接返回（双保险一致）。
-        Assert.False(sidebar.OpenWorkspaceDeleteCommand.CanExecute(ungrouped));
+        ClassicAssert.IsFalse(sidebar.OpenWorkspaceDeleteCommand.CanExecute(ungrouped));
         sidebar.OpenWorkspaceDeleteCommand.Execute(ungrouped);
-        Assert.False(sidebar.IsDeleteConfirmOpen);
+        ClassicAssert.IsFalse(sidebar.IsDeleteConfirmOpen);
 
         // 工作区行的删除在服务失败时保持弹窗打开并呈现错误。
         var header = sidebar.SessionRows.OfType<SessionGroupHeaderViewModel>()
                             .Single(item => item.Key == "ws1");
         sidebar.OpenWorkspaceDeleteCommand.Execute(header);
-        Assert.True(sidebar.IsDeleteConfirmOpen);
+        ClassicAssert.IsTrue(sidebar.IsDeleteConfirmOpen);
         sidebar.ConfirmWorkspaceDeleteCommand.Execute(null);
         await WaitUntilAsync(() => sidebar.HasDeleteError);
-        Assert.True(sidebar.IsDeleteConfirmOpen);
-        Assert.Equal("删除失败", sidebar.DeleteErrorText);
+        ClassicAssert.IsTrue(sidebar.IsDeleteConfirmOpen);
+        ClassicAssert.AreEqual("删除失败", sidebar.DeleteErrorText);
     }
 
-    [Fact]
+    [Test]
     public async Task ToggleSessionPin_MarksRowAndFloatsPinnedToTopInFlatList()
     {
         var sidebar = CreateSidebar(out var sessionService, out _, out var pinService);
@@ -321,22 +326,22 @@ public sealed class SidebarViewModelTests
         sidebar.ToggleSessionPinCommand.Execute(row2);
 
         // 置顶写入本地注册表：行标记与文案切换，s2 提取到列表最前，其余保持目录顺序。
-        Assert.Equal(["s2"], pinService.PinnedSessionIds);
-        Assert.True(row2.Pinned);
-        Assert.Equal("取消置顶", row2.PinActionText);
-        Assert.Equal(["s2", "s1", "s3"],
-                     sidebar.SessionRows.OfType<SessionItemViewModel>().Select(row => row.Id).ToArray());
+        ClassicAssert.AreEqual(new[] { "s2" }, pinService.PinnedSessionIds);
+        ClassicAssert.IsTrue(row2.Pinned);
+        ClassicAssert.AreEqual("取消置顶", row2.PinActionText);
+        ClassicAssert.AreEqual(new[] { "s2", "s1", "s3" },
+                               sidebar.SessionRows.OfType<SessionItemViewModel>().Select(row => row.Id).ToArray());
 
         sidebar.ToggleSessionPinCommand.Execute(row2);
 
-        Assert.Empty(pinService.PinnedSessionIds);
-        Assert.False(row2.Pinned);
-        Assert.Equal("置顶会话", row2.PinActionText);
-        Assert.Equal(["s1", "s2", "s3"],
-                     sidebar.SessionRows.OfType<SessionItemViewModel>().Select(row => row.Id).ToArray());
+        ClassicAssert.IsEmpty(pinService.PinnedSessionIds);
+        ClassicAssert.IsFalse(row2.Pinned);
+        ClassicAssert.AreEqual("置顶会话", row2.PinActionText);
+        ClassicAssert.AreEqual(new[] { "s1", "s2", "s3" },
+                               sidebar.SessionRows.OfType<SessionItemViewModel>().Select(row => row.Id).ToArray());
     }
 
-    [Fact]
+    [Test]
     public async Task ToggleSessionPin_ExtractsPinnedSessionIntoPinnedSection()
     {
         var sidebar = CreateSidebar(out var sessionService, out var workspaceService);
@@ -354,23 +359,24 @@ public sealed class SidebarViewModelTests
         // 置顶分类出现在「工作区」分类之前：置顶头（非工作区行）+ 提取出的 s2；
         // 原工作区组不再包含 s2（提取语义，不重复出现）。
         var headers = sidebar.SessionRows.OfType<SessionGroupHeaderViewModel>().ToArray();
-        Assert.Equal(["$pinned", "$workspaces", "ws1"], headers.Select(header => header.Key).ToArray());
-        Assert.True(headers[0].IsCategory);
-        Assert.False(headers[0].IsWorkspace);
-        Assert.Equal(["s2", "s1"],
-                     sidebar.SessionRows.OfType<SessionItemViewModel>().Select(row => row.Id).ToArray());
+        ClassicAssert.AreEqual(new[] { "$pinned", "$workspaces", "ws1" },
+                               headers.Select(header => header.Key).ToArray());
+        ClassicAssert.IsTrue(headers[0].IsCategory);
+        ClassicAssert.IsFalse(headers[0].IsWorkspace);
+        ClassicAssert.AreEqual(new[] { "s2", "s1" },
+                               sidebar.SessionRows.OfType<SessionItemViewModel>().Select(row => row.Id).ToArray());
 
         sidebar.ToggleSessionPinCommand.Execute(row2);
 
         // 取消置顶：置顶分类头消失，s2 回到工作区组。
-        Assert.Equal(["$workspaces", "ws1"],
-                     sidebar.SessionRows.OfType<SessionGroupHeaderViewModel>()
-                            .Select(header => header.Key).ToArray());
-        Assert.Equal(["s1", "s2"],
-                     sidebar.SessionRows.OfType<SessionItemViewModel>().Select(row => row.Id).ToArray());
+        ClassicAssert.AreEqual(new[] { "$workspaces", "ws1" },
+                               sidebar.SessionRows.OfType<SessionGroupHeaderViewModel>()
+                                      .Select(header => header.Key).ToArray());
+        ClassicAssert.AreEqual(new[] { "s1", "s2" },
+                               sidebar.SessionRows.OfType<SessionItemViewModel>().Select(row => row.Id).ToArray());
     }
 
-    [Fact]
+    [Test]
     public async Task PinnedSessions_SortByUpdatedTimeDescendingRegardlessOfPinOrder()
     {
         var sidebar = CreateSidebar(out var sessionService, out _, out var pinService);
@@ -391,12 +397,12 @@ public sealed class SidebarViewModelTests
                                                        .Single(row => row.Id == "s1"));
 
         // 置顶会话区按更新时间降序（新的在前），不按置顶先后排序。
-        Assert.Equal(["s1", "s2"], pinService.PinnedSessionIds);
-        Assert.Equal(["s2", "s1"],
-                     sidebar.SessionRows.OfType<SessionItemViewModel>().Select(row => row.Id).ToArray());
+        ClassicAssert.AreEqual(new[] { "s1", "s2" }, pinService.PinnedSessionIds);
+        ClassicAssert.AreEqual(new[] { "s2", "s1" },
+                               sidebar.SessionRows.OfType<SessionItemViewModel>().Select(row => row.Id).ToArray());
     }
 
-    [Fact]
+    [Test]
     public async Task ToggleWorkspacePin_MovesWorkspaceIntoPinnedSection()
     {
         var sidebar = CreateSidebar(out var sessionService, out var workspaceService, out var pinService);
@@ -414,27 +420,28 @@ public sealed class SidebarViewModelTests
 
         // 置顶工作区提取到置顶分类：分类头在工作区分类之前，组内成员保留；
         // 原工作区分类不再出现该组。置顶头本身不是工作区行（无悬浮操作）。
-        Assert.Equal(["ws1"], pinService.PinnedWorkspaceIds);
+        ClassicAssert.AreEqual(new[] { "ws1" }, pinService.PinnedWorkspaceIds);
         var headers = sidebar.SessionRows.OfType<SessionGroupHeaderViewModel>().ToArray();
-        Assert.Equal(["$pinned", "ws1", "$workspaces", "ws2"], headers.Select(header => header.Key).ToArray());
-        Assert.True(headers[0].IsCategory);
-        Assert.True(headers[1].Pinned);
+        ClassicAssert.AreEqual(new[] { "$pinned", "ws1", "$workspaces", "ws2" },
+                               headers.Select(header => header.Key).ToArray());
+        ClassicAssert.IsTrue(headers[0].IsCategory);
+        ClassicAssert.IsTrue(headers[1].Pinned);
         // 工作区行不随置顶换成图钉：IsCategory 专属分类头，保持文件夹图标。
-        Assert.False(headers[1].IsCategory);
-        Assert.True(headers[2].IsCategory);
-        Assert.Equal("取消置顶", headers[1].PinActionText);
-        Assert.Equal(["s1", "s2"],
-                     sidebar.SessionRows.OfType<SessionItemViewModel>().Select(row => row.Id).ToArray());
+        ClassicAssert.IsFalse(headers[1].IsCategory);
+        ClassicAssert.IsTrue(headers[2].IsCategory);
+        ClassicAssert.AreEqual("取消置顶", headers[1].PinActionText);
+        ClassicAssert.AreEqual(new[] { "s1", "s2" },
+                               sidebar.SessionRows.OfType<SessionItemViewModel>().Select(row => row.Id).ToArray());
 
         sidebar.ToggleWorkspacePinCommand.Execute(headers[1]);
 
         // 取消置顶：回到「工作区」分类原位置（组序为后端顺序）。
-        Assert.Empty(pinService.PinnedWorkspaceIds);
+        ClassicAssert.IsEmpty(pinService.PinnedWorkspaceIds);
         headers = sidebar.SessionRows.OfType<SessionGroupHeaderViewModel>().ToArray();
-        Assert.Equal(["$workspaces", "ws1", "ws2"], headers.Select(header => header.Key).ToArray());
+        ClassicAssert.AreEqual(new[] { "$workspaces", "ws1", "ws2" }, headers.Select(header => header.Key).ToArray());
     }
 
-    [Fact]
+    [Test]
     public async Task UnpinnedWorkspaces_CollapseIntoWorkspacesCategory()
     {
         var sidebar = CreateSidebar(out var sessionService, out var workspaceService);
@@ -453,38 +460,43 @@ public sealed class SidebarViewModelTests
         // 未置顶工作区统一收进「工作区」分类：分类头为纯文字分类行（非工作区行），
         // 组序为后端顺序；「未分组」不并入工作区分类、同为分类行。
         var headers = sidebar.SessionRows.OfType<SessionGroupHeaderViewModel>().ToArray();
-        Assert.Equal(["$workspaces", "ws1", "ws2", "$ungrouped"], headers.Select(header => header.Key).ToArray());
-        Assert.True(headers[0].IsCategory);
-        Assert.False(headers[0].IsWorkspace);
-        Assert.True(headers[3].IsCategory);
-        Assert.Collection(sidebar.SessionRows,
-                          row => Assert.Equal("$workspaces", Assert.IsType<SessionGroupHeaderViewModel>(row).Key),
-                          row => Assert.Equal("ws1", Assert.IsType<SessionGroupHeaderViewModel>(row).Key),
-                          row => Assert.Equal("s1", Assert.IsType<SessionItemViewModel>(row).Id),
-                          row => Assert.Equal("ws2", Assert.IsType<SessionGroupHeaderViewModel>(row).Key),
-                          row => Assert.Equal("s2", Assert.IsType<SessionItemViewModel>(row).Id),
-                          row => Assert.Equal("$ungrouped", Assert.IsType<SessionGroupHeaderViewModel>(row).Key),
-                          row => Assert.Equal("s3", Assert.IsType<SessionItemViewModel>(row).Id));
+        ClassicAssert.AreEqual(new[] { "$workspaces", "ws1", "ws2", "$ungrouped" },
+                               headers.Select(header => header.Key).ToArray());
+        ClassicAssert.IsTrue(headers[0].IsCategory);
+        ClassicAssert.IsFalse(headers[0].IsWorkspace);
+        ClassicAssert.IsTrue(headers[3].IsCategory);
+        Assert.That(sidebar.SessionRows, Has.Count.EqualTo(7));
+        ClassicAssert.AreEqual("$workspaces", ((SessionGroupHeaderViewModel)sidebar.SessionRows[0]).Key);
+        ClassicAssert.AreEqual("ws1", ((SessionGroupHeaderViewModel)sidebar.SessionRows[1]).Key);
+        ClassicAssert.AreEqual("s1", ((SessionItemViewModel)sidebar.SessionRows[2]).Id);
+        ClassicAssert.AreEqual("ws2", ((SessionGroupHeaderViewModel)sidebar.SessionRows[3]).Key);
+        ClassicAssert.AreEqual("s2", ((SessionItemViewModel)sidebar.SessionRows[4]).Id);
+        ClassicAssert.AreEqual("$ungrouped", ((SessionGroupHeaderViewModel)sidebar.SessionRows[5]).Key);
+        ClassicAssert.AreEqual("s3", ((SessionItemViewModel)sidebar.SessionRows[6]).Id);
 
         // 折叠分类：组与成员一起隐藏，分类头与「未分组」不受影响；重新展开恢复。
         sidebar.ToggleGroupCommand.Execute(headers[0]);
 
-        Assert.Equal(["$workspaces", "$ungrouped"],
-                     sidebar.SessionRows.OfType<SessionGroupHeaderViewModel>().Select(header => header.Key).ToArray());
-        Assert.Equal(["s3"], sidebar.SessionRows.OfType<SessionItemViewModel>().Select(row => row.Id).ToArray());
+        ClassicAssert.AreEqual(new[] { "$workspaces", "$ungrouped" },
+                               sidebar.SessionRows.OfType<SessionGroupHeaderViewModel>().Select(header => header.Key)
+                                      .ToArray());
+        ClassicAssert.AreEqual(new[] { "s3" },
+                               sidebar.SessionRows.OfType<SessionItemViewModel>().Select(row => row.Id).ToArray());
 
         sidebar.ToggleGroupCommand.Execute(headers[0]);
 
-        Assert.Contains("ws1", sidebar.SessionRows.OfType<SessionGroupHeaderViewModel>().Select(header => header.Key));
+        Assert.That(sidebar.SessionRows.OfType<SessionGroupHeaderViewModel>().Select(header => header.Key),
+                    Does.Contain("ws1"));
 
         // 搜索过滤后无可见工作区组：分类头随空组一并隐藏。
         sidebar.SessionSearchText = "游离";
 
-        Assert.Equal(["$ungrouped"],
-                     sidebar.SessionRows.OfType<SessionGroupHeaderViewModel>().Select(header => header.Key).ToArray());
+        ClassicAssert.AreEqual(new[] { "$ungrouped" },
+                               sidebar.SessionRows.OfType<SessionGroupHeaderViewModel>().Select(header => header.Key)
+                                      .ToArray());
     }
 
-    [Fact]
+    [Test]
     public async Task PinnedSessionOfPinnedWorkspace_SitsParallelBelowWorkspaceGroup()
     {
         var sidebar = CreateSidebar(out var sessionService, out var workspaceService);
@@ -505,20 +517,21 @@ public sealed class SidebarViewModelTests
                                                        .Single(row => row.Id == "s2"));
 
         var headers = sidebar.SessionRows.OfType<SessionGroupHeaderViewModel>().ToArray();
-        Assert.Equal(["$pinned", "ws1", "$workspaces", "ws2"], headers.Select(header => header.Key).ToArray());
+        ClassicAssert.AreEqual(new[] { "$pinned", "ws1", "$workspaces", "ws2" },
+                               headers.Select(header => header.Key).ToArray());
         // 分类内结构：置顶头 → ws1 组（组内只余未置顶的 s1）→ 并列会话区的 s2 →
         // 工作区分类头 → ws2 组。s2 不嵌套在 ws1 组内（与工作区并列）。
-        Assert.Collection(sidebar.SessionRows,
-                          row => Assert.Equal("$pinned", Assert.IsType<SessionGroupHeaderViewModel>(row).Key),
-                          row => Assert.Equal("ws1", Assert.IsType<SessionGroupHeaderViewModel>(row).Key),
-                          row => Assert.Equal("s1", Assert.IsType<SessionItemViewModel>(row).Id),
-                          row => Assert.Equal("s2", Assert.IsType<SessionItemViewModel>(row).Id),
-                          row => Assert.Equal("$workspaces", Assert.IsType<SessionGroupHeaderViewModel>(row).Key),
-                          row => Assert.Equal("ws2", Assert.IsType<SessionGroupHeaderViewModel>(row).Key),
-                          row => Assert.Equal("s3", Assert.IsType<SessionItemViewModel>(row).Id));
+        Assert.That(sidebar.SessionRows, Has.Count.EqualTo(7));
+        ClassicAssert.AreEqual("$pinned", ((SessionGroupHeaderViewModel)sidebar.SessionRows[0]).Key);
+        ClassicAssert.AreEqual("ws1", ((SessionGroupHeaderViewModel)sidebar.SessionRows[1]).Key);
+        ClassicAssert.AreEqual("s1", ((SessionItemViewModel)sidebar.SessionRows[2]).Id);
+        ClassicAssert.AreEqual("s2", ((SessionItemViewModel)sidebar.SessionRows[3]).Id);
+        ClassicAssert.AreEqual("$workspaces", ((SessionGroupHeaderViewModel)sidebar.SessionRows[4]).Key);
+        ClassicAssert.AreEqual("ws2", ((SessionGroupHeaderViewModel)sidebar.SessionRows[5]).Key);
+        ClassicAssert.AreEqual("s3", ((SessionItemViewModel)sidebar.SessionRows[6]).Id);
     }
 
-    [Fact]
+    [Test]
     public async Task ArchiveSession_HidesRowAndRequestsDraftPageWhenCurrent()
     {
         var newSessionRequests = new List<string?>();
@@ -544,14 +557,14 @@ public sealed class SidebarViewModelTests
 
         // 归档回流后：行移出列表表面且置顶互斥清除，但行实例保留在目录中待恢复；
         // 归档的是当前会话时请求进入新对话草稿页（root 编排入参为 null）。
-        Assert.Contains("s1", workspaceService.ArchivedSessionIds);
-        Assert.False(row1.Pinned);
-        Assert.DoesNotContain(row1, sidebar.SessionRows);
-        Assert.Contains(row1, sidebar.Sessions);
-        Assert.Equal([null], newSessionRequests);
+        Assert.That(workspaceService.ArchivedSessionIds, Does.Contain("s1"));
+        ClassicAssert.IsFalse(row1.Pinned);
+        Assert.That(sidebar.SessionRows, Does.Not.Contain(row1));
+        Assert.That(sidebar.Sessions, Does.Contain(row1));
+        ClassicAssert.AreEqual(new string?[] { null }, newSessionRequests);
     }
 
-    [Fact]
+    [Test]
     public async Task ExternalArchiveOfCurrentSession_ReturnsToDraftPageWithoutSelectingOther()
     {
         var selectionRequests  = new List<SessionItemViewModel?>();
@@ -578,19 +591,19 @@ public sealed class SidebarViewModelTests
 
         // 当前选中被外部归档（或重连基线带回归档态）：行移出列表表面，经 root 既有
         // 流程回新对话草稿页；不自动选中其他会话，归档行实例保留在目录中待恢复。
-        Assert.DoesNotContain(row1, sidebar.SessionRows);
-        Assert.Contains(row1, sidebar.Sessions);
-        Assert.Equal([null], newSessionRequests);
-        Assert.Empty(selectionRequests);
+        Assert.That(sidebar.SessionRows, Does.Not.Contain(row1));
+        Assert.That(sidebar.Sessions, Does.Contain(row1));
+        ClassicAssert.AreEqual(new string?[] { null }, newSessionRequests);
+        ClassicAssert.IsEmpty(selectionRequests);
 
         // 会话刷新路径同样协调（重连基线也可能只触发会话列表刷新）。
         newSessionRequests.Clear();
         await sidebar.RefreshSessionsAsync(CancellationToken.None);
-        Assert.Equal([null], newSessionRequests);
-        Assert.Empty(selectionRequests);
+        ClassicAssert.AreEqual(new string?[] { null }, newSessionRequests);
+        ClassicAssert.IsEmpty(selectionRequests);
     }
 
-    [Fact]
+    [Test]
     public async Task ExternalArchiveOfNonCurrentSession_DoesNotChangeNavigation()
     {
         var selectionRequests  = new List<SessionItemViewModel?>();
@@ -616,13 +629,13 @@ public sealed class SidebarViewModelTests
         // 非当前会话被外部归档：当前选中不受影响，不触发任何导航。
         workspaceService.ApplyExternalArchived("s2");
 
-        Assert.Contains(row1, sidebar.SessionRows);
-        Assert.True(row1.IsCurrent);
-        Assert.Empty(newSessionRequests);
-        Assert.Empty(selectionRequests);
+        Assert.That(sidebar.SessionRows, Does.Contain(row1));
+        ClassicAssert.IsTrue(row1.IsCurrent);
+        ClassicAssert.IsEmpty(newSessionRequests);
+        ClassicAssert.IsEmpty(selectionRequests);
     }
 
-    [Fact]
+    [Test]
     public async Task ExternalArchiveOfCurrentSession_DoesNotStealIntentionalDraftPage()
     {
         var selectionRequests  = new List<SessionItemViewModel?>();
@@ -650,11 +663,11 @@ public sealed class SidebarViewModelTests
         workspaceService.ApplyExternalArchived("s1");
 
         // 归档回流不把草稿页抢回旧会话，也不重复请求进入草稿页。
-        Assert.Empty(newSessionRequests);
-        Assert.Empty(selectionRequests);
+        ClassicAssert.IsEmpty(newSessionRequests);
+        ClassicAssert.IsEmpty(selectionRequests);
     }
 
-    [Fact]
+    [Test]
     public async Task LateSessionRenameSuccess_DoesNotDisturbNewPopupForOtherSession()
     {
         var sidebar = CreateSidebar(out var sessionService);
@@ -669,7 +682,7 @@ public sealed class SidebarViewModelTests
         sidebar.OpenSessionRenameCommand.Execute(row1);
         sidebar.SessionRenameDraftText = "A 新标题";
         sidebar.ConfirmSessionRenameCommand.Execute(null);
-        Assert.False(sidebar.CanConfirmSessionRename);
+        ClassicAssert.IsFalse(sidebar.CanConfirmSessionRename);
         sidebar.CancelSessionRenameCommand.Execute(null);
         sidebar.OpenSessionRenameCommand.Execute(row2);
         sidebar.SessionRenameDraftText = "B 新标题";
@@ -678,20 +691,20 @@ public sealed class SidebarViewModelTests
         gate.SetResult("A 新标题");
         await WaitUntilAsync(() => sidebar.CanConfirmSessionRename);
 
-        Assert.Equal("A 新标题", row1.Title);
-        Assert.True(sidebar.IsSessionRenameOpen);
-        Assert.Equal("B 新标题", sidebar.SessionRenameDraftText);
-        Assert.False(sidebar.HasSessionRenameError);
+        ClassicAssert.AreEqual("A 新标题", row1.Title);
+        ClassicAssert.IsTrue(sidebar.IsSessionRenameOpen);
+        ClassicAssert.AreEqual("B 新标题", sidebar.SessionRenameDraftText);
+        ClassicAssert.IsFalse(sidebar.HasSessionRenameError);
 
         // B 的弹窗仍可正常确认并关闭。
         sessionService.RenameGate = null;
         sidebar.ConfirmSessionRenameCommand.Execute(null);
-        Assert.False(sidebar.IsSessionRenameOpen);
-        Assert.Equal("B 新标题", row2.Title);
-        Assert.Equal([("s1", "A 新标题"), ("s2", "B 新标题")], sessionService.RenamedSessions);
+        ClassicAssert.IsFalse(sidebar.IsSessionRenameOpen);
+        ClassicAssert.AreEqual("B 新标题", row2.Title);
+        ClassicAssert.AreEqual(new[] { ("s1", "A 新标题"), ("s2", "B 新标题") }, sessionService.RenamedSessions);
     }
 
-    [Fact]
+    [Test]
     public async Task LateSessionRenameFailure_DoesNotWriteErrorIntoNewPopup()
     {
         var sidebar = CreateSidebar(out var sessionService);
@@ -713,14 +726,14 @@ public sealed class SidebarViewModelTests
         gate.SetException(new InvalidOperationException("改名失败"));
         await WaitUntilAsync(() => sidebar.CanConfirmSessionRename);
 
-        Assert.Equal("会话一", row1.Title);
-        Assert.True(sidebar.IsSessionRenameOpen);
-        Assert.Equal("B 新标题", sidebar.SessionRenameDraftText);
-        Assert.Null(sidebar.SessionRenameErrorText);
-        Assert.False(sidebar.HasSessionRenameError);
+        ClassicAssert.AreEqual("会话一", row1.Title);
+        ClassicAssert.IsTrue(sidebar.IsSessionRenameOpen);
+        ClassicAssert.AreEqual("B 新标题", sidebar.SessionRenameDraftText);
+        ClassicAssert.IsNull(sidebar.SessionRenameErrorText);
+        ClassicAssert.IsFalse(sidebar.HasSessionRenameError);
     }
 
-    [Fact]
+    [Test]
     public async Task ReopenedSameSessionRename_OldResultDoesNotInterfere()
     {
         var sidebar = CreateSidebar(out var sessionService);
@@ -742,19 +755,19 @@ public sealed class SidebarViewModelTests
         await WaitUntilAsync(() => sidebar.CanConfirmSessionRename);
 
         // 迟到结果只把权威标题落到行投影，不关闭重开的弹窗、不动草稿与错误状态。
-        Assert.Equal("A 新标题", row1.Title);
-        Assert.True(sidebar.IsSessionRenameOpen);
-        Assert.Equal("A 更新标题", sidebar.SessionRenameDraftText);
-        Assert.False(sidebar.HasSessionRenameError);
+        ClassicAssert.AreEqual("A 新标题", row1.Title);
+        ClassicAssert.IsTrue(sidebar.IsSessionRenameOpen);
+        ClassicAssert.AreEqual("A 更新标题", sidebar.SessionRenameDraftText);
+        ClassicAssert.IsFalse(sidebar.HasSessionRenameError);
 
         // 重开的弹窗仍可正常确认并关闭。
         sessionService.RenameGate = null;
         sidebar.ConfirmSessionRenameCommand.Execute(null);
-        Assert.False(sidebar.IsSessionRenameOpen);
-        Assert.Equal("A 更新标题", row1.Title);
+        ClassicAssert.IsFalse(sidebar.IsSessionRenameOpen);
+        ClassicAssert.AreEqual("A 更新标题", row1.Title);
     }
 
-    [Fact]
+    [Test]
     public async Task WorkspacePinToggle_RaisesPinActionTextNotificationOnReusedRow()
     {
         var sidebar = CreateSidebar(out var sessionService, out var workspaceService);
@@ -772,25 +785,26 @@ public sealed class SidebarViewModelTests
         sidebar.ToggleWorkspacePinCommand.Execute(header);
 
         // 置顶后行实例被投影复用（同一实例），文案属性收到更新通知。
-        Assert.Contains(nameof(header.PinActionText), properties);
-        Assert.Same(header,
-                    sidebar.SessionRows.OfType<SessionGroupHeaderViewModel>().Single(item => item.Key == "ws1"));
-        Assert.Equal("取消置顶", header.PinActionText);
+        Assert.That(properties, Does.Contain(nameof(header.PinActionText)));
+        ClassicAssert.AreSame(header,
+                              sidebar.SessionRows.OfType<SessionGroupHeaderViewModel>()
+                                     .Single(item => item.Key == "ws1"));
+        ClassicAssert.AreEqual("取消置顶", header.PinActionText);
 
         sidebar.ToggleWorkspacePinCommand.Execute(header);
 
         // 取消置顶同样通知文案变化。
-        Assert.Equal(2, properties.Count(name => name == nameof(header.PinActionText)));
-        Assert.Equal("置顶工作区", header.PinActionText);
+        ClassicAssert.AreEqual(2, properties.Count(name => name == nameof(header.PinActionText)));
+        ClassicAssert.AreEqual("置顶工作区", header.PinActionText);
 
         // 投影重建以同值重复 Update（刷新不改置顶态）：不重复通知文案。
         properties.Clear();
         await sidebar.RefreshWorkspacesAsync(CancellationToken.None);
-        Assert.DoesNotContain(nameof(header.PinActionText), properties);
-        Assert.Equal("置顶工作区", header.PinActionText);
+        Assert.That(properties, Does.Not.Contain(nameof(header.PinActionText)));
+        ClassicAssert.AreEqual("置顶工作区", header.PinActionText);
     }
 
-    [Fact]
+    [Test]
     public async Task BranchSession_RenamesChildWithIncrementedTitleAndShowsRow()
     {
         var sidebar = CreateSidebar(out var sessionService, out _);
@@ -804,13 +818,13 @@ public sealed class SidebarViewModelTests
                                  sidebar.SessionRows.OfType<SessionItemViewModel>().Any(row => row.Id == "s1-child"));
 
         // 分叉请求命中源会话；子会话无尾号按参考客户端语义追加 " (1)" 并上屏（不切换选中）。
-        Assert.Equal(["s1"], sessionService.ForkSources);
-        Assert.Equal([("s1-child", "会话一 (1)")], sessionService.RenamedSessions);
-        Assert.Equal("会话一 (1)",
-                     sidebar.SessionRows.OfType<SessionItemViewModel>()
-                            .Single(row => row.Id == "s1-child").TitleText);
-        Assert.Null(sidebar.SessionRows.OfType<SessionItemViewModel>()
-                           .FirstOrDefault(row => row is { Id: "s1-child", IsCurrent: true }));
+        ClassicAssert.AreEqual(new[] { "s1" }, sessionService.ForkSources);
+        ClassicAssert.AreEqual(new[] { ("s1-child", "会话一 (1)") }, sessionService.RenamedSessions);
+        ClassicAssert.AreEqual("会话一 (1)",
+                               sidebar.SessionRows.OfType<SessionItemViewModel>()
+                                      .Single(row => row.Id == "s1-child").TitleText);
+        ClassicAssert.IsNull(sidebar.SessionRows.OfType<SessionItemViewModel>()
+                                    .FirstOrDefault(row => row is { Id: "s1-child", IsCurrent: true }));
 
         // 对已带尾号的子会话再分叉：尾号递增而不是再次追加。
         var childRow = sidebar.SessionRows.OfType<SessionItemViewModel>().Single(row => row.Id == "s1-child");
@@ -819,10 +833,10 @@ public sealed class SidebarViewModelTests
                                  sidebar.SessionRows.OfType<SessionItemViewModel>()
                                         .Any(row => row.Id == "s1-child-child"));
 
-        Assert.Equal([("s1-child-child", "会话一 (2)")], sessionService.RenamedSessions.Skip(1));
+        ClassicAssert.AreEqual(new[] { ("s1-child-child", "会话一 (2)") }, sessionService.RenamedSessions.Skip(1));
     }
 
-    [Fact]
+    [Test]
     public async Task BranchSession_IncrementsFullWidthNumberAndSkipsUntitledSource()
     {
         var sidebar = CreateSidebar(out var sessionService, out _);
@@ -839,10 +853,10 @@ public sealed class SidebarViewModelTests
         await WaitUntilAsync(() => sessionService.ForkSources.Count == 2);
 
         // 全角括号尾号同样递增；无标题源维持继承标题、不发改名请求。
-        Assert.Equal([("s1-child", "报告（4）")], sessionService.RenamedSessions);
+        ClassicAssert.AreEqual(new[] { ("s1-child", "报告（4）") }, sessionService.RenamedSessions);
     }
 
-    [Fact]
+    [Test]
     public async Task OpenSessionRename_PrefillsDraftAndBlocksBlankConfirm()
     {
         var sidebar = CreateSidebar(out var sessionService);
@@ -852,16 +866,16 @@ public sealed class SidebarViewModelTests
 
         sidebar.OpenSessionRenameCommand.Execute(row);
 
-        Assert.True(sidebar.IsSessionRenameOpen);
-        Assert.Equal("会话一", sidebar.SessionRenameDraftText);
+        ClassicAssert.IsTrue(sidebar.IsSessionRenameOpen);
+        ClassicAssert.AreEqual("会话一", sidebar.SessionRenameDraftText);
         // 对齐官方语义：未变更标题不阻止确认（确认当前自动标题即「钉住」），仅空白草稿阻止。
-        Assert.True(sidebar.CanConfirmSessionRename);
+        ClassicAssert.IsTrue(sidebar.CanConfirmSessionRename);
         sidebar.SessionRenameDraftText = "   ";
-        Assert.False(sidebar.CanConfirmSessionRename);
-        Assert.False(sidebar.HasSessionRenameError);
+        ClassicAssert.IsFalse(sidebar.CanConfirmSessionRename);
+        ClassicAssert.IsFalse(sidebar.HasSessionRenameError);
     }
 
-    [Fact]
+    [Test]
     public async Task ReopenedSessionRename_RaisesCanConfirmNotificationWhenDraftUnchanged()
     {
         var sidebar = CreateSidebar(out var sessionService);
@@ -872,20 +886,20 @@ public sealed class SidebarViewModelTests
         // 先开关一轮：关闭路径把 CanConfirm 通知为 false，模拟常驻弹窗按钮停在禁用态。
         sidebar.OpenSessionRenameCommand.Execute(row);
         sidebar.CancelSessionRenameCommand.Execute(null);
-        Assert.False(sidebar.CanConfirmSessionRename);
+        ClassicAssert.IsFalse(sidebar.CanConfirmSessionRename);
 
         // 重开同一会话：预填标题与残留草稿相同，草稿 setter 不通知——缺陷正是缺这次通知。
         var notified = new List<string?>();
         sidebar.PropertyChanged += (_, e) => notified.Add(e.PropertyName);
         sidebar.OpenSessionRenameCommand.Execute(row);
 
-        Assert.True(sidebar.IsSessionRenameOpen);
-        Assert.Equal("会话一", sidebar.SessionRenameDraftText);
-        Assert.True(sidebar.CanConfirmSessionRename);
-        Assert.Contains(nameof(sidebar.CanConfirmSessionRename), notified);
+        ClassicAssert.IsTrue(sidebar.IsSessionRenameOpen);
+        ClassicAssert.AreEqual("会话一", sidebar.SessionRenameDraftText);
+        ClassicAssert.IsTrue(sidebar.CanConfirmSessionRename);
+        Assert.That(notified, Does.Contain(nameof(sidebar.CanConfirmSessionRename)));
     }
 
-    [Fact]
+    [Test]
     public async Task ConfirmSessionRename_InvokesServiceAppliesTitleAndCloses()
     {
         var sidebar = CreateSidebar(out var sessionService);
@@ -898,13 +912,13 @@ public sealed class SidebarViewModelTests
         sidebar.ConfirmSessionRenameCommand.Execute(null);
         await WaitUntilAsync(() => !sidebar.IsSessionRenameOpen);
 
-        Assert.Equal([("s1", "新标题")], sessionService.RenamedSessions);
+        ClassicAssert.AreEqual(new[] { ("s1", "新标题") }, sessionService.RenamedSessions);
         // 服务端接受后的标题就地落行投影，弹窗关闭且无错误残留。
-        Assert.Equal("新标题", row.Title);
-        Assert.False(sidebar.HasSessionRenameError);
+        ClassicAssert.AreEqual("新标题", row.Title);
+        ClassicAssert.IsFalse(sidebar.HasSessionRenameError);
     }
 
-    [Fact]
+    [Test]
     public async Task ConfirmSessionRename_ServiceErrorStaysOpenWithMessage()
     {
         var sidebar = CreateSidebar(out var sessionService);
@@ -919,26 +933,26 @@ public sealed class SidebarViewModelTests
         await WaitUntilAsync(() => sidebar.HasSessionRenameError);
 
         // 失败不落标题、弹窗保持打开并呈现服务端错误；取消后关闭。
-        Assert.True(sidebar.IsSessionRenameOpen);
-        Assert.Equal("改名失败", sidebar.SessionRenameErrorText);
-        Assert.Equal("会话一", row.Title);
+        ClassicAssert.IsTrue(sidebar.IsSessionRenameOpen);
+        ClassicAssert.AreEqual("改名失败", sidebar.SessionRenameErrorText);
+        ClassicAssert.AreEqual("会话一", row.Title);
 
         sessionService.RenameFailure = null;
         sidebar.CancelSessionRenameCommand.Execute(null);
-        Assert.False(sidebar.IsSessionRenameOpen);
+        ClassicAssert.IsFalse(sidebar.IsSessionRenameOpen);
     }
 
-    [Fact]
+    [Test]
     public void ConfirmedBlankRow_HidesTrailingInfoAndActions()
     {
         var row = new SessionItemViewModel(new SessionSummary("s1", null,
                                                               DateTimeOffset.FromUnixTimeMilliseconds(1_000), false,
                                                               SessionBlankState.ConfirmedBlank));
-        Assert.True(row.IsBlank);
+        ClassicAssert.IsTrue(row.IsBlank);
 
         row.MarkEngaged();
 
-        Assert.False(row.IsBlank);
+        ClassicAssert.IsFalse(row.IsBlank);
     }
 
     private static SidebarViewModel CreateSidebar(out FakeSessionService sessionService)
@@ -988,7 +1002,7 @@ public sealed class SidebarViewModelTests
     {
         var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
         while (!condition() && DateTime.UtcNow < deadline) await Task.Delay(10);
-        Assert.True(condition());
+        ClassicAssert.IsTrue(condition());
     }
 
     private static SessionSummary Summary(string id, string? title)
@@ -1103,7 +1117,10 @@ public sealed class SidebarViewModelTests
             throw new NotSupportedException();
         }
 
-        private void RaiseChanged() => SessionsChanged?.Invoke(this, EventArgs.Empty);
+        private void RaiseChanged()
+        {
+            SessionsChanged?.Invoke(this, EventArgs.Empty);
+        }
     }
 
     /// <summary>最小工作区服务桩：静态集合，归档经 RPC 调用变更并广播（驱动投影刷新）。</summary>
@@ -1151,7 +1168,10 @@ public sealed class SidebarViewModelTests
             RaiseChanged();
         }
 
-        private void RaiseChanged() => WorkspacesChanged?.Invoke(this, EventArgs.Empty);
+        private void RaiseChanged()
+        {
+            WorkspacesChanged?.Invoke(this, EventArgs.Empty);
+        }
     }
 
     /// <summary>最小本地置顶注册表桩：进程内集合（前插对齐真实服务存储序），不落盘。</summary>
@@ -1165,17 +1185,25 @@ public sealed class SidebarViewModelTests
         public IReadOnlyList<string> PinnedSessionIds   => _pinnedSessions.ToArray();
         public IReadOnlyList<string> PinnedWorkspaceIds => _pinnedWorkspaces.ToArray();
 
-        public Task PinSessionAsync(string sessionId, CancellationToken cancellationToken = default) =>
-            Toggle(_pinnedSessions, sessionId, true);
+        public Task PinSessionAsync(string sessionId, CancellationToken cancellationToken = default)
+        {
+            return Toggle(_pinnedSessions, sessionId, true);
+        }
 
-        public Task UnpinSessionAsync(string sessionId, CancellationToken cancellationToken = default) =>
-            Toggle(_pinnedSessions, sessionId, false);
+        public Task UnpinSessionAsync(string sessionId, CancellationToken cancellationToken = default)
+        {
+            return Toggle(_pinnedSessions, sessionId, false);
+        }
 
-        public Task PinWorkspaceAsync(string workspaceId, CancellationToken cancellationToken = default) =>
-            Toggle(_pinnedWorkspaces, workspaceId, true);
+        public Task PinWorkspaceAsync(string workspaceId, CancellationToken cancellationToken = default)
+        {
+            return Toggle(_pinnedWorkspaces, workspaceId, true);
+        }
 
-        public Task UnpinWorkspaceAsync(string workspaceId, CancellationToken cancellationToken = default) =>
-            Toggle(_pinnedWorkspaces, workspaceId, false);
+        public Task UnpinWorkspaceAsync(string workspaceId, CancellationToken cancellationToken = default)
+        {
+            return Toggle(_pinnedWorkspaces, workspaceId, false);
+        }
 
         private Task Toggle(List<string> source, string id, bool pin)
         {

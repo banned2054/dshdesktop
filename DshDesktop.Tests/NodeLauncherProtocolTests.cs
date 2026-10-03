@@ -1,7 +1,8 @@
 using DshDesktop.Core.Models;
 using DshDesktop.Infrastructure.Exceptions;
 using DshDesktop.Infrastructure.Services.Backend;
-using Xunit;
+using NUnit.Framework;
+using NUnit.Framework.Legacy;
 
 namespace DshDesktop.Tests;
 
@@ -33,7 +34,7 @@ public sealed class NodeLauncherProtocolTests
         }
         """;
 
-    [Fact]
+    [Test]
     public async Task ReadyUrlIsRelayedAndShutdownIsClean()
     {
         var environment = StubEnvironment.TryCreate("ready");
@@ -43,15 +44,15 @@ public sealed class NodeLauncherProtocolTests
         var       launcher = NodeHostLauncher.Start(environment.Options);
         var       readyUrl = await launcher.Ready.WaitAsync(TimeSpan.FromSeconds(15));
 
-        Assert.Equal("http://127.0.0.1:19999/?token=stub-token", readyUrl.ToString());
+        ClassicAssert.AreEqual("http://127.0.0.1:19999/?token=stub-token", readyUrl.ToString());
 
         await launcher.StopAsync(TimeSpan.FromSeconds(10));
         var exited = await launcher.Exited.WaitAsync(TimeSpan.FromSeconds(10));
-        Assert.True(exited.Clean);
+        ClassicAssert.IsTrue(exited.Clean);
         await launcher.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task HostFatalIsSurfacedWithMessage()
     {
         var environment = StubEnvironment.TryCreate("fatal");
@@ -62,11 +63,11 @@ public sealed class NodeLauncherProtocolTests
         var exception =
             await Assert.ThrowsAsync<BackendProcessException>(() => launcher.Ready.WaitAsync(TimeSpan.FromSeconds(15)));
 
-        Assert.Contains("boom-from-stub", exception.Message);
+        Assert.That(exception.Message, Does.Contain("boom-from-stub"));
         await launcher.DisposeAsync();
     }
 
-    [Fact]
+    [Test]
     public async Task DisposeWithoutStopTerminatesTheTree()
     {
         var environment = StubEnvironment.TryCreate("silent");
@@ -80,10 +81,10 @@ public sealed class NodeLauncherProtocolTests
         await launcher.DisposeAsync();
         await launcher.Exited.WaitAsync(TimeSpan.FromSeconds(15));
 
-        Assert.True(DateTimeOffset.UtcNow - startTime < TimeSpan.FromSeconds(15));
+        ClassicAssert.IsTrue(DateTimeOffset.UtcNow - startTime < TimeSpan.FromSeconds(15));
     }
 
-    [Fact]
+    [Test]
     public async Task StopDuringStartupCancelsStartupAndReclaimsLauncher()
     {
         var environment = StubEnvironment.TryCreate("silent");
@@ -96,8 +97,8 @@ public sealed class NodeLauncherProtocolTests
         var start = host.StartAsync();
         await host.StopAsync().WaitAsync(TimeSpan.FromSeconds(15));
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => start);
-        Assert.Equal(BackendStatus.Offline, host.Status);
+        Assert.That(() => start, Throws.InstanceOf<OperationCanceledException>());
+        ClassicAssert.AreEqual(BackendStatus.Offline, host.Status);
     }
 
     private sealed class StubEnvironment : IDisposable
