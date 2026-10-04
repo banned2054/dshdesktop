@@ -22,58 +22,58 @@
                  （Padding 28 + 共享 MaxWidth），窗口更宽时随列水平居中。 -->
             <Border Grid.Row="1" Padding="28,0,28,10"
                     MaxWidth="{StaticResource ConversationColumnMaxWidth}">
-            <StackPanel Orientation="Horizontal" Spacing="10">
-                <Button x:Name="WorkspacePickerButton"
-                        Classes="workspace-picker"
-                        Command="{Binding ToggleWorkspaceMenuCommand}"
-                        AutomationProperties.Name="{Binding WorkspacePickerLabel}"
-                        ToolTip.Tip="新对话归属的工作区">
-                    <!-- Auto,Auto：星号列在有限约束下按可用宽度测量会让按钮无法随内容收缩，
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                    <Button x:Name="WorkspacePickerButton"
+                            Classes="workspace-picker"
+                            Command="{Binding ToggleWorkspaceMenuCommand}"
+                            AutomationProperties.Name="{Binding WorkspacePickerLabel}"
+                            ToolTip.Tip="新对话归属的工作区">
+                        <!-- Auto,Auto：星号列在有限约束下按可用宽度测量会让按钮无法随内容收缩，
                          文字贴左、箭头被推到最右；两列都按内容计算才能收紧成紧凑下拉。 -->
-                    <Grid ColumnDefinitions="Auto,Auto" ColumnSpacing="6">
-                        <TextBlock Text="{Binding WorkspacePickerLabel}"
-                                   TextTrimming="CharacterEllipsis" />
-                        <Path Grid.Column="1"
-                              Data="{StaticResource Icon.DropdownChevron}"
-                              Width="8" Height="4"
-                              Stretch="None"
-                              Stroke="{Binding $parent[Button].Foreground}"
-                              StrokeThickness="1.6"
-                              VerticalAlignment="Center" />
-                    </Grid>
-                </Button>
-                <Button x:Name="PresetPickerButton"
-                        Classes="workspace-picker"
-                        Command="{Binding TogglePresetMenuCommand}"
-                        AutomationProperties.Name="{Binding PresetPickerLabel}"
-                        ToolTip.Tip="新对话使用的模式，会话开始后固定">
-                    <Grid ColumnDefinitions="Auto,Auto,Auto" ColumnSpacing="6">
-                        <!-- DSH IconAgentPresetOutlineRegular（16px）：三个节点圆与
+                        <Grid ColumnDefinitions="Auto,Auto" ColumnSpacing="6">
+                            <TextBlock Text="{Binding WorkspacePickerLabel}"
+                                       TextTrimming="CharacterEllipsis" />
+                            <Path Grid.Column="1"
+                                  Data="{StaticResource Icon.DropdownChevron}"
+                                  Width="8" Height="4"
+                                  Stretch="None"
+                                  Stroke="{Binding $parent[Button].Foreground}"
+                                  StrokeThickness="1.6"
+                                  VerticalAlignment="Center" />
+                        </Grid>
+                    </Button>
+                    <Button x:Name="PresetPickerButton"
+                            Classes="workspace-picker"
+                            Command="{Binding TogglePresetMenuCommand}"
+                            AutomationProperties.Name="{Binding PresetPickerLabel}"
+                            ToolTip.Tip="新对话使用的模式，会话开始后固定">
+                        <Grid ColumnDefinitions="Auto,Auto,Auto" ColumnSpacing="6">
+                            <!-- DSH IconAgentPresetOutlineRegular（16px）：三个节点圆与
                              连接弧，对应模式的 Agent 预设语义；填充弧用 Fill，
                              节点圆用 1px 描边。 -->
-                        <Canvas Width="16" Height="16" VerticalAlignment="Center">
-                            <Path
-                                Data="{StaticResource Icon.AgentPresetArcsFill}"
-                                Fill="{Binding $parent[Button].Foreground}" />
-                            <Ellipse Width="8" Height="8" Canvas.Left="3.99136" Canvas.Top="-0.31895"
-                                     Stroke="{Binding $parent[Button].Foreground}" StrokeThickness="1" />
-                            <Ellipse Width="8" Height="8" Canvas.Left="-0.05991" Canvas.Top="7.7417"
-                                     Stroke="{Binding $parent[Button].Foreground}" StrokeThickness="1" />
-                            <Ellipse Width="8" Height="8" Canvas.Left="8.0851" Canvas.Top="7.7417"
-                                     Stroke="{Binding $parent[Button].Foreground}" StrokeThickness="1" />
-                        </Canvas>
-                        <TextBlock Grid.Column="1" Text="{Binding PresetPickerLabel}"
-                                   TextTrimming="CharacterEllipsis" />
-                        <Path Grid.Column="2"
-                              Data="{StaticResource Icon.DropdownChevron}"
-                              Width="8" Height="4"
-                              Stretch="None"
-                              Stroke="{Binding $parent[Button].Foreground}"
-                              StrokeThickness="1.6"
-                              VerticalAlignment="Center" />
-                    </Grid>
-                </Button>
-            </StackPanel>
+                            <Canvas Width="16" Height="16" VerticalAlignment="Center">
+                                <Path
+                                    Data="{StaticResource Icon.AgentPresetArcsFill}"
+                                    Fill="{Binding $parent[Button].Foreground}" />
+                                <Ellipse Width="8" Height="8" Canvas.Left="3.99136" Canvas.Top="-0.31895"
+                                         Stroke="{Binding $parent[Button].Foreground}" StrokeThickness="1" />
+                                <Ellipse Width="8" Height="8" Canvas.Left="-0.05991" Canvas.Top="7.7417"
+                                         Stroke="{Binding $parent[Button].Foreground}" StrokeThickness="1" />
+                                <Ellipse Width="8" Height="8" Canvas.Left="8.0851" Canvas.Top="7.7417"
+                                         Stroke="{Binding $parent[Button].Foreground}" StrokeThickness="1" />
+                            </Canvas>
+                            <TextBlock Grid.Column="1" Text="{Binding PresetPickerLabel}"
+                                       TextTrimming="CharacterEllipsis" />
+                            <Path Grid.Column="2"
+                                  Data="{StaticResource Icon.DropdownChevron}"
+                                  Width="8" Height="4"
+                                  Stretch="None"
+                                  Stroke="{Binding $parent[Button].Foreground}"
+                                  StrokeThickness="1.6"
+                                  VerticalAlignment="Center" />
+                        </Grid>
+                    </Button>
+                </StackPanel>
             </Border>
             <!-- TopEdgeAlignedLeft：钉在按钮上方且左缘对齐（同 ModelPickerView 的 Top 惯例）。
                  不能用 Bottom 系列：按钮贴窗口底部，下方是输入区，定位器会在放不下时
@@ -215,67 +215,67 @@
                  列几何与普通会话页一致（Padding 28 + 共享 MaxWidth，超宽窗口随列居中）。 -->
             <Border Grid.Row="2" Padding="28,0,28,16"
                     MaxWidth="{StaticResource ConversationColumnMaxWidth}">
-            <StackPanel Spacing="6">
-                <Border x:Name="ComposerSurface" Classes="composer-panel">
-                    <StackPanel Spacing="8">
-                        <TextBlock Text="{Binding ErrorText}"
-                                   IsVisible="{Binding HasError}"
-                                   Foreground="{DynamicResource StatusErrorBrush}"
-                                   TextWrapping="Wrap" />
-                        <TextBox x:Name="MessageInput"
-                                 Classes="composer-input"
-                                 AutomationProperties.Name="新对话输入框"
-                                 Text="{Binding Composer.DraftMessage, Mode=TwoWay}"
-                                 PlaceholderText="输入消息…"
-                                 AcceptsReturn="True"
-                                 TextWrapping="Wrap"
-                                 ScrollViewer.VerticalScrollBarVisibility="Auto" />
-                        <!-- 工具行：左侧附件占位与执行权限预选，右侧模型预选与发送同基线。
+                <StackPanel Spacing="6">
+                    <Border x:Name="ComposerSurface" Classes="composer-panel">
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="{Binding ErrorText}"
+                                       IsVisible="{Binding HasError}"
+                                       Foreground="{DynamicResource StatusErrorBrush}"
+                                       TextWrapping="Wrap" />
+                            <TextBox x:Name="MessageInput"
+                                     Classes="composer-input"
+                                     AutomationProperties.Name="新对话输入框"
+                                     Text="{Binding Composer.DraftMessage, Mode=TwoWay}"
+                                     PlaceholderText="输入消息…"
+                                     AcceptsReturn="True"
+                                     TextWrapping="Wrap"
+                                     ScrollViewer.VerticalScrollBarVisibility="Auto" />
+                            <!-- 工具行：左侧附件占位与执行权限预选，右侧模型预选与发送同基线。
                              权限在草稿页是本地预选（无会话，不发 RPC）：经回调记入草稿，
                              首发送创建会话后、首条消息前经 /permission 应用；会话开始后
                              由 permissions 投影回流接管显示。 -->
-                        <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto" ColumnSpacing="10">
-                            <Button Classes="composer-icon"
-                                    IsEnabled="False"
-                                    VerticalAlignment="Center"
-                                    ToolTip.Tip="附件功能尚未接入">
-                                <Viewbox Width="15" Height="15">
-                                    <Path Data="{StaticResource Icon.PlusLarge}"
-                                          Stroke="{Binding $parent[Button].Foreground}"
-                                          StrokeThickness="2" />
-                                </Viewbox>
-                            </Button>
-                            <conversation:PermissionSelectorView Grid.Column="1" VerticalAlignment="Center"
-                                                                 DataContext="{Binding PermissionSelector}" />
-                            <conversation:ModelPickerView Grid.Column="3" VerticalAlignment="Center"
-                                                          DataContext="{Binding Composer}" />
-                            <Button Grid.Column="4"
-                                    Classes="composer-send"
-                                    Command="{Binding SendDraftCommand}"
-                                    AutomationProperties.Name="发送首条消息"
-                                    ToolTip.Tip="发送">
-                                <Viewbox Width="16" Height="16">
-                                    <!-- 同 ComposerView：Path 须显式撑满 24 viewBox 才不偏离圆心。 -->
-                                    <Path Width="24" Height="24"
-                                          Data="{StaticResource Icon.ArrowUp}"
-                                          Stroke="{Binding $parent[Button].Foreground}"
-                                          StrokeThickness="2" />
-                                </Viewbox>
-                            </Button>
-                        </Grid>
-                    </StackPanel>
-                </Border>
-                <!-- 卡片外侧信息带：与普通会话输入区同构——左侧草稿发送状态、右侧键盘提示，
+                            <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto" ColumnSpacing="10">
+                                <Button Classes="composer-icon"
+                                        IsEnabled="False"
+                                        VerticalAlignment="Center"
+                                        ToolTip.Tip="附件功能尚未接入">
+                                    <Viewbox Width="15" Height="15">
+                                        <Path Data="{StaticResource Icon.PlusLarge}"
+                                              Stroke="{Binding $parent[Button].Foreground}"
+                                              StrokeThickness="2" />
+                                    </Viewbox>
+                                </Button>
+                                <conversation:PermissionSelectorView Grid.Column="1" VerticalAlignment="Center"
+                                                                     DataContext="{Binding PermissionSelector}" />
+                                <conversation:ModelPickerView Grid.Column="3" VerticalAlignment="Center"
+                                                              DataContext="{Binding Composer}" />
+                                <Button Grid.Column="4"
+                                        Classes="composer-send"
+                                        Command="{Binding SendDraftCommand}"
+                                        AutomationProperties.Name="发送首条消息"
+                                        ToolTip.Tip="发送">
+                                    <Viewbox Width="16" Height="16">
+                                        <!-- 同 ComposerView：Path 须显式撑满 24 viewBox 才不偏离圆心。 -->
+                                        <Path Width="24" Height="24"
+                                              Data="{StaticResource Icon.ArrowUp}"
+                                              Stroke="{Binding $parent[Button].Foreground}"
+                                              StrokeThickness="2" />
+                                    </Viewbox>
+                                </Button>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+                    <!-- 卡片外侧信息带：与普通会话输入区同构——左侧草稿发送状态、右侧键盘提示，
                      保持两页底部基线一致。 -->
-                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                    <TextBlock Text="正在创建会话并发送首条消息…"
-                               Classes="composer-stat"
-                               IsVisible="{Binding IsStartingConversation}" />
-                    <TextBlock Grid.Column="1"
-                               Text="Enter 发送 · Shift+Enter 换行"
-                               Classes="composer-stat" />
-                </Grid>
-            </StackPanel>
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                        <TextBlock Text="正在创建会话并发送首条消息…"
+                                   Classes="composer-stat"
+                                   IsVisible="{Binding IsStartingConversation}" />
+                        <TextBlock Grid.Column="1"
+                                   Text="Enter 发送 · Shift+Enter 换行"
+                                   Classes="composer-stat" />
+                    </Grid>
+                </StackPanel>
             </Border>
         </Grid>
     </Panel>

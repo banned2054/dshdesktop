@@ -95,6 +95,6 @@ public sealed class PermissionOptionViewModel : ObservableObject
 
     private static bool IsLowercaseAlphanumeric(char character)
     {
-        return character is (>= 'a' and <= 'z') or (>= '0' and <= '9');
+        return character is >= 'a' and <= 'z' or >= '0' and <= '9';
     }
 }

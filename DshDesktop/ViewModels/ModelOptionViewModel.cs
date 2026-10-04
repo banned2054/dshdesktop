@@ -31,12 +31,6 @@ public sealed class ModelOptionViewModel : ObservableObject
     /// <summary>模型的推理档位元数据（目录下发）；目录外选型为 null（任何显式档位都会被后端拒绝）。</summary>
     public ModelReasoningInfo? Reasoning { get; }
 
-    /// <summary>解析跨模型切换携带的档位：不支持回退该模型默认档位；无元数据省略（null）。</summary>
-    public string? ResolveEffort(string? requested)
-    {
-        return Reasoning?.Resolve(requested);
-    }
-
     /// <summary>菜单行点击命令；由 ComposerViewModel 注入选型回调。</summary>
     public ICommand? SelectCommand { get; }
 
@@ -45,6 +39,12 @@ public sealed class ModelOptionViewModel : ObservableObject
     {
         get => _isSelected;
         set => SetProperty(ref _isSelected, value);
+    }
+
+    /// <summary>解析跨模型切换携带的档位：不支持回退该模型默认档位；无元数据省略（null）。</summary>
+    public string? ResolveEffort(string? requested)
+    {
+        return Reasoning?.Resolve(requested);
     }
 
     /// <summary>选型是否与本项一致（provider/model 相同即视为同一项）。</summary>

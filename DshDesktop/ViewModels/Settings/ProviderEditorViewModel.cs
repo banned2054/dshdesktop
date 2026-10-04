@@ -4,13 +4,16 @@ using DshDesktop.Core.Services;
 using DshDesktop.Utils;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace DshDesktop.ViewModels.Settings;
 
-/// <summary>添加/编辑卡的表单模式：目录路由创建（第三方 tab）、自定义路由创建（自定义 tab）、
-/// 两种编辑态（由目录条目的 declared 判定，declared 路由拥有显示名与协议字段）。</summary>
+/// <summary>
+///     添加/编辑卡的表单模式：目录路由创建（第三方 tab）、自定义路由创建（自定义 tab）、
+///     两种编辑态（由目录条目的 declared 判定，declared 路由拥有显示名与协议字段）。
+/// </summary>
 public enum ProviderEditorMode
 {
     CreateCatalog,
@@ -19,10 +22,12 @@ public enum ProviderEditorMode
     EditDeclared
 }
 
-/// <summary>pi-ai 路由（llm-pi-ai ns 的 providers.&lt;route&gt;）的添加/编辑卡：官方目录厂商
-/// 仅密钥 + 自定义设置（API 地址/模型目录）；自定义路由补 Provider ID/显示名称/API 协议。
-/// 创建整段写入 providers.&lt;route&gt;（目录路由无字段时物化空对象收养默认），编辑按字段级
-/// diff 提交（未建模字段不动）；密钥另走凭据域（引用名沿用已命名值，否则按路由派生）。</summary>
+/// <summary>
+///     pi-ai 路由（llm-pi-ai ns 的 providers.&lt;route&gt;）的添加/编辑卡：官方目录厂商
+///     仅密钥 + 自定义设置（API 地址/模型目录）；自定义路由补 Provider ID/显示名称/API 协议。
+///     创建整段写入 providers.&lt;route&gt;（目录路由无字段时物化空对象收养默认），编辑按字段级
+///     diff 提交（未建模字段不动）；密钥另走凭据域（引用名沿用已命名值，否则按路由派生）。
+/// </summary>
 public sealed class ProviderEditorViewModel : ObservableObject
 {
     private const string Ns = ModelsSettingsSectionViewModel.PiAiNs;
@@ -38,31 +43,32 @@ public sealed class ProviderEditorViewModel : ObservableObject
         ("anthropic-messages", "Anthropic Messages")
     ];
 
-    private readonly ISettingsMutationRunner       _runner;
+    private readonly bool?                         _apiKeySet;
     private readonly ILlmCatalogService?           _catalogService;
     private readonly Action<SettingsNamespaceView> _onSaved;
-    private readonly string                        _route;
     private readonly JsonElement                   _original;
+    private readonly string                        _route;
 
-    private SettingsNamespaceView    _snapshot;
-    private LlmConfigurableProvider? _selectedProvider;
+    private readonly ISettingsMutationRunner _runner;
 
-    private bool    _isProviderMenuOpen;
-    private string  _routeIdDraft     = string.Empty;
-    private string  _displayNameDraft = string.Empty;
-    private string  _baseUrlDraft     = string.Empty;
-    private string  _apiDraft         = "openai-completions";
-    private string  _apiKeyDraft      = string.Empty;
-    private bool?   _apiKeySet;
-    private bool    _isApiMenuOpen;
-    private bool    _isCustomExpanded;
-    private bool    _isSaving;
-    private string? _saveError;
-    private bool    _isDiscovering;
-    private bool    _isDiscoverPopupOpen;
+    private string  _apiDraft     = "openai-completions";
+    private string  _apiKeyDraft  = string.Empty;
+    private string  _baseUrlDraft = string.Empty;
+    private bool    _discoverEmptyVisible;
     private string? _discoverError;
     private string? _discoverNotice;
-    private bool    _discoverEmptyVisible;
+    private string  _displayNameDraft = string.Empty;
+    private bool    _isApiMenuOpen;
+    private bool    _isCustomExpanded;
+    private bool    _isDiscovering;
+    private bool    _isDiscoverPopupOpen;
+    private bool    _isProviderMenuOpen;
+    private bool    _isSaving;
+    private string  _routeIdDraft = string.Empty;
+    private string? _saveError;
+
+    private LlmConfigurableProvider? _selectedProvider;
+    private SettingsNamespaceView    _snapshot;
 
     public ProviderEditorViewModel(ISettingsMutationRunner runner, ILlmCatalogService? catalogService,
                                    SettingsNamespaceView snapshot, ProviderEditorMode mode, string route,
@@ -108,34 +114,6 @@ public sealed class ProviderEditorViewModel : ObservableObject
         var keyPath = new[] { "providers", route, "apiKeyEnv" };
         _apiKeySet = snapshot.Secrets?.FirstOrDefault(secret => secret.Path.SequenceEqual(keyPath))?.Set;
         OnPropertyChanged(nameof(ApiKeyPlaceholder));
-    }
-
-    /// <summary>创建入口：目录路由（第三方 tab）或自定义路由（自定义 tab）；已占用路由集合由快照导出。</summary>
-    public static ProviderEditorViewModel ForCreate(ISettingsMutationRunner runner, ILlmCatalogService? catalogService,
-                                                    SettingsNamespaceView snapshot, ProviderEditorMode mode,
-                                                    IReadOnlyList<LlmConfigurableProvider> addable,
-                                                    Action<SettingsNamespaceView> onSaved)
-    {
-        var editor = new ProviderEditorViewModel(runner, catalogService, snapshot, mode, string.Empty, default,
-                                                 addable, onSaved);
-        if (SettingsValues.GetNode(snapshot.Value, ["providers"]) is not
-            { ValueKind: JsonValueKind.Object } providers) return editor;
-        foreach (var route in providers.EnumerateObject())
-            editor.TakenRoutes.Add(route.Name);
-
-        return editor;
-    }
-
-    /// <summary>编辑入口：declared 路由（目录缺失兜底按 declared 处理）显示完整字段。</summary>
-    public static ProviderEditorViewModel ForEdit(ISettingsMutationRunner runner, ILlmCatalogService? catalogService,
-                                                  SettingsNamespaceView snapshot, string route,
-                                                  LlmConfigurableProvider? entry,
-                                                  Action<SettingsNamespaceView> onSaved)
-    {
-        var original = SettingsValues.GetNode(snapshot.Value, ["providers", route]) ?? default;
-        var declared = entry?.Declared                                              ?? true;
-        var mode     = declared ? ProviderEditorMode.EditDeclared : ProviderEditorMode.EditCatalog;
-        return new ProviderEditorViewModel(runner, catalogService, snapshot, mode, route, original, [], onSaved);
     }
 
     public ProviderEditorMode Mode { get; }
@@ -187,11 +165,9 @@ public sealed class ProviderEditorViewModel : ObservableObject
         get => _selectedProvider;
         private set
         {
-            if (SetProperty(ref _selectedProvider, value))
-            {
-                OnPropertyChanged(nameof(SelectedProviderLabel));
-                NotifyDirtyChanged();
-            }
+            if (!SetProperty(ref _selectedProvider, value)) return;
+            OnPropertyChanged(nameof(SelectedProviderLabel));
+            NotifyDirtyChanged();
         }
     }
 
@@ -265,11 +241,15 @@ public sealed class ProviderEditorViewModel : ObservableObject
     /// <summary>密钥框占位双态（官方同构）：已配置提示可替换；目录路由未配置提示可留空走环境认证。</summary>
     public string ApiKeyPlaceholder => _apiKeySet == true
         ? "已配置——输入新值可替换"
-        : IsCatalogMode ? "输入 API 密钥，或留空使用环境认证" : "输入 API 密钥";
+        : IsCatalogMode
+            ? "输入 API 密钥，或留空使用环境认证"
+            : "输入 API 密钥";
 
-    /// <summary>自定义设置折叠区展开态。编辑卡（目录/declared）默认收起（官方 details 同构，
-    /// 折叠区外仅 API 密钥）；创建态不渲染折叠头。变更须连带通知 ShowsCatalogBlock
-    /// （计算属性，绑定不会自行重算，否则展开后折叠区仍不可见）。</summary>
+    /// <summary>
+    ///     自定义设置折叠区展开态。编辑卡（目录/declared）默认收起（官方 details 同构，
+    ///     折叠区外仅 API 密钥）；创建态不渲染折叠头。变更须连带通知 ShowsCatalogBlock
+    ///     （计算属性，绑定不会自行重算，否则展开后折叠区仍不可见）。
+    /// </summary>
     public bool IsCustomExpanded
     {
         get => _isCustomExpanded;
@@ -318,12 +298,6 @@ public sealed class ProviderEditorViewModel : ObservableObject
     public AsyncRelayCommand SaveCommand { get; }
 
     public RelayCommand CancelCommand { get; }
-
-    /// <summary>添加卡 tab 切换请求（由分区重建对应模式的编辑器）。</summary>
-    public event EventHandler<ProviderEditorMode>? TabSwitchRequested;
-
-    /// <summary>取消编辑（丢弃草稿回列表）。</summary>
-    public event EventHandler? Cancelled;
 
     public bool IsSaving
     {
@@ -394,8 +368,10 @@ public sealed class ProviderEditorViewModel : ObservableObject
         private set => SetProperty(ref _discoverEmptyVisible, value);
     }
 
-    /// <summary>校验错误（首个）：目录创建需选提供商；自定义创建校验 id 正则/占用/地址/≥1 模型；
-    /// 全模式校验模型条目（ID 必填去重、token 数；输入类型无「至少一项」——官方空选择=写空数组继承）。</summary>
+    /// <summary>
+    ///     校验错误（首个）：目录创建需选提供商；自定义创建校验 id 正则/占用/地址/≥1 模型；
+    ///     全模式校验模型条目（ID 必填去重、token 数；输入类型无「至少一项」——官方空选择=写空数组继承）。
+    /// </summary>
     public string? FirstValidationError
     {
         get
@@ -418,10 +394,7 @@ public sealed class ProviderEditorViewModel : ObservableObject
                 }
                 default :
                 {
-                    if (IsDeclaredMode && !IsValidBaseUrl(_baseUrlDraft))
-                    {
-                        return "API 地址必填，且需以 http:// 或 https:// 开头。";
-                    }
+                    if (IsDeclaredMode && !IsValidBaseUrl(_baseUrlDraft)) return "API 地址必填，且需以 http:// 或 https:// 开头。";
 
                     break;
                 }
@@ -481,6 +454,47 @@ public sealed class ProviderEditorViewModel : ObservableObject
 
     /// <summary>「获取可用模型」可用性：存在可用的探测参数（目录路由按厂商、自定义路由按端点）。</summary>
     public bool CanDiscover => !IsDiscovering && _catalogService is not null && BuildProbe() is not null;
+
+    private string EffectiveRoute => Mode switch
+    {
+        ProviderEditorMode.CreateCatalog  => SelectedProvider?.Provider ?? string.Empty,
+        ProviderEditorMode.CreateDeclared => RouteIdDraft.Trim(),
+        _                                 => _route
+    };
+
+    /// <summary>创建入口：目录路由（第三方 tab）或自定义路由（自定义 tab）；已占用路由集合由快照导出。</summary>
+    public static ProviderEditorViewModel ForCreate(ISettingsMutationRunner runner, ILlmCatalogService? catalogService,
+                                                    SettingsNamespaceView snapshot, ProviderEditorMode mode,
+                                                    IReadOnlyList<LlmConfigurableProvider> addable,
+                                                    Action<SettingsNamespaceView> onSaved)
+    {
+        var editor = new ProviderEditorViewModel(runner, catalogService, snapshot, mode, string.Empty, default,
+                                                 addable, onSaved);
+        if (SettingsValues.GetNode(snapshot.Value, ["providers"]) is not
+            { ValueKind: JsonValueKind.Object } providers) return editor;
+        foreach (var route in providers.EnumerateObject())
+            editor.TakenRoutes.Add(route.Name);
+
+        return editor;
+    }
+
+    /// <summary>编辑入口：declared 路由（目录缺失兜底按 declared 处理）显示完整字段。</summary>
+    public static ProviderEditorViewModel ForEdit(ISettingsMutationRunner runner, ILlmCatalogService? catalogService,
+                                                  SettingsNamespaceView snapshot, string route,
+                                                  LlmConfigurableProvider? entry,
+                                                  Action<SettingsNamespaceView> onSaved)
+    {
+        var original = SettingsValues.GetNode(snapshot.Value, ["providers", route]) ?? default;
+        var declared = entry?.Declared                                              ?? true;
+        var mode     = declared ? ProviderEditorMode.EditDeclared : ProviderEditorMode.EditCatalog;
+        return new ProviderEditorViewModel(runner, catalogService, snapshot, mode, route, original, [], onSaved);
+    }
+
+    /// <summary>添加卡 tab 切换请求（由分区重建对应模式的编辑器）。</summary>
+    public event EventHandler<ProviderEditorMode>? TabSwitchRequested;
+
+    /// <summary>取消编辑（丢弃草稿回列表）。</summary>
+    public event EventHandler? Cancelled;
 
     /// <summary>外部改动重投影：仅更新基线 revision（草稿不动；保存冲突时按打开时 revision 落锁）。</summary>
     internal void Rebase(SettingsNamespaceView view)
@@ -571,8 +585,10 @@ public sealed class ProviderEditorViewModel : ObservableObject
                trimmed.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>探测参数：编辑卡恒带路由 id（官方同构——命名路由让适配器可从自身 registry 应答，
-    /// 含已存凭据，编辑已配置供应商无需重输密钥）；declared 路由必须携带端点。</summary>
+    /// <summary>
+    ///     探测参数：编辑卡恒带路由 id（官方同构——命名路由让适配器可从自身 registry 应答，
+    ///     含已存凭据，编辑已配置供应商无需重输密钥）；declared 路由必须携带端点。
+    /// </summary>
     private LlmDiscoveryRequest? BuildProbe()
     {
         var provider = Mode switch
@@ -697,9 +713,11 @@ public sealed class ProviderEditorViewModel : ObservableObject
         }
     }
 
-    /// <summary>构建保存 ops：创建 = 整段写 providers.&lt;route&gt;（目录路由无字段时物化空对象），
-    /// 编辑 = 字段级 diff（displayName/api/baseURL/models；未建模字段不动）。
-    /// keyReference 输出本次应写入凭据的引用名（沿用已命名值，否则按路由派生）。</summary>
+    /// <summary>
+    ///     构建保存 ops：创建 = 整段写 providers.&lt;route&gt;（目录路由无字段时物化空对象），
+    ///     编辑 = 字段级 diff（displayName/api/baseURL/models；未建模字段不动）。
+    ///     keyReference 输出本次应写入凭据的引用名（沿用已命名值，否则按路由派生）。
+    /// </summary>
     private List<SettingsMutationOp> BuildSaveOps(out string route, out string keyReference)
     {
         var ops = new List<SettingsMutationOp>();
@@ -770,13 +788,6 @@ public sealed class ProviderEditorViewModel : ObservableObject
         return ops;
     }
 
-    private string EffectiveRoute => Mode switch
-    {
-        ProviderEditorMode.CreateCatalog  => SelectedProvider?.Provider ?? string.Empty,
-        ProviderEditorMode.CreateDeclared => RouteIdDraft.Trim(),
-        _                                 => _route
-    };
-
     private JsonElement? TryGetOriginalModels()
     {
         return SettingsValues.GetNode(_original, ["models"]) is { ValueKind: JsonValueKind.Array } models
@@ -819,7 +830,7 @@ public sealed class ProviderEditorViewModel : ObservableObject
     /// <summary>凭据引用名派生（对齐官方）：路由 id 非字母数字字符逐字替换为下划线后大写 + _API_KEY。</summary>
     internal static string DeriveKeyRef(string route)
     {
-        var builder = new System.Text.StringBuilder(route.Length + 8);
+        var builder = new StringBuilder(route.Length + 8);
         foreach (var character in route)
             builder.Append(char.IsAsciiLetterOrDigit(character) ? char.ToUpperInvariant(character) : '_');
         builder.Append("_API_KEY");

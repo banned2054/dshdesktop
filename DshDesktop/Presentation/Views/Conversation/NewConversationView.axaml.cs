@@ -52,9 +52,18 @@ public partial class NewConversationView : UserControl
     /// <summary>
     ///     输入框焦点变化时切换面板 focused 类（与底部输入区同一反馈语义）。
     /// </summary>
-    private void OnMessageInputGotFocus(object? sender, FocusChangedEventArgs e) => SetComposerFocused(true);
+    private void OnMessageInputGotFocus(object? sender, FocusChangedEventArgs e)
+    {
+        SetComposerFocused(true);
+    }
 
-    private void OnMessageInputLostFocus(object? sender, RoutedEventArgs e) => SetComposerFocused(false);
+    private void OnMessageInputLostFocus(object? sender, RoutedEventArgs e)
+    {
+        SetComposerFocused(false);
+    }
 
-    private void SetComposerFocused(bool focused) => ComposerSurface.Classes.Set("focused", focused);
+    private void SetComposerFocused(bool focused)
+    {
+        ComposerSurface.Classes.Set("focused", focused);
+    }
 }

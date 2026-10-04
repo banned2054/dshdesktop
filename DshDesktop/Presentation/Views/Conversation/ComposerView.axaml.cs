@@ -18,10 +18,7 @@ public partial class ComposerView : UserControl
 
     private void OnMessageInputKeyDown(object? sender, KeyEventArgs e)
     {
-        if (e.Key != Key.Enter || e.KeyModifiers != KeyModifiers.None)
-        {
-            return;
-        }
+        if (e.Key != Key.Enter || e.KeyModifiers != KeyModifiers.None) return;
 
         if (DataContext is not MainWindowViewModel viewModel ||
             !viewModel.Composer.SendMessageCommand.CanExecute(null)) return;
@@ -30,12 +27,21 @@ public partial class ComposerView : UserControl
     }
 
     /// <summary>
-    /// 输入框焦点变化时切换面板 focused 类：聚焦反馈由整块面板的克制描边承担，
-    /// 输入框自身保持透明无边框（对应 WebUI composer 的卡片级聚焦高亮）。
+    ///     输入框焦点变化时切换面板 focused 类：聚焦反馈由整块面板的克制描边承担，
+    ///     输入框自身保持透明无边框（对应 WebUI composer 的卡片级聚焦高亮）。
     /// </summary>
-    private void OnMessageInputGotFocus(object? sender, FocusChangedEventArgs e) => SetComposerFocused(true);
+    private void OnMessageInputGotFocus(object? sender, FocusChangedEventArgs e)
+    {
+        SetComposerFocused(true);
+    }
 
-    private void OnMessageInputLostFocus(object? sender, RoutedEventArgs e) => SetComposerFocused(false);
+    private void OnMessageInputLostFocus(object? sender, RoutedEventArgs e)
+    {
+        SetComposerFocused(false);
+    }
 
-    private void SetComposerFocused(bool focused) => ComposerSurface.Classes.Set("focused", focused);
+    private void SetComposerFocused(bool focused)
+    {
+        ComposerSurface.Classes.Set("focused", focused);
+    }
 }

@@ -13,11 +13,11 @@ public sealed class SessionGroupHeaderViewModel(
     bool     isCurrent  = false,
     bool     isCategory = false) : ObservableObject
 {
-    private string _titleText    = title;
-    private int    _sessionCount = sessionCount;
-    private bool   _isExpanded   = isExpanded;
-    private bool   _isCurrent    = isCurrent;
+    private bool   _isCurrent  = isCurrent;
+    private bool   _isExpanded = isExpanded;
     private bool   _pinned;
+    private int    _sessionCount = sessionCount;
+    private string _titleText    = title;
 
     /// <summary>分组标识；工作区 id、置顶分类或未分组的固定哨兵值。</summary>
     public string Key { get; } = key;

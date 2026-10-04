@@ -27,7 +27,10 @@ public sealed class ComposerViewModel : ObservableObject
 
     private ModelSelection? _currentModel;
 
-    private string        _draftMessage = string.Empty;
+    private string _draftMessage = string.Empty;
+
+    // 档位菜单的来源标识（provider|model）：生效选型或目录变化时才重建，回声刷新不重建。
+    private string?       _effortOptionsKey;
     private bool          _isBackendConnected;
     private bool          _isCancelling;
     private bool          _isDraftTarget;
@@ -47,9 +50,6 @@ public sealed class ComposerViewModel : ObservableObject
     private long          _statsSeq;
     private SessionUsage? _usage;
     private long          _usageSeq;
-
-    // 档位菜单的来源标识（provider|model）：生效选型或目录变化时才重建，回声刷新不重建。
-    private string? _effortOptionsKey;
 
     public ComposerViewModel(ISessionService         sessionService, Action<string?> reportError,
                              Action?                 onPromptAccepted    = null,

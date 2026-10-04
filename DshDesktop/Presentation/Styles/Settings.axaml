@@ -205,7 +205,8 @@
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="CornerRadius" Value="8" />
     </Style>
-    <Style Selector="TextBox.settings-input:pointerover /template/ Border#PART_BorderElement,
+    <Style
+        Selector="TextBox.settings-input:pointerover /template/ Border#PART_BorderElement,
                      TextBox.settings-input:focus /template/ Border#PART_BorderElement,
                      TextBox.settings-input:focus-visible /template/ Border#PART_BorderElement">
         <Setter Property="Background" Value="Transparent" />

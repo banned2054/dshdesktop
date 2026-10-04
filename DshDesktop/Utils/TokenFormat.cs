@@ -15,21 +15,15 @@ public static class TokenFormat
     }
 
     /// <summary>
-    /// 缓存命中百分数：取整显示；部分命中取整会虚高到 100 时保留一位小数，
-    /// 完整命中显示 100。分母为零（无计费输入）返回 null。
+    ///     缓存命中百分数：取整显示；部分命中取整会虚高到 100 时保留一位小数，
+    ///     完整命中显示 100。分母为零（无计费输入）返回 null。
     /// </summary>
     public static string? CacheHitPercent(long cacheReadTokens, long billedInputTokens)
     {
-        if (billedInputTokens <= 0)
-        {
-            return null;
-        }
+        if (billedInputTokens <= 0) return null;
 
         var percent = cacheReadTokens * 100.0 / billedInputTokens;
-        if (percent >= 99.95 && cacheReadTokens < billedInputTokens)
-        {
-            return percent.ToString("0.0");
-        }
+        if (percent >= 99.95 && cacheReadTokens < billedInputTokens) return percent.ToString("0.0");
 
         return ((int)Math.Round(percent)).ToString();
     }

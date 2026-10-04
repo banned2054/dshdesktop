@@ -9,7 +9,10 @@ namespace DshDesktop.Core.Services;
 /// </summary>
 public interface ISettingsService
 {
-    /// <summary>设置文档被更新；载荷为命名空间与新 revision。事件由后端 settings/document-updated 回流驱动，本端写入是否触发取决于后端是否向写入方回发（尚未在真实后端验证），消费方不应假定写入后必然收到。</summary>
+    /// <summary>
+    ///     设置文档被更新；载荷为命名空间与新 revision。事件由后端 settings/document-updated
+    ///     回流驱动，本端写入是否触发取决于后端是否向写入方回发（尚未在真实后端验证），消费方不应假定写入后必然收到。
+    /// </summary>
     event EventHandler<SettingsDocumentUpdate>? DocumentUpdated;
 
     /// <summary>全量读取设置文档：命名空间视图、schema、脱敏生效值与 revision。</summary>
@@ -19,16 +22,17 @@ public interface ISettingsService
     ///     把 patch 深合并进命名空间的用户段；patch 须为 JSON 对象。
     ///     expectedRevision 为 null 时无条件写，否则做乐观锁；冲突抛 <see cref="Exceptions.SettingsConflictException" />。
     /// </summary>
-    Task<SettingsNamespaceView> UpdateAsync(string ns, JsonElement patch, long? expectedRevision = null,
+    Task<SettingsNamespaceView> UpdateAsync(string            ns, JsonElement patch, long? expectedRevision = null,
                                             CancellationToken cancellationToken = default);
 
     /// <summary>整段替换命名空间的用户段；expectedRevision 语义同 <see cref="UpdateAsync" />。</summary>
-    Task<SettingsNamespaceView> ReplaceAsync(string ns, JsonElement section, long? expectedRevision = null,
+    Task<SettingsNamespaceView> ReplaceAsync(string            ns, JsonElement section, long? expectedRevision = null,
                                              CancellationToken cancellationToken = default);
 
     /// <summary>按路径编辑命名空间的用户段；ops 依序解析于服务端现存储段。</summary>
-    Task<SettingsNamespaceView> MutateAsync(string ns, IReadOnlyList<SettingsMutationOp> ops,
-                                            long? expectedRevision = null, CancellationToken cancellationToken = default);
+    Task<SettingsNamespaceView> MutateAsync(string            ns, IReadOnlyList<SettingsMutationOp> ops,
+                                            long?             expectedRevision  = null,
+                                            CancellationToken cancellationToken = default);
 
     /// <summary>物化 patch 文档并调用系统编辑器打开。</summary>
     Task OpenSettingsDocumentAsync(CancellationToken cancellationToken = default);

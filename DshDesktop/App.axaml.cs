@@ -20,7 +20,7 @@ using DshDesktop.ViewModels;
 
 namespace DshDesktop;
 
-public partial class App : Application
+public class App : Application
 {
     public override void Initialize()
     {
@@ -31,18 +31,18 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            var                    configuration = DesktopBackendConfiguration.FromEnvironment();
-            ISessionService        sessionService;
-            IWorkspaceService      workspaceService;
-            IBackendHostService    backendService;
-            IToolApprovalService   toolApprovalService;
+            var                      configuration = DesktopBackendConfiguration.FromEnvironment();
+            ISessionService          sessionService;
+            IWorkspaceService        workspaceService;
+            IBackendHostService      backendService;
+            IToolApprovalService     toolApprovalService;
             IPermissionPresetService permissionPresetService;
-            ISettingsService        settingsService;
-            ICredentialsService     credentialService;
-            ILlmCatalogService      llmCatalogService;
+            ISettingsService         settingsService;
+            ICredentialsService      credentialService;
+            ILlmCatalogService       llmCatalogService;
             IWorkspaceChangesService changesService;
-            HarnessConnection?     connection      = null;
-            var                    isSimulatedMode = true;
+            HarnessConnection?       connection      = null;
+            var                      isSimulatedMode = true;
 
             // 置顶是本项目自有方案（本地配置文件持久化），与后端模式无关，两种模式共用一份。
             ISidebarPinService sidebarPinService = new SidebarPinService();
@@ -57,12 +57,12 @@ public partial class App : Application
                 toolApprovalService     = new HarnessToolApprovalService(connection);
                 permissionPresetService = new HarnessPermissionPresetService(connection);
                 // 设置域服务先行装配；设置界面落地时由 ViewModel 消费。
-                settingsService         = new HarnessSettingsService(connection);
-                credentialService       = new HarnessCredentialService(connection);
-                llmCatalogService       = new HarnessLlmCatalogService(connection);
+                settingsService   = new HarnessSettingsService(connection);
+                credentialService = new HarnessCredentialService(connection);
+                llmCatalogService = new HarnessLlmCatalogService(connection);
                 // 文件改动域服务先行装配；改动卡片落地时由 ViewModel 消费。
-                changesService          = new HarnessWorkspaceChangesService(connection);
-                isSimulatedMode         = false;
+                changesService  = new HarnessWorkspaceChangesService(connection);
+                isSimulatedMode = false;
             }
             else
             {
@@ -93,7 +93,7 @@ public partial class App : Application
                                                     credentialService,
                                                     // 设置面板的主题偏好回调：light/dark 原样应用，
                                                     // 其余（system/缺省）回退跟随系统。
-                                                    preference => Application.Current!.RequestedThemeVariant =
+                                                    preference => Current!.RequestedThemeVariant =
                                                         preference == "light"
                                                             ? ThemeVariant.Light
                                                             : preference == "dark"
@@ -106,10 +106,7 @@ public partial class App : Application
                                                         ? configuration.BackendVersion ?? "未知"
                                                         : "模拟后端");
             var mainWindow = new MainWindow(viewModel);
-            if (configuration.ConfigurationError is { Length: > 0 } error)
-            {
-                viewModel.ShowStartupNotice(error);
-            }
+            if (configuration.ConfigurationError is { Length: > 0 } error) viewModel.ShowStartupNotice(error);
 
             desktop.MainWindow = mainWindow;
             var capturedConnection = connection;
@@ -119,14 +116,9 @@ public partial class App : Application
             {
                 await viewModel.DisposeAsync();
                 if (capturedWorkspaces is IAsyncDisposable disposableWorkspaces)
-                {
                     await disposableWorkspaces.DisposeAsync();
-                }
 
-                if (capturedConnection is not null)
-                {
-                    await capturedConnection.DisposeAsync();
-                }
+                if (capturedConnection is not null) await capturedConnection.DisposeAsync();
 
                 await capturedBackend.DisposeAsync();
             };

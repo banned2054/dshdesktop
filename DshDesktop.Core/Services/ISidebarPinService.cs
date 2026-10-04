@@ -8,14 +8,14 @@ namespace DshDesktop.Core.Services;
 /// </summary>
 public interface ISidebarPinService
 {
-    /// <summary>置顶集合发生变化（置顶或取消置顶成功）时触发。</summary>
-    event EventHandler? PinsChanged;
-
     /// <summary>置顶会话 id 集合（最近置顶在前的存储序）。</summary>
     IReadOnlyList<string> PinnedSessionIds { get; }
 
     /// <summary>置顶工作区 id 集合（最近置顶在前的存储序）。</summary>
     IReadOnlyList<string> PinnedWorkspaceIds { get; }
+
+    /// <summary>置顶集合发生变化（置顶或取消置顶成功）时触发。</summary>
+    event EventHandler? PinsChanged;
 
     /// <summary>置顶会话：集合前插并落盘；磁盘写入失败时集合不变并抛出。</summary>
     Task PinSessionAsync(string sessionId, CancellationToken cancellationToken = default);

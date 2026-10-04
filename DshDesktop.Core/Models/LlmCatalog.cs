@@ -1,8 +1,10 @@
 namespace DshDesktop.Core.Models;
 
-/// <summary>llm/listConfigurableProviders 条目：可配置提供方目录（含休眠项）。
-/// settingsPath 为空表示整段路由（如 DeepSeek 官方编辑器），否则指向
-/// llm-pi-ai 值内 providers 下的单个路由对象。</summary>
+/// <summary>
+///     llm/listConfigurableProviders 条目：可配置提供方目录（含休眠项）。
+///     settingsPath 为空表示整段路由（如 DeepSeek 官方编辑器），否则指向
+///     llm-pi-ai 值内 providers 下的单个路由对象。
+/// </summary>
 public sealed record LlmConfigurableProvider(
     string                Provider,
     string                DisplayName,

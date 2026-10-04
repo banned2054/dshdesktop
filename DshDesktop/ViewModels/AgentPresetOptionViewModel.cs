@@ -50,7 +50,7 @@ public sealed class AgentPresetOptionViewModel(
                                            selectCommand),
             new AgentPresetOptionViewModel(AgentPresetModes.Cordis, "创造模式",
                                            "用对话定制 DSH：让 Agent 编写插件，添加新功能或界面；也能组合工具和提示词，创建自己的模式。",
-                                           selectCommand),
+                                           selectCommand)
         ];
     }
 }

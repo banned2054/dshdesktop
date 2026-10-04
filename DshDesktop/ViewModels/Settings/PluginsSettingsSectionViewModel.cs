@@ -119,13 +119,14 @@ public sealed class PluginsSettingsSectionViewModel(ISettingsMutationRunner runn
 public sealed class PluginCardViewModel : ObservableObject
 {
     private readonly ISettingsMutationRunner _runner;
-    private          SettingsNamespaceView?  _snapshot;
 
     private long    _baselineRevision;
     private bool    _canEdit = true;
     private bool    _isSaving;
     private string? _saveError;
     private string? _saveSuccessText;
+
+    private SettingsNamespaceView? _snapshot;
 
     public PluginCardViewModel(ISettingsMutationRunner runner, string ns, string title, string description)
     {
@@ -322,15 +323,14 @@ public enum PluginFieldKind
 /// <summary>插件卡的单字段草稿：标签上方、输入框下方；覆盖标记与恢复默认暂存。</summary>
 public sealed class PluginFieldViewModel : ObservableObject
 {
-    private readonly long _minValue;
+    private readonly long   _minValue;
+    private          string _baselineText = string.Empty;
 
     private bool   _canEdit = true;
-    private bool   _credentialConfigured;
     private bool   _credentialDotVisible;
     private string _draftText = string.Empty;
     private bool   _isOverridden;
     private bool   _isRestoreStaged;
-    private string _baselineText = string.Empty;
 
     public PluginFieldViewModel(string key, string label, PluginFieldKind kind, string? fieldDescription = null)
     {
@@ -430,13 +430,13 @@ public sealed class PluginFieldViewModel : ObservableObject
     // 凭据状态圆点（网页搜索卡）：查询 credentials.DescribeAsync 的配置态。
     public bool ShowCredentialDot => Kind == PluginFieldKind.Password && _credentialDotVisible;
 
-    public bool IsCredentialSet => _credentialConfigured;
+    public bool IsCredentialSet { get; private set; }
 
-    public bool IsCredentialUnset => !_credentialConfigured;
+    public bool IsCredentialUnset => !IsCredentialSet;
 
-    public string CredentialStatusText => _credentialConfigured ? "API 密钥已配置" : "API 密钥未配置";
+    public string CredentialStatusText => IsCredentialSet ? "API 密钥已配置" : "API 密钥未配置";
 
-    public string PasswordWatermark => _credentialConfigured ? "已配置——输入新值可替换" : "输入 API 密钥";
+    public string PasswordWatermark => IsCredentialSet ? "已配置——输入新值可替换" : "输入 API 密钥";
 
     /// <summary>草稿文本变化后刷新派生状态（脏、校验、占位）。</summary>
     private void NotifyDraftChanged()
@@ -483,7 +483,7 @@ public sealed class PluginFieldViewModel : ObservableObject
 
     internal void ApplyCredentialStatus(bool configured)
     {
-        _credentialConfigured = configured;
+        IsCredentialSet       = configured;
         _credentialDotVisible = true;
         OnPropertyChanged(nameof(ShowCredentialDot));
         OnPropertyChanged(nameof(IsCredentialSet));

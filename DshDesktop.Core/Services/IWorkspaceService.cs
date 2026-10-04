@@ -9,6 +9,12 @@ namespace DshDesktop.Core.Services;
 /// </summary>
 public interface IWorkspaceService
 {
+    /// <summary>
+    ///     后端登记的已归档会话集合（workspace/archived 帧的全量投影）；基线未到达时为空。
+    ///     复用候选与可见性判定据此排除归档会话，不在客户端猜测归档状态。
+    /// </summary>
+    IReadOnlySet<string> ArchivedSessionIds { get; }
+
     /// <summary>工作区集合变化（登记、移除、重排或会话记账变化）时触发。</summary>
     event EventHandler? WorkspacesChanged;
 
@@ -17,12 +23,6 @@ public interface IWorkspaceService
     ///     （基线尚未到达），消费方应订阅 <see cref="WorkspacesChanged" /> 增量更新。
     /// </summary>
     Task<IReadOnlyList<WorkspaceSummary>> GetWorkspacesAsync(CancellationToken cancellationToken = default);
-
-    /// <summary>
-    ///     后端登记的已归档会话集合（workspace/archived 帧的全量投影）；基线未到达时为空。
-    ///     复用候选与可见性判定据此排除归档会话，不在客户端猜测归档状态。
-    /// </summary>
-    IReadOnlySet<string> ArchivedSessionIds { get; }
 
     /// <summary>
     ///     归档会话（workspace/archiveSession，移出列表表面，记录保留）。成功后归档集合经

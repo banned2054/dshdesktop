@@ -33,11 +33,16 @@ public partial class SidebarView : UserControl
     }
 
     /// <summary>同步左栏内容表面的宽度上限；列宽上限由 MainWindow 的 clamp 逻辑统一计算。</summary>
-    public void SetSurfaceMaxWidth(double maxWidth) => Surface.MaxWidth = maxWidth;
+    public void SetSurfaceMaxWidth(double maxWidth)
+    {
+        Surface.MaxWidth = maxWidth;
+    }
 
     /// <summary>展开搜索行后把焦点交给输入框（DSH 展开即聚焦）；命令已先行切换状态。</summary>
-    private void OnSearchButtonClick(object? sender, RoutedEventArgs e) =>
+    private void OnSearchButtonClick(object? sender, RoutedEventArgs e)
+    {
         Dispatcher.UIThread.Post(() => SessionSearchInput.Focus());
+    }
 
     private void OnSearchInputKeyDown(object? sender, KeyEventArgs e)
     {
@@ -136,18 +141,29 @@ public partial class SidebarView : UserControl
         popup.IsOpen = true;
     }
 
-    private static Border? FindWorkspaceRow(Control start) =>
-        start.GetVisualAncestors().OfType<Border>().FirstOrDefault(ancestor => ancestor.Classes.Contains("group-row"));
+    private static Border? FindWorkspaceRow(Control start)
+    {
+        return start.GetVisualAncestors().OfType<Border>()
+                    .FirstOrDefault(ancestor => ancestor.Classes.Contains("group-row"));
+    }
 
-    private static Button? FindSessionRow(Control start) =>
-        start.GetVisualAncestors().OfType<Button>()
-             .FirstOrDefault(ancestor => ancestor.Classes.Contains("session-row"));
+    private static Button? FindSessionRow(Control start)
+    {
+        return start.GetVisualAncestors().OfType<Button>()
+                    .FirstOrDefault(ancestor => ancestor.Classes.Contains("session-row"));
+    }
 
     /// <summary>菜单项点击后收起所属菜单；业务动作仍由命令绑定执行。</summary>
-    private void OnWorkspaceMenuItemClick(object? sender, RoutedEventArgs e) => CloseOwningMenuPopup(sender);
+    private void OnWorkspaceMenuItemClick(object? sender, RoutedEventArgs e)
+    {
+        CloseOwningMenuPopup(sender);
+    }
 
     /// <summary>会话菜单项点击后收起所属菜单；业务动作仍由命令绑定执行。</summary>
-    private void OnSessionMenuItemClick(object? sender, RoutedEventArgs e) => CloseOwningMenuPopup(sender);
+    private void OnSessionMenuItemClick(object? sender, RoutedEventArgs e)
+    {
+        CloseOwningMenuPopup(sender);
+    }
 
     private static void CloseOwningMenuPopup(object? sender)
     {
@@ -157,18 +173,24 @@ public partial class SidebarView : UserControl
     }
 
     /// <summary>重命名弹窗展开即聚焦输入框并全选当前名（对齐 DSH 重命名 Modal）。</summary>
-    private void OnWorkspaceRenamePopupOpened(object? sender, EventArgs e) => Dispatcher.UIThread.Post(() =>
+    private void OnWorkspaceRenamePopupOpened(object? sender, EventArgs e)
     {
-        WorkspaceRenameInput.Focus();
-        WorkspaceRenameInput.SelectAll();
-    });
+        Dispatcher.UIThread.Post(() =>
+        {
+            WorkspaceRenameInput.Focus();
+            WorkspaceRenameInput.SelectAll();
+        });
+    }
 
     /// <summary>会话重命名弹窗展开即聚焦输入框并全选当前标题（同工作区重命名弹窗）。</summary>
-    private void OnSessionRenamePopupOpened(object? sender, EventArgs e) => Dispatcher.UIThread.Post(() =>
+    private void OnSessionRenamePopupOpened(object? sender, EventArgs e)
     {
-        SessionRenameInput.Focus();
-        SessionRenameInput.SelectAll();
-    });
+        Dispatcher.UIThread.Post(() =>
+        {
+            SessionRenameInput.Focus();
+            SessionRenameInput.SelectAll();
+        });
+    }
 
     /// <summary>重命名输入框内 Enter 直接确认（等价点击「重命名」，守卫在命令方法内）。</summary>
     private void OnRenameInputKeyDown(object? sender, KeyEventArgs e)

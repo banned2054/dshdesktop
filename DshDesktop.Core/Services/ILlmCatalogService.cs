@@ -2,8 +2,10 @@ using DshDesktop.Core.Models;
 
 namespace DshDesktop.Core.Services;
 
-/// <summary>llm 提供方目录域：可配置提供方目录与模型发现（对齐上游 llm/listConfigurableProviders、
-/// llm/discoverModels）。llm/listProviders 未消费——活跃路由由设置文档 providers 投影得出。</summary>
+/// <summary>
+///     llm 提供方目录域：可配置提供方目录与模型发现（对齐上游 llm/listConfigurableProviders、
+///     llm/discoverModels）。llm/listProviders 未消费——活跃路由由设置文档 providers 投影得出。
+/// </summary>
 public interface ILlmCatalogService
 {
     /// <summary>可配置提供方目录（含休眠项，声明顺序）。</summary>

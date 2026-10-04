@@ -44,10 +44,10 @@ public abstract class SettingsRowViewModel(
     string?               description = null)
     : ObservableObject
 {
+    private bool    _canEdit = true;
     private string? _errorText;
     private bool    _isLast;
     private bool    _isVisible = true;
-    private bool    _canEdit   = true;
 
     public string Ns { get; } = ns;
 
@@ -131,11 +131,10 @@ public sealed class SettingsChoiceRowViewModel : SettingsRowViewModel
     private readonly Func<string, string> _labelResolver;
     private readonly Func<string, bool>?  _requiresConfirmation;
 
-    private string? _currentValue;
-    private string? _pendingConfirmValue;
     private bool    _isAcknowledged;
     private bool    _isConfirmOpen;
     private bool    _isMenuOpen;
+    private string? _pendingConfirmValue;
 
     public SettingsChoiceRowViewModel(
         string                                      ns,
@@ -187,16 +186,16 @@ public sealed class SettingsChoiceRowViewModel : SettingsRowViewModel
     }
 
     /// <summary>按钮文案：当前值的显示名（含遗留值映射），缺省时提示未设置。</summary>
-    public string CurrentLabel => _currentValue is { } value ? _labelResolver(value) : "未设置";
+    public string CurrentLabel => CurrentValue is { } value ? _labelResolver(value) : "未设置";
 
-    public string? CurrentValue => _currentValue;
+    public string? CurrentValue { get; private set; }
 
     internal void SelectOption(SettingsChoiceOptionViewModel option)
     {
         if (!CanEdit) return;
 
         IsMenuOpen = false;
-        if (option.Value == _currentValue) return;
+        if (option.Value == CurrentValue) return;
 
         if (_requiresConfirmation?.Invoke(option.Value) == true)
         {
@@ -219,7 +218,7 @@ public sealed class SettingsChoiceRowViewModel : SettingsRowViewModel
 
     internal override void ApplyView(SettingsNamespaceView view)
     {
-        _currentValue = SettingsValues.GetString(view.Value, Path);
+        CurrentValue = SettingsValues.GetString(view.Value, Path);
         RefreshSelection();
         OnPropertyChanged(nameof(CurrentLabel));
     }
@@ -234,7 +233,7 @@ public sealed class SettingsChoiceRowViewModel : SettingsRowViewModel
 
     private void RefreshSelection()
     {
-        foreach (var option in Options) option.IsSelected = option.Value == _currentValue;
+        foreach (var option in Options) option.IsSelected = option.Value == CurrentValue;
     }
 
     private SettingsChoiceOptionViewModel CreateOption(string value, string label)
@@ -375,9 +374,8 @@ public static class SettingsValues
     {
         node = root;
         foreach (var segment in path)
-        {
-            if (node.ValueKind != JsonValueKind.Object || !node.TryGetProperty(segment, out node)) return false;
-        }
+            if (node.ValueKind != JsonValueKind.Object || !node.TryGetProperty(segment, out node))
+                return false;
 
         return true;
     }

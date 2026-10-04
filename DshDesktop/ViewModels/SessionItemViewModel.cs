@@ -5,13 +5,13 @@ namespace DshDesktop.ViewModels;
 public sealed class SessionItemViewModel(SessionSummary summary) : ObservableObject
 {
     private SessionBlankState _blankState = summary.BlankState;
-    private DateTimeOffset    _updatedAt  = summary.UpdatedAt;
 
-    private bool    _isCurrent;
-    private bool    _pinned;
-    private bool    _running     = summary.Running;
-    private string? _title       = summary.Title;
-    private string  _updatedText = FormatUpdatedText(summary.UpdatedAt);
+    private bool           _isCurrent;
+    private bool           _pinned;
+    private bool           _running     = summary.Running;
+    private string?        _title       = summary.Title;
+    private DateTimeOffset _updatedAt   = summary.UpdatedAt;
+    private string         _updatedText = FormatUpdatedText(summary.UpdatedAt);
 
     public string Id { get; } = summary.Id;
 

@@ -4,6 +4,7 @@ using DshDesktop.Core.Services;
 using DshDesktop.Utils;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Globalization;
 using System.Text.Json;
 using System.Windows.Input;
 
@@ -19,10 +20,12 @@ public interface ISettingsMutationRunner
     Task SetCredentialAsync(string reference, string value);
 }
 
-/// <summary>模型分区：提供方行列表（对齐官方圆角行卡）+ 添加卡（目录/自定义双入口）+
-/// 编辑卡。DeepSeek 官方编辑器由 <see cref="DeepSeekModelCardViewModel" /> 承担；pi-ai 路由
-/// （llm-pi-ai ns 的 providers.&lt;route&gt;）由 <see cref="ProviderEditorViewModel" /> 承担。
-/// 另有当前生效模型目录的只读展示与账户路由可见性数据源。</summary>
+/// <summary>
+///     模型分区：提供方行列表（对齐官方圆角行卡）+ 添加卡（目录/自定义双入口）+
+///     编辑卡。DeepSeek 官方编辑器由 <see cref="DeepSeekModelCardViewModel" /> 承担；pi-ai 路由
+///     （llm-pi-ai ns 的 providers.&lt;route&gt;）由 <see cref="ProviderEditorViewModel" /> 承担。
+///     另有当前生效模型目录的只读展示与账户路由可见性数据源。
+/// </summary>
 public sealed class ModelsSettingsSectionViewModel : SettingsSectionViewModel
 {
     public const string DeepSeekNs = "llm-deepseek";
@@ -32,21 +35,25 @@ public sealed class ModelsSettingsSectionViewModel : SettingsSectionViewModel
 
     private readonly ISettingsMutationRunner _runner;
 
+    private bool _accountAvailable;
+
+    private bool _addOpen;
+    private bool _canAdd;
+    private bool _canEdit = true;
+
     private DeepSeekModelCardViewModel? _card;
-    private ProviderEditorViewModel?    _editor;
+
+    /// <summary>目录服务由面板壳注入（测试环境可为 null，此时「获取可用模型」不可用）。</summary>
+    private ILlmCatalogService? _catalogService;
 
     /// <summary>行内展开的行（providerId）；官方语义：编辑卡渲染在行头下方，一次一卡。</summary>
     private string? _editingRowId;
 
-    private bool _addOpen;
-    private bool _canEdit = true;
-    private bool _canAdd;
+    private ProviderEditorViewModel?                _editor;
+    private IReadOnlyList<LlmConfigurableProvider>? _lastDirectory;
 
     // 行投影输入缓存：目录与账户可用性晚于 describe 到达（异步），到达后按缓存重建行。
     private IReadOnlyDictionary<string, SettingsNamespaceView> _lastNamespaces = EmptyNamespaces;
-    private IReadOnlyList<LlmConfigurableProvider>?            _lastDirectory;
-
-    private bool _accountAvailable;
 
     public ModelsSettingsSectionViewModel(ISettingsMutationRunner runner)
         : base("models", "模型", "填入各提供商的 API 密钥即可使用其模型。")
@@ -67,8 +74,10 @@ public sealed class ModelsSettingsSectionViewModel : SettingsSectionViewModel
         private set => SetProperty(ref _canAdd, value);
     }
 
-    /// <summary>添加卡展开态（列表底部「+ 添加」按钮位展开，官方同构）；
-    /// 与行编辑互斥，一次一卡。</summary>
+    /// <summary>
+    ///     添加卡展开态（列表底部「+ 添加」按钮位展开，官方同构）；
+    ///     与行编辑互斥，一次一卡。
+    /// </summary>
     public bool IsAddOpen
     {
         get => _addOpen;
@@ -91,8 +100,10 @@ public sealed class ModelsSettingsSectionViewModel : SettingsSectionViewModel
 
     public RelayCommand OpenAddCommand { get; }
 
-    /// <summary>全量投影：重建 DeepSeek 卡与行集合；展开态（行编辑/添加卡）丢弃（打开面板/切换分区/外部全量刷新）。
-    /// 账户行可见性（accountAvailable）由 <see cref="SetCatalog" /> 随会话目录异步刷新。</summary>
+    /// <summary>
+    ///     全量投影：重建 DeepSeek 卡与行集合；展开态（行编辑/添加卡）丢弃（打开面板/切换分区/外部全量刷新）。
+    ///     账户行可见性（accountAvailable）由 <see cref="SetCatalog" /> 随会话目录异步刷新。
+    /// </summary>
     internal void Project(IReadOnlyDictionary<string, SettingsNamespaceView> namespaces,
                           IReadOnlyList<LlmConfigurableProvider>?            directory)
     {
@@ -124,7 +135,7 @@ public sealed class ModelsSettingsSectionViewModel : SettingsSectionViewModel
     /// <summary>会话模型目录到达：刷新 deepseek-account 行可见性（官方以目录组非空判定账户可用）。</summary>
     internal void SetCatalog(ModelCatalog? catalog)
     {
-        _accountAvailable = catalog?.Groups.Any(group => group.Id == "deepseek-account" && group.Models.Count > 0)
+        _accountAvailable = catalog?.Groups.Any(group => group is { Id: "deepseek-account", Models.Count: > 0 })
                          == true;
         RebuildRows();
     }
@@ -143,9 +154,11 @@ public sealed class ModelsSettingsSectionViewModel : SettingsSectionViewModel
         SyncRowEditors();
     }
 
-    /// <summary>行集合：目录条目中已配置者（整段路由=ns 挂载；pi-ai 路由=profile 存在）按官方排序
-    /// （账户 → DeepSeek → 其余按目录声明序）⊕ 设置文档中存在但目录缺失的路由兜底行 ⊕
-    /// 目录不可用时从设置文档兜底（DeepSeek 与 pi-ai 路由）。</summary>
+    /// <summary>
+    ///     行集合：目录条目中已配置者（整段路由=ns 挂载；pi-ai 路由=profile 存在）按官方排序
+    ///     （账户 → DeepSeek → 其余按目录声明序）⊕ 设置文档中存在但目录缺失的路由兜底行 ⊕
+    ///     目录不可用时从设置文档兜底（DeepSeek 与 pi-ai 路由）。
+    /// </summary>
     private void RebuildRows()
     {
         Providers.Clear();
@@ -157,7 +170,6 @@ public sealed class ModelsSettingsSectionViewModel : SettingsSectionViewModel
             AddProviderRow(CreateRow("deepseek-official", DeepSeekNs, [], "DeepSeek", deepSeekView));
 
         if (directory != null)
-        {
             foreach (var entry in OrderForDisplay(directory))
             {
                 if (entry.Provider == "deepseek-account" && !_accountAvailable) continue;
@@ -169,7 +181,6 @@ public sealed class ModelsSettingsSectionViewModel : SettingsSectionViewModel
                 AddProviderRow(CreateRow(entry.Provider, entry.SettingsNs, entry.SettingsPath, displayName,
                                          nsView));
             }
-        }
 
         // 设置文档中存在但目录未收录的路由（后端版本差异兜底）：显示名回退 profile.displayName。
         if (map.TryGetValue(PiAiNs, out var piAi) &&
@@ -215,8 +226,8 @@ public sealed class ModelsSettingsSectionViewModel : SettingsSectionViewModel
                       .Select(pair => pair.Entry);
     }
 
-    private static bool IsConfigured(LlmConfigurableProvider                            entry,
-                                     IReadOnlyDictionary<string, SettingsNamespaceView> map)
+    private static bool IsConfigured(
+        LlmConfigurableProvider entry, IReadOnlyDictionary<string, SettingsNamespaceView> map)
     {
         if (!map.TryGetValue(entry.SettingsNs, out var view)) return false;
         return entry.SettingsPath.Count == 0 || SettingsValues.HasPath(view.Value, entry.SettingsPath);
@@ -227,7 +238,7 @@ public sealed class ModelsSettingsSectionViewModel : SettingsSectionViewModel
                                                   SettingsNamespaceView? view)
     {
         var credentialSet = view?.Secrets?.FirstOrDefault(secret => secret.Path.SequenceEqual(
-                                                           settingsPath.Append("apiKeyEnv")))?.Set;
+                                                               settingsPath.Append("apiKeyEnv")))?.Set;
         return new ProviderRowViewModel(providerId, settingsNs, settingsPath, displayName, credentialSet);
     }
 
@@ -308,8 +319,8 @@ public sealed class ModelsSettingsSectionViewModel : SettingsSectionViewModel
     private void AttachEditor(ProviderEditorViewModel editor)
     {
         editor.TabSwitchRequested += (_, mode) => SwitchAddEditor(mode);
-        editor.Cancelled += OnEditorCancelled;
-        Editor = editor;
+        editor.Cancelled          += OnEditorCancelled;
+        Editor                    =  editor;
     }
 
     /// <summary>取消（添加卡与行编辑卡共用）：一次只有一张卡，统一收起。</summary>
@@ -328,7 +339,7 @@ public sealed class ModelsSettingsSectionViewModel : SettingsSectionViewModel
             var editing = !_addOpen && row.ProviderId == _editingRowId;
             row.IsEditing    = editing;
             row.DeepSeekCard = editing && row.SettingsNs == DeepSeekNs ? Card : null;
-            row.ProviderCard = editing && row.SettingsNs == PiAiNs     ? Editor : null;
+            row.ProviderCard = editing && row.SettingsNs == PiAiNs ? Editor : null;
         }
     }
 
@@ -353,23 +364,22 @@ public sealed class ModelsSettingsSectionViewModel : SettingsSectionViewModel
         return map;
     }
 
-    /// <summary>目录服务由面板壳注入（测试环境可为 null，此时「获取可用模型」不可用）。</summary>
-    private ILlmCatalogService? _catalogService;
-
     internal void SetCatalogService(ILlmCatalogService? catalogService)
     {
         _catalogService = catalogService;
     }
 }
 
-/// <summary>模型分区的一行提供方：圆角行卡（名称 + 凭据圆点 + 编辑按钮）；
-/// 编辑时行内展开对应编辑卡（官方同构，列表不整页切换）。</summary>
+/// <summary>
+///     模型分区的一行提供方：圆角行卡（名称 + 凭据圆点 + 编辑按钮）；
+///     编辑时行内展开对应编辑卡（官方同构，列表不整页切换）。
+/// </summary>
 public sealed class ProviderRowViewModel : ObservableObject
 {
-    private bool                          _canEdit;
-    private bool                          _isEditing;
-    private DeepSeekModelCardViewModel?   _deepSeekCard;
-    private ProviderEditorViewModel?      _providerCard;
+    private bool                        _canEdit;
+    private DeepSeekModelCardViewModel? _deepSeekCard;
+    private bool                        _isEditing;
+    private ProviderEditorViewModel?    _providerCard;
 
     public ProviderRowViewModel(string providerId,  string settingsNs, IReadOnlyList<string> settingsPath,
                                 string displayName, bool?  credentialSet)
@@ -390,8 +400,10 @@ public sealed class ProviderRowViewModel : ObservableObject
 
     public IReadOnlyList<string> SettingsPath { get; }
 
-    /// <summary>行显示名：目录 displayName（deepseek-account 官方覆盖为「DeepSeek 账号」）、
-    /// profile displayName 或路由 id 回退。</summary>
+    /// <summary>
+    ///     行显示名：目录 displayName（deepseek-account 官方覆盖为「DeepSeek 账号」）、
+    ///     profile displayName 或路由 id 回退。
+    /// </summary>
     public string DisplayName { get; }
 
     /// <summary>凭据槽位状态（apiKeyEnv 槽位 Set 与否）；null = 无显式命名引用，不画圆点（官方规则）。</summary>
@@ -404,9 +416,6 @@ public sealed class ProviderRowViewModel : ObservableObject
     public bool IsCredentialUnset => CredentialSet == false;
 
     public RelayCommand EditCommand { get; }
-
-    /// <summary>行编辑请求（由分区订阅编排编辑器打开）。</summary>
-    public event EventHandler? EditRequested;
 
     /// <summary>该行编辑卡展开态（由分区同步；一次只有一行展开）。</summary>
     public bool IsEditing
@@ -444,6 +453,9 @@ public sealed class ProviderRowViewModel : ObservableObject
         get => _canEdit;
         internal set => SetProperty(ref _canEdit, value);
     }
+
+    /// <summary>行编辑请求（由分区订阅编排编辑器打开）。</summary>
+    public event EventHandler? EditRequested;
 }
 
 /// <summary>DeepSeek 模型卡：API 密钥（单向）、接口地址与模型目录（数组整写/恢复默认）。</summary>
@@ -452,18 +464,20 @@ public sealed class DeepSeekModelCardViewModel : ObservableObject
     private const string DefaultCredentialReference = "DEEPSEEK_API_KEY";
 
     private readonly ISettingsMutationRunner _runner;
-    private          SettingsNamespaceView   _snapshot;
-    private          long                    _baselineRevision;
-    private          string                  _baselineBaseUrl = string.Empty;
-    private          JsonElement             _baselineModels;
-    private          bool                    _restoreDefaultCatalogStaged;
-    private          bool?                   _secretSet;
-    private          bool                    _canEdit = true;
-    private          bool                    _isSaving;
-    private          string?                 _saveError;
-    private          string?                 _saveSuccessText;
-    private          string                  _apiKeyDraft  = string.Empty;
-    private          string                  _baseUrlDraft = string.Empty;
+
+    private string      _apiKeyDraft     = string.Empty;
+    private string      _baselineBaseUrl = string.Empty;
+    private JsonElement _baselineModels;
+    private long        _baselineRevision;
+    private string      _baseUrlDraft = string.Empty;
+    private bool        _canEdit      = true;
+    private bool        _isSaving;
+    private bool        _restoreDefaultCatalogStaged;
+    private string?     _saveError;
+    private string?     _saveSuccessText;
+    private bool?       _secretSet;
+
+    private SettingsNamespaceView _snapshot;
 
     public DeepSeekModelCardViewModel(ISettingsMutationRunner runner, SettingsNamespaceView view)
     {
@@ -488,9 +502,6 @@ public sealed class DeepSeekModelCardViewModel : ObservableObject
 
     /// <summary>暂存「恢复默认模型目录」：保存时以 unset models 提交。</summary>
     public RelayCommand RestoreDefaultCatalogCommand { get; }
-
-    /// <summary>编辑收尾（取消或保存成功）通知；由分区订阅以返回行列表。</summary>
-    internal event EventHandler? EditFinished;
 
     public string ApiKeyDraft
     {
@@ -591,8 +602,10 @@ public sealed class DeepSeekModelCardViewModel : ObservableObject
         }
     }
 
-    /// <summary>校验错误（首个）：ID 必填且去重、数字字段为正整数（可带 K/M 后缀）或空。
-    /// 输入类型无「至少一项」校验（官方同构：空选择 = 写空数组继承缺省）。</summary>
+    /// <summary>
+    ///     校验错误（首个）：ID 必填且去重、数字字段为正整数（可带 K/M 后缀）或空。
+    ///     输入类型无「至少一项」校验（官方同构：空选择 = 写空数组继承缺省）。
+    /// </summary>
     public string? FirstValidationError
     {
         get
@@ -629,6 +642,9 @@ public sealed class DeepSeekModelCardViewModel : ObservableObject
     }
 
     public bool CanSave => CanEdit && IsDirty && !HasValidationError && !IsSaving;
+
+    /// <summary>编辑收尾（取消或保存成功）通知；由分区订阅以返回行列表。</summary>
+    internal event EventHandler? EditFinished;
 
     /// <summary>从视图整建快照与草稿（打开面板、保存成功、取消编辑共用）。</summary>
     internal void ApplySnapshot(SettingsNamespaceView view)
@@ -759,8 +775,10 @@ public sealed class DeepSeekModelCardViewModel : ObservableObject
         NotifyDirtyChanged();
     }
 
-    /// <summary>删除条目：仅移除集合成员，同时刷新校验/脏标记——否则「ID 不能为空」
-    /// 之类的条目级错误会在条目删除后残留。</summary>
+    /// <summary>
+    ///     删除条目：仅移除集合成员，同时刷新校验/脏标记——否则「ID 不能为空」
+    ///     之类的条目级错误会在条目删除后残留。
+    /// </summary>
     private void RemoveEntry(SettingsModelEntryViewModel entry)
     {
         ModelEntries.Remove(entry);
@@ -801,11 +819,13 @@ public sealed class DeepSeekModelCardViewModel : ObservableObject
     }
 }
 
-/// <summary>从草稿条目重建模型数组的共享构建器：DeepSeek 目录与 pi-ai 路由 profile 共用，
-/// 仅输入类型数组字段名不同（DeepSeek=inputModalities，pi-ai=input）。按来源节点的属性
-/// 顺序重写已知字段并逐字保留未建模字段（description、systemPromptUpdate、toolUpdate、
-/// reasoningEfforts、compat 等）；图片限额（imagePixelBudget/imageMaxBytes）仅勾选图片时
-/// 保留（上游禁止纯文本模型携带）；来源缺输入类型数组且未启用图片时不补写缺省。</summary>
+/// <summary>
+///     从草稿条目重建模型数组的共享构建器：DeepSeek 目录与 pi-ai 路由 profile 共用，
+///     仅输入类型数组字段名不同（DeepSeek=inputModalities，pi-ai=input）。按来源节点的属性
+///     顺序重写已知字段并逐字保留未建模字段（description、systemPromptUpdate、toolUpdate、
+///     reasoningEfforts、compat 等）；图片限额（imagePixelBudget/imageMaxBytes）仅勾选图片时
+///     保留（上游禁止纯文本模型携带）；来源缺输入类型数组且未启用图片时不补写缺省。
+/// </summary>
 internal static class SettingsModelArrayBuilder
 {
     public static JsonElement? Build(IReadOnlyList<SettingsModelEntryViewModel> entries, string modalityField)
@@ -819,13 +839,12 @@ internal static class SettingsModelArrayBuilder
                 writer.WriteStartObject();
                 var name = entry.NameDraft.Trim();
                 var hasContext = SettingsModelEntryViewModel.TryParsePositiveTokenCount(entry.ContextWindowDraft,
-                    out var contextWindow);
+                         out var contextWindow);
                 var hasMaxTokens = SettingsModelEntryViewModel.TryParsePositiveTokenCount(entry.MaxTokensDraft,
-                    out var maxTokens);
+                         out var maxTokens);
                 var wroteModalities = false;
                 if (entry.SourceNode.ValueKind == JsonValueKind.Object)
                     foreach (var property in entry.SourceNode.EnumerateObject())
-                    {
                         switch (property.Name)
                         {
                             case "id" :
@@ -851,7 +870,6 @@ internal static class SettingsModelArrayBuilder
                                 property.WriteTo(writer);
                                 break;
                         }
-                    }
 
                 if (!SourceHas(entry.SourceNode, "id"))
                     writer.WriteString("id", entry.IdDraft.Trim());
@@ -882,19 +900,20 @@ internal static class SettingsModelArrayBuilder
     }
 }
 
-/// <summary>模型目录的单条草稿：折叠仅显示 ID/名称行，展开补上下文窗口、
-/// 最大输出 token 数（正整数，可带 K/M 后缀）与输入类型（text/image）。
-/// 保存时未建模字段从来源节点逐字保留（对齐上游 DeepSeekCatalogModel 与 pi-ai modelProfile）。</summary>
+/// <summary>
+///     模型目录的单条草稿：折叠仅显示 ID/名称行，展开补上下文窗口、
+///     最大输出 token 数（正整数，可带 K/M 后缀）与输入类型（text/image）。
+///     保存时未建模字段从来源节点逐字保留（对齐上游 DeepSeekCatalogModel 与 pi-ai modelProfile）。
+/// </summary>
 public sealed class SettingsModelEntryViewModel : ObservableObject
 {
-    private JsonElement _sourceNode;
-    private string      _contextWindowDraft = string.Empty;
-    private string      _idDraft            = string.Empty;
-    private string      _maxTokensDraft     = string.Empty;
-    private string      _nameDraft          = string.Empty;
-    private bool        _isExpanded;
-    private bool        _isTextSelected = true;
-    private bool        _isImageSelected;
+    private string _contextWindowDraft = string.Empty;
+    private string _idDraft            = string.Empty;
+    private bool   _isExpanded;
+    private bool   _isImageSelected;
+    private bool   _isTextSelected = true;
+    private string _maxTokensDraft = string.Empty;
+    private string _nameDraft      = string.Empty;
 
     public SettingsModelEntryViewModel()
     {
@@ -949,7 +968,7 @@ public sealed class SettingsModelEntryViewModel : ObservableObject
     }
 
     /// <summary>来源节点（打开时的原始条目）；新建条目为 Undefined。</summary>
-    internal JsonElement SourceNode => _sourceNode;
+    internal JsonElement SourceNode { get; private set; }
 
     public ICommand? DeleteCommand { get; internal set; }
 
@@ -958,13 +977,13 @@ public sealed class SettingsModelEntryViewModel : ObservableObject
         // 空数组视同未声明（官方 ModelInputTypes 同构：absent or empty 继承缺省勾 text），
         // 否则合并层把「无 input」规范成空数组后打开编辑即报「至少勾选一项」。
         var modalities = node.TryGetProperty(modalityField, out var input) &&
-                         input.ValueKind == JsonValueKind.Array &&
+                         input.ValueKind        == JsonValueKind.Array     &&
                          input.GetArrayLength() > 0
             ? input
             : default;
         return new SettingsModelEntryViewModel
         {
-            _sourceNode = node.Clone(),
+            SourceNode = node.Clone(),
             IdDraft = node.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String
                 ? id.GetString() ?? string.Empty
                 : string.Empty,
@@ -978,7 +997,7 @@ public sealed class SettingsModelEntryViewModel : ObservableObject
                 ? FormatTokenCount(maxTokens)
                 : string.Empty,
             _isTextSelected  = modalities.ValueKind != JsonValueKind.Array || ContainsString(modalities, "text"),
-            _isImageSelected = modalities.ValueKind == JsonValueKind.Array && ContainsString(modalities, "image"),
+            _isImageSelected = modalities.ValueKind == JsonValueKind.Array && ContainsString(modalities, "image")
         };
     }
 
@@ -995,10 +1014,10 @@ public sealed class SettingsModelEntryViewModel : ObservableObject
     {
         if (value == 0) return "0";
         if (value % 1_000_000 == 0)
-            return (value / 1_000_000).ToString(System.Globalization.CultureInfo.InvariantCulture) + "M";
+            return (value / 1_000_000).ToString(CultureInfo.InvariantCulture) + "M";
         if (value % 1_000 == 0)
-            return (value / 1_000).ToString(System.Globalization.CultureInfo.InvariantCulture) + "K";
-        return value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            return (value / 1_000).ToString(CultureInfo.InvariantCulture) + "K";
+        return value.ToString(CultureInfo.InvariantCulture);
     }
 
     /// <summary>解析数字草稿：允许 K/M 后缀（1M=1000000）；0 合法并视为不写入该字段。</summary>
@@ -1034,6 +1053,9 @@ public sealed class SettingsModelEntryViewModel : ObservableObject
         return TryParseTokenCount(text, out value) && value > 0;
     }
 
-    private static bool ContainsString(JsonElement array, string value) => array.EnumerateArray()
-       .Any(item => item.ValueKind == JsonValueKind.String && item.GetString() == value);
+    private static bool ContainsString(JsonElement array, string value)
+    {
+        return array.EnumerateArray()
+                    .Any(item => item.ValueKind == JsonValueKind.String && item.GetString() == value);
+    }
 }

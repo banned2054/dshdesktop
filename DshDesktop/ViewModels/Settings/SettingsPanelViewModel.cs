@@ -21,31 +21,33 @@ public sealed class SettingsPanelViewModel : ObservableObject, ISettingsMutation
     private readonly Action<string?>      _applyThemePreference;
     private readonly ICredentialsService? _credentialsService;
     private readonly ILlmCatalogService?  _llmCatalogService;
-    private readonly Lock                 _stateSync = new();
-    private readonly ISettingsService     _settingsService;
-    private readonly ISessionService?     _sessionService;
     private readonly Action<Action>       _postToUi;
 
     private readonly Dictionary<string, NamespaceWriteQueue> _queues = [];
 
-    private CancellationTokenSource? _refreshDebounce;
-    private SettingsDescribeValue?   _describe;
+    private readonly ISessionService? _sessionService;
+    private readonly ISettingsService _settingsService;
+    private readonly Lock             _stateSync = new();
+
+    private SettingsSectionViewModel? _activeSection;
 
     private IReadOnlyDictionary<string, CredentialStatus> _credentialStatuses =
         new Dictionary<string, CredentialStatus>();
 
-    private IReadOnlyList<LlmConfigurableProvider>? _providerDirectory;
+    private SettingsDescribeValue? _describe;
 
-    private Dictionary<string, long> _revisions = [];
-
+    private string  _errorText = string.Empty;
     private bool    _hasError;
     private bool    _isLoading = true;
-    private bool    _isReadOnly;
     private bool    _isOpen;
-    private string  _errorText = string.Empty;
+    private bool    _isReadOnly;
     private string? _openDocumentError;
 
-    private SettingsSectionViewModel? _activeSection;
+    private IReadOnlyList<LlmConfigurableProvider>? _providerDirectory;
+
+    private CancellationTokenSource? _refreshDebounce;
+
+    private Dictionary<string, long> _revisions = [];
 
     public SettingsPanelViewModel(ISettingsService    settingsService,      ICredentialsService? credentialsService,
                                   Action<string?>     applyThemePreference, Action<Action>?      postToUi = null,
@@ -105,9 +107,6 @@ public sealed class SettingsPanelViewModel : ObservableObject, ISettingsMutation
     /// <summary>打开配置文件：经后端物化 patch 文档并调起系统编辑器；失败在按钮旁内联呈现。</summary>
     public AsyncRelayCommand OpenSettingsDocumentCommand { get; }
 
-    /// <summary>关闭请求（面板 UI / Esc / 遮罩点击触发）；由宿主把 IsSettingsOpen 置回 false。</summary>
-    public event EventHandler? CloseRequested;
-
     public bool IsLoading
     {
         get => _isLoading;
@@ -161,6 +160,9 @@ public sealed class SettingsPanelViewModel : ObservableObject, ISettingsMutation
 
     public bool HasOpenDocumentError => !string.IsNullOrEmpty(OpenDocumentError);
 
+    /// <summary>关闭请求（面板 UI / Esc / 遮罩点击触发）；由宿主把 IsSettingsOpen 置回 false。</summary>
+    public event EventHandler? CloseRequested;
+
     /// <summary>打开面板：每次都重新 DescribeAsync、全量投影、凭据批量查询与应用主题。</summary>
     public async Task OpenAsync(CancellationToken cancellationToken = default)
     {
@@ -202,7 +204,7 @@ public sealed class SettingsPanelViewModel : ObservableObject, ISettingsMutation
         if (ReferenceEquals(ActiveSection, section)) return;
 
         ActiveSection = section;
-        ProjectFromSnapshot(preserveCardDrafts : false);
+        ProjectFromSnapshot(false);
     }
 
     private async Task LoadAsync(CancellationToken cancellationToken)
@@ -219,7 +221,7 @@ public sealed class SettingsPanelViewModel : ObservableObject, ISettingsMutation
             {
                 AcceptDescribe(describe);
                 IsReadOnly = !describe.Writable;
-                ProjectFromSnapshot(preserveCardDrafts : false);
+                ProjectFromSnapshot(false);
                 ApplyThemeFromSnapshot();
                 IsLoading = false;
             });
@@ -265,7 +267,7 @@ public sealed class SettingsPanelViewModel : ObservableObject, ISettingsMutation
         {
             var describe = await _settingsService.DescribeAsync();
             AcceptDescribe(describe);
-            _postToUi(() => ProjectFromSnapshot(preserveCardDrafts : true));
+            _postToUi(() => ProjectFromSnapshot(true));
             _ = RefreshCredentialStatusesAsync();
         }
         catch (Exception)
@@ -396,8 +398,10 @@ public sealed class SettingsPanelViewModel : ObservableObject, ISettingsMutation
         }
     }
 
-    /// <summary>拉取模型目录（与 composer 模型菜单同源）并投影到模型分区（账户行可见性 + 只读目录）；
-    /// 无会话服务、加载被取消或失败时区块保持/置为空，不影响面板错误态。</summary>
+    /// <summary>
+    ///     拉取模型目录（与 composer 模型菜单同源）并投影到模型分区（账户行可见性 + 只读目录）；
+    ///     无会话服务、加载被取消或失败时区块保持/置为空，不影响面板错误态。
+    /// </summary>
     private async Task RefreshModelCatalogAsync(CancellationToken cancellationToken)
     {
         if (_sessionService is null) return;
@@ -483,7 +487,7 @@ public sealed class SettingsPanelViewModel : ObservableObject, ISettingsMutation
             AcceptDescribe(describe);
             _postToUi(() =>
             {
-                ProjectFromSnapshot(preserveCardDrafts : true);
+                ProjectFromSnapshot(true);
                 row.ErrorText = message;
             });
         }
@@ -553,8 +557,8 @@ public sealed class SettingsPanelViewModel : ObservableObject, ISettingsMutation
     /// </summary>
     private sealed class NamespaceWriteQueue
     {
-        private readonly Lock                  _sync    = new();
         private readonly List<PendingRowWrite> _pending = [];
+        private readonly Lock                  _sync    = new();
         private          bool                  _isPumping;
 
         public void Enqueue(PendingRowWrite write)

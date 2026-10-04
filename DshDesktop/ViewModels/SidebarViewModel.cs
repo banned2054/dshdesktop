@@ -27,10 +27,18 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
     // 「工作区」分类的固定哨兵值：未被置顶的工作区统一收进该分类（项目自有投影）。
     private const string WorkspacesKey = "$workspaces";
 
-    private readonly HashSet<string>     _collapsedGroups = [];
-    private readonly Action<Action>      _postToUi;
-    private readonly Action<string?>     _reportError;
-    private readonly Func<string?, Task> _requestNewSession;
+    private readonly HashSet<string> _collapsedGroups = [];
+
+    // 工作区管理请求交 root 编排（真实/模拟服务），业务错误由本类呈现在对应弹窗内。
+    private readonly Func<string, Task>? _deleteWorkspace;
+
+    // 本地置顶注册表（项目自有方案，持久化到本项目配置文件，不消费后端置顶集合）：
+    // 会话与工作区共用，集合变化经 PinsChanged 回流重建行投影。
+    private readonly ISidebarPinService          _pinService;
+    private readonly Action<Action>              _postToUi;
+    private readonly Func<string, string, Task>? _renameWorkspace;
+    private readonly Action<string?>             _reportError;
+    private readonly Func<string?, Task>         _requestNewSession;
 
     // 用户点击行/新建入口时请求 root 切换选中或编排创建；错误上报到窗口级 ErrorText（null 表示清除）。
     private readonly Action<SessionItemViewModel?> _requestSelection;
@@ -38,54 +46,44 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
     private readonly ISessionService   _sessionService;
     private readonly IWorkspaceService _workspaceService;
 
-    // 本地置顶注册表（项目自有方案，持久化到本项目配置文件，不消费后端置顶集合）：
-    // 会话与工作区共用，集合变化经 PinsChanged 回流重建行投影。
-    private readonly ISidebarPinService _pinService;
-
-    // 工作区管理请求交 root 编排（真实/模拟服务），业务错误由本类呈现在对应弹窗内。
-    private readonly Func<string, Task>?         _deleteWorkspace;
-    private readonly Func<string, string, Task>? _renameWorkspace;
-
     /// <summary>完整会话目录（后端返回顺序，含未选中空白会话）；可由列表刷新整体重建。</summary>
     private IReadOnlyList<SessionSummary> _catalog = [];
 
     // root 最近推送的选中会话：用于 IsCurrent 标记、空白行可见性与刷新后的选中决策。
     private SessionItemViewModel? _currentSession;
+    private string?               _deleteTargetKey;
+    private string?               _deleteTargetTitle;
 
-    private bool    _isCreatingWorkspaceSession;
-    private bool    _isDeletingWorkspace;
-    private bool    _isMutatingSessionFlags;
-    private string? _deleteServerError;
-    private string? _deleteTargetKey;
-    private string? _deleteTargetTitle;
-    private bool    _isDeleteConfirmOpen;
+    private bool _isCreatingWorkspaceSession;
+    private bool _isDeleteConfirmOpen;
+    private bool _isDeletingWorkspace;
 
     // 用户主动停留在新对话草稿页：刷新触发的回退选中不得把草稿页抢回旧会话；
     // 手动点击行与选中会话被删除的回退不受此守卫影响。标记由 root 推送。
     private bool    _isDraftPageActive;
     private bool    _isGroupMenuOpen;
+    private bool    _isMutatingSessionFlags;
+    private bool    _isRenameOpen;
+    private bool    _isRenamingSession;
     private bool    _isRenamingWorkspace;
+    private bool    _isRequestingNewSession;
+    private bool    _isSearchOpen;
+    private bool    _isSessionRenameOpen;
+    private int     _listRefreshPending;
+    private string  _renameDraftText = string.Empty;
     private string? _renameServerError;
     private string? _renameTargetKey;
     private string? _renameTargetTitle;
-    private bool    _isRenameOpen;
-    private string  _renameDraftText = string.Empty;
-    private bool    _isRenamingSession;
-    private string? _sessionRenameServerError;
-    private string? _sessionRenameTargetId;
-    private bool    _isSessionRenameOpen;
-    private string  _sessionRenameDraftText = string.Empty;
+
+    // 默认按工作区分组，对齐参考 Web 客户端的默认视图选项。
+    private int    _sessionListModeIndex   = SessionListModeByWorkspace;
+    private string _sessionRenameDraftText = string.Empty;
 
     // 弹窗代次：每次实际开合递增（取消、Esc、浅失焦经 TwoWay IsOpen 关闭同样经过）。
     // 在途确认以提交时捕获的代次判断归属，迟到的成功/失败不得关闭、清空或写入
     // 后来打开的其他弹窗；仅比较 sessionId 不足以识别关闭后重开的同一会话弹窗。
-    private int  _sessionRenameGeneration;
-    private bool _isRequestingNewSession;
-    private bool _isSearchOpen;
-    private int  _listRefreshPending;
-
-    // 默认按工作区分组，对齐参考 Web 客户端的默认视图选项。
-    private int _sessionListModeIndex = SessionListModeByWorkspace;
+    private int     _sessionRenameGeneration;
+    private string? _sessionRenameTargetId;
 
     private string _sessionSearchText = string.Empty;
 
@@ -292,9 +290,9 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
         $"将把“{_deleteTargetTitle}”从工作区列表中移除。文件夹与会话记录会保留，其会话将显示在“未分组”下。";
 
     /// <summary>删除失败提示（确认弹窗内呈现，可重试或取消）。</summary>
-    public string? DeleteErrorText => _deleteServerError;
+    public string? DeleteErrorText { get; private set; }
 
-    public bool HasDeleteError => _deleteServerError is not null;
+    public bool HasDeleteError => DeleteErrorText is not null;
 
     /// <summary>确认删除是否可用：存在删除目标且不在途。</summary>
     public bool CanConfirmDelete => !_isDeletingWorkspace && _deleteTargetKey is not null;
@@ -308,6 +306,63 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
         _workspaces.Any(workspace => workspace.Id != _renameTargetKey &&
                                      string.Equals(workspace.Title, RenameTrimmedText,
                                                    StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>重命名会话弹窗是否打开（会话菜单「重命名」项打开，浅失焦或取消关闭）。</summary>
+    public bool IsSessionRenameOpen
+    {
+        get => _isSessionRenameOpen;
+        private set
+        {
+            if (!SetProperty(ref _isSessionRenameOpen, value)) return;
+
+            // 开合即换代（取消、Esc、浅失焦经 TwoWay IsOpen 关闭都走这里）：
+            // 在途确认以提交时捕获的代次判断归属。
+            _sessionRenameGeneration++;
+        }
+    }
+
+    /// <summary>会话重命名输入草稿：弹窗打开时预填当前标题；trim 后为确认与校验依据。</summary>
+    public string SessionRenameDraftText
+    {
+        get => _sessionRenameDraftText;
+        set
+        {
+            if (!SetProperty(ref _sessionRenameDraftText, value ?? string.Empty)) return;
+            // 输入变化即重算本地校验；上一次确认失败的服务端错误随之让位。
+            SessionRenameErrorText = null;
+            NotifySessionRenameValidation();
+        }
+    }
+
+    /// <summary>
+    ///     确认重命名是否可用：存在目标、标题非空且不在途。对齐官方语义，与工作区
+    ///     重命名不同，未变更的标题不阻止确认——确认当前自动标题正是「钉住」它的手势。
+    /// </summary>
+    public bool CanConfirmSessionRename =>
+        !_isRenamingSession                &&
+        _sessionRenameTargetId is not null &&
+        SessionRenameTrimmedText.Length > 0;
+
+    /// <summary>会话重命名错误提示：服务端校验与调用失败在弹窗内呈现（会话标题允许重名，无本地冲突检查）。</summary>
+    public string? SessionRenameErrorText { get; private set; }
+
+    public bool HasSessionRenameError => SessionRenameErrorText is not null;
+
+    /// <summary>会话重命名草稿的 trim 结果：确认与未变更比对都以它为准。</summary>
+    private string SessionRenameTrimmedText => SessionRenameDraftText.Trim();
+
+    /// <summary>分组方式弹层勾选态：按工作区。随视图模式变化由 SessionListModeIndex 联动。</summary>
+    public bool IsGroupByWorkspace => _sessionListModeIndex == SessionListModeByWorkspace;
+
+    /// <summary>分组方式弹层勾选态：单列表。</summary>
+    public bool IsGroupFlat => _sessionListModeIndex == SessionListModeFlat;
+
+    public void Dispose()
+    {
+        _sessionService.SessionsChanged     -= OnSessionsChanged;
+        _workspaceService.WorkspacesChanged -= OnWorkspacesChanged;
+        _pinService.PinsChanged             -= OnPinsChanged;
+    }
 
     /// <summary>重命名校验相关属性的统一通知点（输入、在途与错误状态变化都会经过）。</summary>
     private void NotifyRenameValidation()
@@ -367,7 +422,10 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
         NotifyRenameValidation();
     }
 
-    private void CancelWorkspaceRename() => CloseRename();
+    private void CancelWorkspaceRename()
+    {
+        CloseRename();
+    }
 
     /// <summary>工作区菜单「删除工作区」：以该行工作区为对象打开确认弹窗。</summary>
     private void OpenWorkspaceDelete(SessionGroupHeaderViewModel? group)
@@ -376,7 +434,7 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
 
         _deleteTargetKey   = group.Key;
         _deleteTargetTitle = group.TitleText;
-        _deleteServerError = null;
+        DeleteErrorText    = null;
         OnPropertyChanged(nameof(DeleteConfirmText));
         OnPropertyChanged(nameof(DeleteErrorText));
         OnPropertyChanged(nameof(HasDeleteError));
@@ -396,12 +454,12 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
         {
             await _deleteWorkspace(workspaceId);
             // 成功：移除经工作区状态流回流；成员会话按记账语义由刷新投影落「未分组」。
-            _deleteServerError = null;
+            DeleteErrorText = null;
             CloseDelete();
         }
         catch (Exception exception)
         {
-            _deleteServerError = exception.Message;
+            DeleteErrorText = exception.Message;
             OnPropertyChanged(nameof(DeleteErrorText));
             OnPropertyChanged(nameof(HasDeleteError));
         }
@@ -418,58 +476,17 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
         IsDeleteConfirmOpen = false;
         _deleteTargetKey    = null;
         _deleteTargetTitle  = null;
-        _deleteServerError  = null;
+        DeleteErrorText     = null;
         OnPropertyChanged(nameof(DeleteConfirmText));
         OnPropertyChanged(nameof(DeleteErrorText));
         OnPropertyChanged(nameof(HasDeleteError));
         OnPropertyChanged(nameof(CanConfirmDelete));
     }
 
-    private void CancelWorkspaceDelete() => CloseDelete();
-
-    /// <summary>重命名会话弹窗是否打开（会话菜单「重命名」项打开，浅失焦或取消关闭）。</summary>
-    public bool IsSessionRenameOpen
+    private void CancelWorkspaceDelete()
     {
-        get => _isSessionRenameOpen;
-        private set
-        {
-            if (!SetProperty(ref _isSessionRenameOpen, value)) return;
-
-            // 开合即换代（取消、Esc、浅失焦经 TwoWay IsOpen 关闭都走这里）：
-            // 在途确认以提交时捕获的代次判断归属。
-            _sessionRenameGeneration++;
-        }
+        CloseDelete();
     }
-
-    /// <summary>会话重命名输入草稿：弹窗打开时预填当前标题；trim 后为确认与校验依据。</summary>
-    public string SessionRenameDraftText
-    {
-        get => _sessionRenameDraftText;
-        set
-        {
-            if (!SetProperty(ref _sessionRenameDraftText, value ?? string.Empty)) return;
-            // 输入变化即重算本地校验；上一次确认失败的服务端错误随之让位。
-            _sessionRenameServerError = null;
-            NotifySessionRenameValidation();
-        }
-    }
-
-    /// <summary>
-    ///     确认重命名是否可用：存在目标、标题非空且不在途。对齐官方语义，与工作区
-    ///     重命名不同，未变更的标题不阻止确认——确认当前自动标题正是「钉住」它的手势。
-    /// </summary>
-    public bool CanConfirmSessionRename =>
-        !_isRenamingSession                &&
-        _sessionRenameTargetId is not null &&
-        SessionRenameTrimmedText.Length > 0;
-
-    /// <summary>会话重命名错误提示：服务端校验与调用失败在弹窗内呈现（会话标题允许重名，无本地冲突检查）。</summary>
-    public string? SessionRenameErrorText => _sessionRenameServerError;
-
-    public bool HasSessionRenameError => _sessionRenameServerError is not null;
-
-    /// <summary>会话重命名草稿的 trim 结果：确认与未变更比对都以它为准。</summary>
-    private string SessionRenameTrimmedText => SessionRenameDraftText.Trim();
 
     /// <summary>会话重命名校验相关属性的统一通知点（输入、在途与错误状态变化都会经过）。</summary>
     private void NotifySessionRenameValidation()
@@ -484,10 +501,10 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
     {
         if (session is null) return;
 
-        _sessionRenameTargetId    = session.Id;
-        _sessionRenameServerError = null;
-        SessionRenameDraftText    = session.Title ?? string.Empty;
-        IsSessionRenameOpen       = true;
+        _sessionRenameTargetId = session.Id;
+        SessionRenameErrorText = null;
+        SessionRenameDraftText = session.Title ?? string.Empty;
+        IsSessionRenameOpen    = true;
 
         // 预填与残留草稿相同时草稿 setter 不通知，开窗即补齐校验通知（CanConfirm 与错误文本），
         // 否则常驻弹窗的确认按钮停留在关闭时通知的禁用态。
@@ -514,7 +531,7 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
                 // 只更新原会话标题，不关闭、不清空、不写入当前弹窗。
                 return;
 
-            _sessionRenameServerError = null;
+            SessionRenameErrorText = null;
             CloseSessionRename();
         }
         catch (Exception exception)
@@ -522,7 +539,7 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
             // 归属已变时不写入：错误只属于发起确认的那个弹窗。
             if (generation != _sessionRenameGeneration) return;
 
-            _sessionRenameServerError = exception.Message;
+            SessionRenameErrorText = exception.Message;
             NotifySessionRenameValidation();
         }
         finally
@@ -537,32 +554,22 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
     /// <summary>关闭并清理会话重命名弹窗状态（取消、确认成功与浅失焦共用）。</summary>
     private void CloseSessionRename()
     {
-        IsSessionRenameOpen       = false;
-        _sessionRenameTargetId    = null;
-        _sessionRenameServerError = null;
+        IsSessionRenameOpen    = false;
+        _sessionRenameTargetId = null;
+        SessionRenameErrorText = null;
         NotifySessionRenameValidation();
     }
 
-    private void CancelSessionRename() => CloseSessionRename();
-
-    /// <summary>分组方式弹层勾选态：按工作区。随视图模式变化由 SessionListModeIndex 联动。</summary>
-    public bool IsGroupByWorkspace => _sessionListModeIndex == SessionListModeByWorkspace;
-
-    /// <summary>分组方式弹层勾选态：单列表。</summary>
-    public bool IsGroupFlat => _sessionListModeIndex == SessionListModeFlat;
+    private void CancelSessionRename()
+    {
+        CloseSessionRename();
+    }
 
     /// <summary>分组方式弹层选项：切换视图模式并收起弹层（对齐参考客户端菜单选中即关闭）。</summary>
     private void SetSessionListMode(int modeIndex)
     {
         SessionListModeIndex = modeIndex;
         IsGroupMenuOpen      = false;
-    }
-
-    public void Dispose()
-    {
-        _sessionService.SessionsChanged     -= OnSessionsChanged;
-        _workspaceService.WorkspacesChanged -= OnWorkspacesChanged;
-        _pinService.PinsChanged             -= OnPinsChanged;
     }
 
     /// <summary>
@@ -822,7 +829,7 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
         // 「未分组」同为分类行（纯文字+右侧箭头，不并入工作区分类），仅在有成员时显示。
         AppendGroup(rows, headers, UngroupedKey, "未分组", matches.Where(session => !accounted.Contains(session.Id)),
                     accounted,
-                    false, false, true, isCategory : true);
+                    false, false, true, true);
         ApplySessionRows(rows);
     }
 
@@ -900,7 +907,10 @@ public sealed class SidebarViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>本地置顶注册表集合变化：置顶/取消置顶已生效，直接重建行投影。</summary>
-    private void OnPinsChanged(object? sender, EventArgs e) => _postToUi(RebuildSessionRows);
+    private void OnPinsChanged(object? sender, EventArgs e)
+    {
+        _postToUi(RebuildSessionRows);
+    }
 
     private async Task RefreshWorkspacesSafeAsync()
     {

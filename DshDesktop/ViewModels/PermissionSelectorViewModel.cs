@@ -23,20 +23,19 @@ public sealed class PermissionSelectorViewModel : ObservableObject, IDisposable
     private readonly Action<Action>           _postToUi;
     private readonly Action<string?>          _reportError;
 
-    private PermissionCatalog?         _catalog;
-    private PermissionOptionViewModel? _pendingConfirmation;
+    private PermissionCatalog? _catalog;
+    private bool               _catalogFailed;
 
-    private long    _currentSeq;
-    private string? _currentValue;
-    private bool    _catalogFailed;
-    private bool    _isAcknowledged;
-    private bool    _isBackendConnected;
-    private bool    _isCatalogLoaded;
-    private bool    _isConfirmOpen;
-    private bool    _isDraftTarget;
-    private string? _draftPreset;
-    private bool    _isMenuOpen;
-    private bool    _isSwitching;
+    private long                       _currentSeq;
+    private string?                    _draftPreset;
+    private bool                       _isAcknowledged;
+    private bool                       _isBackendConnected;
+    private bool                       _isCatalogLoaded;
+    private bool                       _isConfirmOpen;
+    private bool                       _isDraftTarget;
+    private bool                       _isMenuOpen;
+    private bool                       _isSwitching;
+    private PermissionOptionViewModel? _pendingConfirmation;
 
     public PermissionSelectorViewModel(IPermissionPresetService permissionPresetService,
                                        Action<string?>          reportError,
@@ -53,12 +52,6 @@ public sealed class PermissionSelectorViewModel : ObservableObject, IDisposable
         CancelSwitchCommand      = new RelayCommand(CancelSwitch);
         // 目录变化广播在连接线程到达：编组回界面线程重读；失败保持旧目录并等待下次触发。
         _permissionPresetService.CatalogChanged += OnCatalogChanged;
-    }
-
-    /// <summary>退订目录广播（root 释放时调用）。</summary>
-    public void Dispose()
-    {
-        _permissionPresetService.CatalogChanged -= OnCatalogChanged;
     }
 
     public RelayCommand ToggleMenuCommand { get; }
@@ -79,7 +72,7 @@ public sealed class PermissionSelectorViewModel : ObservableObject, IDisposable
     public bool HasSession => SessionId is not null;
 
     /// <summary>permissions 投影给出的当前权威值；投影未到（无基线）或处于草稿页时为 null。</summary>
-    public string? CurrentValue => _currentValue;
+    public string? CurrentValue { get; private set; }
 
     /// <summary>是否有选中会话：草稿页（无会话）时为假，可见性由 <see cref="IsVisible" /> 承担。</summary>
     public bool IsVisible => HasSession || _isDraftTarget;
@@ -89,7 +82,7 @@ public sealed class PermissionSelectorViewModel : ObservableObject, IDisposable
     ///     默认——即新会话将被后端播种的预设）。两者皆无时为 null（显示「权限…」）。
     /// </summary>
     private string? EffectiveValue =>
-        HasSession ? _currentValue : _isDraftTarget ? _draftPreset ?? _catalog?.DefaultPreset : null;
+        HasSession ? CurrentValue : _isDraftTarget ? _draftPreset ?? _catalog?.DefaultPreset : null;
 
     /// <summary>目录是否已加载且非空（加载失败或空目录即不可用态）。</summary>
     private bool IsCatalogAvailable => _catalog is { Options.Count: > 0 };
@@ -100,7 +93,7 @@ public sealed class PermissionSelectorViewModel : ObservableObject, IDisposable
     ///     加载中/不可用/会话内无投影基线一律禁用，不显示猜测的默认值。
     /// </summary>
     public bool IsSelectorEnabled => !_isConfirmOpen && _isBackendConnected && _isCatalogLoaded && IsCatalogAvailable &&
-                                     (HasSession ? _currentValue is not null && !_isSwitching : _isDraftTarget);
+                                     (HasSession ? CurrentValue is not null && !_isSwitching : _isDraftTarget);
 
     /// <summary>预设下拉展开态（Popup 双向绑定）。</summary>
     public bool IsMenuOpen
@@ -170,6 +163,12 @@ public sealed class PermissionSelectorViewModel : ObservableObject, IDisposable
     public string PickerToolTip =>
         EffectiveValue is null ? "执行权限预设" : $"访问模式，当前：{PermissionPickerLabel}";
 
+    /// <summary>退订目录广播（root 释放时调用）。</summary>
+    public void Dispose()
+    {
+        _permissionPresetService.CatalogChanged -= OnCatalogChanged;
+    }
+
     /// <summary>
     ///     选中会话变化时整体替换上下文。投影基线与 seq 属会话级状态一并清零：新会话的
     ///     首个投影（seq 从头计）可被正常接受；切换请求的目标会话随之后续请求更新。
@@ -178,11 +177,11 @@ public sealed class PermissionSelectorViewModel : ObservableObject, IDisposable
     {
         if (SessionId == sessionId) return;
 
-        SessionId     = sessionId;
-        _currentValue = null;
-        _currentSeq   = 0;
-        _draftPreset  = null;
-        IsMenuOpen    = false;
+        SessionId    = sessionId;
+        CurrentValue = null;
+        _currentSeq  = 0;
+        _draftPreset = null;
+        IsMenuOpen   = false;
         CancelSwitch();
         OnPropertyChanged(nameof(HasSession));
         OnPropertyChanged(nameof(IsVisible));
@@ -201,9 +200,9 @@ public sealed class PermissionSelectorViewModel : ObservableObject, IDisposable
         _isDraftTarget = isDraftTarget;
         if (isDraftTarget)
         {
-            _currentValue = null;
-            _currentSeq   = 0;
-            IsMenuOpen    = false;
+            CurrentValue = null;
+            _currentSeq  = 0;
+            IsMenuOpen   = false;
         }
         else
         {
@@ -241,8 +240,8 @@ public sealed class PermissionSelectorViewModel : ObservableObject, IDisposable
     {
         if (string.IsNullOrEmpty(currentValue) || seq < _currentSeq) return;
 
-        _currentSeq   = seq;
-        _currentValue = currentValue;
+        _currentSeq  = seq;
+        CurrentValue = currentValue;
         RefreshSelectionMarks();
         RefreshPermissionState();
     }

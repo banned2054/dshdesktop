@@ -16,6 +16,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     private const int EmptyPageFollowUpLimit = 4;
 
     private readonly IBackendHostService _backendHostService;
+    private readonly ICredentialsService _credentialsService;
 
     // 导航与创建编排状态。_drafts 是按会话记的草稿簿（空串键为新对话草稿页的输入文本，
     // UI 线程写入、可重建的客户端状态）；_navigationGeneration 随每次选中切换递增，
@@ -24,25 +25,22 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
 
     // follow 代际门闩：随 BeginFollow 递增；旧订阅循环在锁内校验代际后才应用更新，
     // 防止被抢占的旧循环把上一会话的迟到更新写进新会话的状态。
-    private readonly Lock           _followGate = new();
-    private readonly Action<Action> _postToUi;
+    private readonly Lock                _followGate = new();
+    private readonly ILlmCatalogService? _llmCatalogService;
 
     private readonly IPermissionPresetService _permissionPresetService;
+    private readonly Action<Action>           _postToUi;
     private readonly ISessionService          _sessionService;
     private readonly ISettingsService         _settingsService;
-    private readonly ICredentialsService      _credentialsService;
-    private readonly ILlmCatalogService?      _llmCatalogService;
     private readonly IToolApprovalService     _toolApprovalService;
     private readonly IWorkspaceService        _workspaceService;
+
+    private List<WorkspaceOptionViewModel> _allWorkspaceMenuOptions = [];
 
     // 时间线组装状态：快照、增量与翻页共用同一套分组规则。
     private TimelineAssembly _assembly;
     private string?          _draftAgentPreset = AgentPresetModes.Default;
     private ModelSelection?  _draftModelSelection;
-
-    // 新对话草稿的本地权限预选（与模型预选同一模式）：选择器回调记账并递增草稿版本，
-    // 首发送创建会话后、发送首条消息前经 /permission 应用（会话创建参数不携带权限）。
-    private string? _draftPermissionPreset;
 
     // 待复用会话记账：AttachCompleted 区分「会话已创建但工作区关联未完成」（重试须先恢复
     // 关联）与「关联已完成、仅后续选型或发送失败」（重试直接复用，不再创建）。AgentPreset
@@ -50,7 +48,9 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     private (string SessionId, string? WorkspaceId, bool WithoutWorkspace, string? AgentPreset,
         bool AttachCompleted)? _draftPendingSession;
 
-    private bool _draftWithoutWorkspace;
+    // 新对话草稿的本地权限预选（与模型预选同一模式）：选择器回调记账并递增草稿版本，
+    // 首发送创建会话后、发送首条消息前经 /permission 应用（会话创建参数不携带权限）。
+    private string? _draftPermissionPreset;
 
     // 新对话草稿的版本（身份）：文本、工作区去向、预选模式或预选模型任一被用户改动时
     // 递增；导航离开/返回只是同一份草稿的缓存与装载，不递增。首发送快照捕获版本，成功后
@@ -58,9 +58,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     // 不依赖文本字符串相等。
     private int _draftVersion;
 
-    // SelectedSession 切换时程序化装载草稿文本的同步守卫：装载属于同一份草稿的恢复，
-    // 不让 DraftMessage 的 PropertyChanged 误增草稿版本。
-    private bool _isRestoringComposerDraft;
+    private bool _draftWithoutWorkspace;
 
     // 新对话草稿（进程内，独立于已有会话；窗口关闭即丢弃，不写 Harness 存储与日志）：
     // 预选工作区（null=未选择）、是否显式选择不使用工作区、预选模型/档位、预选模式
@@ -79,18 +77,25 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
 
     // 历史窗口状态：快照游标（throughSeq）、窗口首条事件 seq（beforeSeq）与是否还有更早历史。
     private long _historyThroughSeq;
+    private bool _isAboutOpen;
     private bool _isDraftSendInFlight;
+    private bool _isHelpMenuOpen;
     private bool _isInitialized;
     private bool _isLoadingOlder;
+    private bool _isPresetMenuOpen;
+
+    // SelectedSession 切换时程序化装载草稿文本的同步守卫：装载属于同一份草稿的恢复，
+    // 不让 DraftMessage 的 PropertyChanged 误增草稿版本。
+    private bool _isRestoringComposerDraft;
+    private bool _isSettingsOpen;
 
     // 工作区/模式下拉展开态（Popup 双向绑定）；首次发送编排的在途标记（连点合并）。
     private bool _isWorkspaceMenuOpen;
-    private bool _isPresetMenuOpen;
+
+    private int _navigationGeneration;
 
     // 添加工作区登记的在途标记：侧栏与草稿页下拉两处入口共用，选完文件夹后合并连点。
     private int _registeringWorkspace;
-
-    private int _navigationGeneration;
 
     private SessionItemViewModel? _selectedSession;
 
@@ -101,9 +106,10 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     private List<ConversationEntry> _timelineEntries = [];
 
     private long _windowStartSeq = 1;
-    private bool _isSettingsOpen;
-    private bool _isHelpMenuOpen;
-    private bool _isAboutOpen;
+
+    private WorkspaceOptionViewModel? _withoutWorkspaceOption;
+
+    private string _workspaceSearchText = string.Empty;
 
     /// <summary>
     ///     保持旧测试与宿主构造调用的兼容性。未提供审批服务时，界面没有审批来源，
@@ -294,17 +300,6 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     /// <summary>关闭关于面板（关闭按钮 / Esc / 遮罩点击共用）。</summary>
     public RelayCommand CloseAboutCommand { get; }
 
-    /// <summary>程序集 InformationalVersion（缺失回退 Version）；根程序集元数据在 AOT 下保留。</summary>
-    private static string ResolveAppVersion()
-    {
-        var assembly = typeof(MainWindowViewModel).Assembly;
-        var informational = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()
-                                   ?.InformationalVersion;
-        if (!string.IsNullOrWhiteSpace(informational)) return informational;
-
-        return assembly.GetName().Version?.ToString() ?? "未知";
-    }
-
     /// <summary>新对话草稿页的工作区选项（含显式「不使用工作区」项）；随工作区投影刷新。</summary>
     public ObservableCollection<WorkspaceOptionViewModel> WorkspaceOptions { get; } = [];
 
@@ -329,10 +324,6 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     /// </summary>
     public ObservableCollection<WorkspaceOptionViewModel> WorkspaceMenuOptions { get; } = [];
 
-    private List<WorkspaceOptionViewModel> _allWorkspaceMenuOptions = [];
-
-    private string _workspaceSearchText = string.Empty;
-
     /// <summary>工作区下拉搜索词：输入即过滤滚动区（纯文本包含、忽略大小写），关闭面板时清空。</summary>
     public string WorkspaceSearchText
     {
@@ -342,8 +333,6 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
             if (SetProperty(ref _workspaceSearchText, value)) RefillWorkspaceMenuOptions();
         }
     }
-
-    private WorkspaceOptionViewModel? _withoutWorkspaceOption;
 
     /// <summary>下拉固定底行的「不使用工作区」兼容项；随工作区投影与集合一起重建。</summary>
     public WorkspaceOptionViewModel? WithoutWorkspaceOption
@@ -530,6 +519,17 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         _settingsService.DocumentUpdated      -= OnSettingsDocumentUpdated;
         _credentialsService.ReferenceUpdated  -= OnCredentialsReferenceUpdated;
         Settings.CloseRequested               -= OnSettingsCloseRequested;
+    }
+
+    /// <summary>程序集 InformationalVersion（缺失回退 Version）；根程序集元数据在 AOT 下保留。</summary>
+    private static string ResolveAppVersion()
+    {
+        var assembly = typeof(MainWindowViewModel).Assembly;
+        var informational = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+                                   ?.InformationalVersion;
+        if (!string.IsNullOrWhiteSpace(informational)) return informational;
+
+        return assembly.GetName().Version?.ToString() ?? "未知";
     }
 
     /// <summary>把会话提升为已开始（发送被接受/观察到内容或运行的过渡信号），并刷新阶段界面。</summary>
@@ -1061,9 +1061,8 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     /// <summary>未提供权限预设服务时的空实现：目录为空（选择器保持不可用态），切换请求无效果。</summary>
     private sealed class EmptyPermissionPresetService : IPermissionPresetService
     {
-        public static EmptyPermissionPresetService Instance { get; } = new();
-
-        private static readonly PermissionCatalog Catalog = new([], PermissionPresetValues.WorkspaceWrite);
+        private static readonly PermissionCatalog            Catalog = new([], PermissionPresetValues.WorkspaceWrite);
+        public static           EmptyPermissionPresetService Instance { get; } = new();
 
         public event EventHandler? CatalogChanged
         {
@@ -1546,11 +1545,16 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     ///     侧栏工作区菜单的重命名请求（回调注入 Sidebar，业务错误由 Sidebar 呈现在
     ///     重命名弹窗内，不经窗口级错误条）；成功后投影经工作区状态流回流刷新。
     /// </summary>
-    private Task RenameWorkspaceAsync(string workspaceId, string title) =>
-        _workspaceService.RenameWorkspaceAsync(workspaceId, title);
+    private Task RenameWorkspaceAsync(string workspaceId, string title)
+    {
+        return _workspaceService.RenameWorkspaceAsync(workspaceId, title);
+    }
 
     /// <summary>侧栏工作区菜单的删除请求（语义同上：只删注册，会话由后端记账回到「未分组」）。</summary>
-    private Task DeleteWorkspaceAsync(string workspaceId) => _workspaceService.DeleteWorkspaceAsync(workspaceId);
+    private Task DeleteWorkspaceAsync(string workspaceId)
+    {
+        return _workspaceService.DeleteWorkspaceAsync(workspaceId);
+    }
 
     #endregion
 }
