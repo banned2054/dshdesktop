@@ -8,8 +8,9 @@
              x:DataType="vm:MessageItemViewModel"
              mc:Ignorable="d"
              d:DesignHeight="120" d:DesignWidth="480">
-    <!-- 消息气泡：主时间线与过程组内的中间消息复用（DataTemplate 实例化本视图）。 -->
-    <Grid Margin="0,0,0,16">
+    <!-- 消息气泡：主时间线与过程组内的中间消息复用（DataTemplate 实例化本视图）。
+         底部间距按消息类型自带：用户/系统气泡 16，助手消息由内部块管理（思考行零间距）。 -->
+    <Grid>
         <Border Classes="message-bubble user-bubble" IsVisible="{Binding IsUserMessage}">
             <StackPanel Spacing="7">
                 <TextBlock Text="{Binding RoleLabel}" Classes="caption"
@@ -21,53 +22,57 @@
                            Foreground="{DynamicResource OnAccentMutedBrush}" />
             </StackPanel>
         </Border>
-        <Border Classes="message-bubble assistant-bubble"
-                IsVisible="{Binding IsAssistantMessage}">
-            <StackPanel Spacing="7">
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <TextBlock Text="{Binding RoleLabel}" Classes="caption"
-                               Foreground="{DynamicResource AccentTextBrush}" />
-                    <TextBlock Text="生成中…" Classes="caption"
-                               IsVisible="{Binding IsStreaming}" />
-                    <TextBlock Text="已中断" Classes="caption"
-                               Foreground="{DynamicResource StatusErrorBrush}"
-                               IsVisible="{Binding IsInterrupted}" />
-                </StackPanel>
-                <!-- 思考行（reasoning）：默认收起显示首行摘要，展开显示全文；
-                     纯思考消息（无正文）也复用本视图，正文区隐藏。 -->
-                <StackPanel Spacing="4" IsVisible="{Binding HasReasoning}">
-                    <Button Classes="tool-toggle" Command="{Binding ToggleReasoningCommand}"
-                            HorizontalAlignment="Left">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <TextBlock Text="思考" FontSize="12" VerticalAlignment="Center"
-                                       Foreground="{DynamicResource TextMutedBrush}" />
-                            <TextBlock Text="{Binding ReasoningSummary}" Classes="caption"
-                                       TextTrimming="CharacterEllipsis" MaxWidth="420"
-                                       VerticalAlignment="Center"
-                                       IsVisible="{Binding !IsReasoningExpanded}" />
-                            <Panel Width="8" Height="8" VerticalAlignment="Center">
-                                <Path Data="{StaticResource Icon.ChevronRight}"
-                                      Stroke="{DynamicResource TextMutedBrush}" StrokeThickness="1.5"
-                                      IsVisible="{Binding !IsReasoningExpanded}" />
-                                <Path Data="{StaticResource Icon.ChevronDown}"
-                                      Stroke="{DynamicResource TextMutedBrush}" StrokeThickness="1.5"
-                                      IsVisible="{Binding IsReasoningExpanded}" />
-                            </Panel>
-                        </StackPanel>
-                    </Button>
-                    <Border Background="{DynamicResource PanelBackgroundBrush}"
-                            CornerRadius="6" Padding="10,8" MaxWidth="760" HorizontalAlignment="Left"
-                            IsVisible="{Binding IsReasoningExpanded}">
-                        <TextBlock Text="{Binding Reasoning}" Classes="reason-body" />
-                    </Border>
-                </StackPanel>
-                <!-- 助手内容按 Markdown 渲染，流式增量经 MarkdownBuilder 增量更新。 -->
-                <md:MarkdownRenderer MarkdownBuilder="{Binding MarkdownBuilder}"
-                                     IsVisible="{Binding Content, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                <TextBlock Text="{Binding CreatedAtText}" Classes="caption"
-                           IsVisible="{Binding Content, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+        <!-- 助手消息不用气泡包装：思考行与工具调用行同一互锁节奏（行内 4px 呼吸位，
+             与 tool-card 机制相同），块间用 Margin 而非容器 Spacing——子块折叠不留幻影间距。
+             纯思考消息（无正文）只出思考行，与相邻行零额外空隙。 -->
+        <StackPanel IsVisible="{Binding IsAssistantMessage}">
+            <!-- 状态行仅在生成中/已中断时出现。 -->
+            <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,0,0,4"
+                        IsVisible="{Binding HasStatusHint}">
+                <TextBlock Text="生成中…" Classes="caption"
+                           IsVisible="{Binding IsStreaming}" />
+                <TextBlock Text="已中断" Classes="caption"
+                           Foreground="{DynamicResource StatusErrorBrush}"
+                           IsVisible="{Binding IsInterrupted}" />
             </StackPanel>
-        </Border>
+            <!-- 思考行（reasoning）：对齐官方 ReasoningRow——思考图标 + 标题 + 分隔点 +
+                 首行摘要，整行可点击；悬停/展开的图标切换与工具行共用 reason-row 样式。
+                 展开正文按官方口径缩进 22px（对齐标题位）、无卡片底。 -->
+            <StackPanel IsVisible="{Binding HasReasoning}">
+                <Button Classes="reason-row" Classes.expanded="{Binding IsReasoningExpanded}"
+                        Command="{Binding ToggleReasoningCommand}">
+                    <Grid ColumnDefinitions="Auto,Auto,Auto,*" ColumnSpacing="6">
+                        <Panel Grid.Column="0" Classes="row-leading" Width="16" Height="16"
+                               VerticalAlignment="Center">
+                            <Path Classes="row-icon" Data="{Binding ThinkingIconStroke}"
+                                  Stroke="{Binding $parent[Button].Foreground}" StrokeThickness="1" />
+                            <Path Classes="row-icon" Data="{Binding ThinkingIconFill}"
+                                  Fill="{Binding $parent[Button].Foreground}" />
+                            <Path Classes="row-chev row-chev-hover" Data="{StaticResource Icon.RowChevronDown}"
+                                  Stroke="{Binding $parent[Button].Foreground}" StrokeThickness="1" />
+                            <Path Classes="row-chev row-chev-open" Data="{StaticResource Icon.RowChevronUp}"
+                                  Stroke="{Binding $parent[Button].Foreground}" StrokeThickness="1" />
+                        </Panel>
+                        <TextBlock Grid.Column="1" Text="思考" FontSize="13"
+                                   VerticalAlignment="Center" />
+                        <Ellipse Grid.Column="2" Width="2" Height="2" Margin="2,0"
+                                 Fill="{DynamicResource ToolRowCaptionBrush}"
+                                 VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="3" Text="{Binding ReasoningSummary}"
+                                   Classes="tool-summary" />
+                    </Grid>
+                </Button>
+                <TextBlock Text="{Binding Reasoning}" Classes="reason-body" Margin="22,4,0,4"
+                           IsVisible="{Binding IsReasoningExpanded}" />
+            </StackPanel>
+            <!-- 正文块：上下呼吸位由本块 Margin 提供；按 Markdown 渲染，
+                 流式增量经 MarkdownBuilder 增量更新。 -->
+            <StackPanel Margin="0,10,0,16" Spacing="7"
+                        IsVisible="{Binding Content, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                <md:MarkdownRenderer MarkdownBuilder="{Binding MarkdownBuilder}" />
+                <TextBlock Text="{Binding CreatedAtText}" Classes="caption" />
+            </StackPanel>
+        </StackPanel>
         <Border Classes="message-bubble system-bubble"
                 IsVisible="{Binding IsSystemMessage}">
             <TextBlock Text="{Binding Content}" Classes="caption" TextWrapping="Wrap" />

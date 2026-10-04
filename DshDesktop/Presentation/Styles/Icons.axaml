@@ -25,6 +25,9 @@
     <!-- 展开/折叠指示箭头（8×8 描边）：收起向右、展开向下。 -->
     <StreamGeometry x:Key="Icon.ChevronRight">M0,0 L4,4 L0,8</StreamGeometry>
     <StreamGeometry x:Key="Icon.ChevronDown">M0,4 L4,8 L8,4</StreamGeometry>
+    <!-- DSH IconChevronDown/UpOutlineRegular（16 viewBox、1px）：折叠行悬停/展开态行首箭头。 -->
+    <StreamGeometry x:Key="Icon.RowChevronDown">M4,6 L7.29289,9.29289 C7.68342,9.68342 8.31658,9.68342 8.70711,9.29289 L12,6</StreamGeometry>
+    <StreamGeometry x:Key="Icon.RowChevronUp">M12,10 L8.70711,6.70711 C8.31658,6.31658 7.68342,6.31658 7.29289,6.70711 L4,10</StreamGeometry>
     <!-- 下拉小箭头（8×4 描边）：各选择器按钮尾部。 -->
     <StreamGeometry x:Key="Icon.DropdownChevron">M0,0 L4,4 L8,0</StreamGeometry>
     <!-- DSH IconFolderCloseRegular：描边关闭文件夹 + 中分隔线（16 viewBox、1px）。 -->

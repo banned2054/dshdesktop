@@ -1,4 +1,6 @@
+using Avalonia.Media;
 using DshDesktop.Core.Models;
+using DshDesktop.Utils;
 using LiveMarkdown.Avalonia;
 
 namespace DshDesktop.ViewModels;
@@ -46,6 +48,11 @@ public sealed class MessageItemViewModel : ConversationItemViewModel
 
     public bool HasReasoning => !string.IsNullOrWhiteSpace(Reasoning);
 
+    /// <summary>思考行图标（官方 ReasoningRow 的 IconThinkOutlineRegular，弧线+中心点）。</summary>
+    public StreamGeometry ThinkingIconStroke => ToolCallText.ThinkingIconStroke;
+
+    public StreamGeometry ThinkingIconFill => ToolCallText.ThinkingIconFill;
+
     public RelayCommand ToggleReasoningCommand { get; }
 
     public bool IsReasoningExpanded
@@ -73,7 +80,10 @@ public sealed class MessageItemViewModel : ConversationItemViewModel
     public bool IsInterrupted
     {
         get => _isInterrupted;
-        private set => SetProperty(ref _isInterrupted, value);
+        private set
+        {
+            if (SetProperty(ref _isInterrupted, value)) OnPropertyChanged(nameof(HasStatusHint));
+        }
     }
 
     public string Content
@@ -93,8 +103,14 @@ public sealed class MessageItemViewModel : ConversationItemViewModel
     public bool IsStreaming
     {
         get => _isStreaming;
-        private set => SetProperty(ref _isStreaming, value);
+        private set
+        {
+            if (SetProperty(ref _isStreaming, value)) OnPropertyChanged(nameof(HasStatusHint));
+        }
     }
+
+    /// <summary>角色标签已从助手消息移除（思考行与工具行并列）；本行仅在流式或中断时保留。</summary>
+    public bool HasStatusHint => IsStreaming || IsInterrupted;
 
     public string RoleLabel => Role switch
     {

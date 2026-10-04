@@ -94,6 +94,10 @@
             <SolidColorBrush x:Key="StatusRunningBrush" Color="#F0B45A" />
             <SolidColorBrush x:Key="StatusConnectedBrush" Color="#5ED6A0" />
             <SolidColorBrush x:Key="StatusErrorBrush" Color="#FF9A9A" />
+            <!-- 折叠行（工具/思考）：label-tertiary / label-secondary(hover) / label-caption -->
+            <SolidColorBrush x:Key="ToolRowLabelBrush" Color="#ADB2B8" />
+            <SolidColorBrush x:Key="ToolRowLabelHoverBrush" Color="#CFD3D6" />
+            <SolidColorBrush x:Key="ToolRowCaptionBrush" Color="#81858C" />
         </ResourceDictionary>
         <ResourceDictionary x:Key="Light">
             <!-- Scrollbars: state changes affect color only; thickness and shape stay fixed. -->
@@ -167,6 +171,10 @@
             <SolidColorBrush x:Key="StatusRunningBrush" Color="#DD8629" />
             <SolidColorBrush x:Key="StatusConnectedBrush" Color="#22C55E" />
             <SolidColorBrush x:Key="StatusErrorBrush" Color="#EC1313" />
+            <!-- 折叠行（工具/思考）：label-tertiary / label-secondary(hover) / label-caption -->
+            <SolidColorBrush x:Key="ToolRowLabelBrush" Color="#81858C" />
+            <SolidColorBrush x:Key="ToolRowLabelHoverBrush" Color="#61666B" />
+            <SolidColorBrush x:Key="ToolRowCaptionBrush" Color="#ADB2B8" />
         </ResourceDictionary>
     </ResourceDictionary.ThemeDictionaries>
 </ResourceDictionary>

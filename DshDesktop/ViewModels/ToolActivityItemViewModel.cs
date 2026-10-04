@@ -1,10 +1,13 @@
+using Avalonia.Media;
 using DshDesktop.Core.Models;
+using DshDesktop.Utils;
 
 namespace DshDesktop.ViewModels;
 
 /// <summary>
-///     工具调用卡片：名称、参数与结果的状态展示。折叠态显示单行状态，
-///     展开态显示参数与结果文本；运行中卡片在结果事件到达后原地落定。
+///     工具调用条目：折叠态为「口语化标题 + 参数摘要 + 状态」单行（文案对齐
+///     官方 DSH 客户端推导规则），展开态显示参数与结果文本；运行中条目在
+///     结果事件到达后原地落定。
 /// </summary>
 public sealed class ToolActivityItemViewModel : ConversationItemViewModel
 {
@@ -42,26 +45,27 @@ public sealed class ToolActivityItemViewModel : ConversationItemViewModel
         get => _status;
         private set
         {
-            if (SetProperty(ref _status, value))
-            {
-                OnPropertyChanged(nameof(StatusText));
-                OnPropertyChanged(nameof(IsRunning));
-                OnPropertyChanged(nameof(IsFailed));
-                OnPropertyChanged(nameof(IsSucceeded));
-                OnPropertyChanged(nameof(HasError));
-            }
+            if (!SetProperty(ref _status, value)) return;
+            OnPropertyChanged(nameof(StatusText));
+            OnPropertyChanged(nameof(IsRunning));
+            OnPropertyChanged(nameof(IsFailed));
+            OnPropertyChanged(nameof(IsSucceeded));
+            OnPropertyChanged(nameof(HasError));
+            OnPropertyChanged(nameof(SummaryText));
         }
     }
 
     public string DisplayName => string.IsNullOrWhiteSpace(Name) ? "工具调用" : Name;
 
-    public string StatusText => Status switch
-    {
-        ToolActivityStatus.Running   => "运行中…",
-        ToolActivityStatus.Succeeded => "已完成",
-        ToolActivityStatus.Failed    => "失败",
-        _                            => string.Empty
-    };
+    /// <summary>折叠行口语化标题：已知工具映射中文动词，未知名回退通用词。</summary>
+    public string Title => ToolCallText.GetTitle(Name);
+
+    /// <summary>折叠行摘要：失败时显示错误首行，否则按工具变体从参数推导。</summary>
+    public string SummaryText => IsFailed && !string.IsNullOrWhiteSpace(ErrorReason)
+        ? ToolCallText.FirstLine(ErrorReason)
+        : ToolCallText.GetSummary(Name, ArgumentsText);
+
+    public string StatusText => ToolCallText.GetStatusText(Name, Status);
 
     public bool IsRunning => Status == ToolActivityStatus.Running;
 
@@ -80,7 +84,9 @@ public sealed class ToolActivityItemViewModel : ConversationItemViewModel
         get => _errorReason;
         private set
         {
-            if (SetProperty(ref _errorReason, value)) OnPropertyChanged(nameof(HasError));
+            if (!SetProperty(ref _errorReason, value)) return;
+            OnPropertyChanged(nameof(HasError));
+            OnPropertyChanged(nameof(SummaryText));
         }
     }
 
@@ -99,15 +105,16 @@ public sealed class ToolActivityItemViewModel : ConversationItemViewModel
     public bool IsExpanded
     {
         get => _isExpanded;
-        set
-        {
-            if (SetProperty(ref _isExpanded, value)) OnPropertyChanged(nameof(DetailsToggleText));
-        }
+        set => SetProperty(ref _isExpanded, value);
     }
 
     public RelayCommand ToggleDetailsCommand { get; }
 
-    public string DetailsToggleText => IsExpanded ? "收起" : "详情";
+    /// <summary>折叠行图标描边部件（对齐官方 VARIANT_ICONS，未知工具回退四角星）。</summary>
+    public StreamGeometry IconStroke => ToolCallText.GetIconStroke(Name);
+
+    /// <summary>折叠行图标填充部件；纯描边图标为 null（Data 空即不渲染）。</summary>
+    public StreamGeometry? IconFill => ToolCallText.GetIconFill(Name);
 
     /// <summary>结果事件到达：保持发起位置与参数，落定状态与结果。</summary>
     public void Settle(ToolActivity settled)
@@ -117,12 +124,18 @@ public sealed class ToolActivityItemViewModel : ConversationItemViewModel
             Name = settled.Name;
             OnPropertyChanged(nameof(Name));
             OnPropertyChanged(nameof(DisplayName));
+            OnPropertyChanged(nameof(Title));
+            OnPropertyChanged(nameof(IconStroke));
+            OnPropertyChanged(nameof(IconFill));
+            OnPropertyChanged(nameof(StatusText));
+            OnPropertyChanged(nameof(SummaryText));
         }
 
         if (!string.IsNullOrWhiteSpace(settled.ArgumentsJson))
         {
             ArgumentsText = settled.ArgumentsJson;
             OnPropertyChanged(nameof(ArgumentsText));
+            OnPropertyChanged(nameof(SummaryText));
         }
 
         Status      = settled.Status;

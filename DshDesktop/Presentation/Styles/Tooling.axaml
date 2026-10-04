@@ -1,15 +1,15 @@
 <Styles xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <!-- 工具执行区样式：时间线内的工具卡片与输入面板内的审批横幅。 -->
+    <!-- 工具执行区样式：时间线内的工具行与输入面板内的审批横幅。 -->
 
-    <Style Selector="Border.tool-card">
-        <Setter Property="MaxWidth" Value="760" />
-        <Setter Property="HorizontalAlignment" Value="Left" />
-        <Setter Property="Background" Value="{DynamicResource PanelBackgroundBrush}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource SubtleBorderBrush}" />
-        <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="Padding" Value="14,10" />
-        <Setter Property="CornerRadius" Value="10" />
+    <!-- 折叠行摘要：随行基色继承（悬停整行变亮），失败行转错误色。 -->
+    <Style Selector="TextBlock.tool-summary">
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="TextBlock.tool-summary.error">
+        <Setter Property="Foreground" Value="{DynamicResource StatusErrorBrush}" />
     </Style>
     <!-- 审批横幅：内嵌暗底卡片，等待态用运行色点缀。 -->
     <Style Selector="Border.approval-banner">

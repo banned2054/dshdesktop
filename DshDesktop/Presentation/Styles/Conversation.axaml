@@ -18,15 +18,14 @@
     <Style Selector="Border.user-bubble">
         <Setter Property="HorizontalAlignment" Value="Right" />
         <Setter Property="Background" Value="{DynamicResource UserBubbleBrush}" />
+        <Setter Property="Margin" Value="0,0,0,16" />
     </Style>
-    <!-- 助手回复不用气泡底色，直接融入聊天背景；仅保留对齐与可读宽度。 -->
-    <Style Selector="Border.assistant-bubble">
-        <Setter Property="HorizontalAlignment" Value="Left" />
-        <Setter Property="Background" Value="Transparent" />
-    </Style>
+    <!-- 助手回复不用气泡底色，直接融入聊天背景；思考行与工具行同节奏（无包装间距），
+         正文块自带呼吸位，因此助手消息不再套 message-bubble。 -->
     <Style Selector="Border.system-bubble">
         <Setter Property="HorizontalAlignment" Value="Center" />
         <Setter Property="Background" Value="{DynamicResource PanelBackgroundBrush}" />
+        <Setter Property="Margin" Value="0,0,0,16" />
     </Style>
     <Style Selector="TextBlock.reason-body">
         <Setter Property="FontSize" Value="13" />
@@ -58,6 +57,61 @@
     </Style>
     <Style Selector="Button.tool-toggle:pointerover">
         <Setter Property="Background" Value="{DynamicResource SessionHoverBrush}" />
+    </Style>
+    <!-- 思考/工具共用折叠行（对齐官方 DisclosureRow）：整行可点，行基色用官方
+         label-tertiary、悬停整行（文字+图标）转 label-secondary；负水平 Margin 对齐
+         列缘、底部 -4 与相邻行互锁。 -->
+    <Style Selector="Button.reason-row">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Padding" Value="6,4" />
+        <Setter Property="Margin" Value="-6,0,-6,-4" />
+        <Setter Property="CornerRadius" Value="6" />
+        <Setter Property="Foreground" Value="{DynamicResource ToolRowLabelBrush}" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="Focusable" Value="False" />
+    </Style>
+    <Style Selector="Button.reason-row:pointerover">
+        <Setter Property="Foreground" Value="{DynamicResource ToolRowLabelHoverBrush}" />
+    </Style>
+    <!-- 悬停/按下只做文字高亮：Fluent 按钮主题会在模板层给 pointerover/pressed
+         上底色，须显式钉回透明（同 approval-allow 的处理）。 -->
+    <Style Selector="Button.reason-row:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="Button.reason-row:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <!-- 行首图标盒：类型图标 14px 居中于 16px 盒；悬停淡出换折叠 chevron，
+         展开态常显展开 chevron——opacity 交叉淡化（对齐官方 100ms 过渡）。 -->
+    <Style Selector="Panel.row-leading Path">
+        <Setter Property="Stretch" Value="Uniform" />
+        <Setter Property="Width" Value="14" />
+        <Setter Property="Height" Value="14" />
+        <Setter Property="HorizontalAlignment" Value="Center" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="Transitions">
+            <Transitions>
+                <DoubleTransition Property="Opacity" Duration="0:0:0.1" />
+            </Transitions>
+        </Setter>
+    </Style>
+    <Style Selector="Panel.row-leading Path.row-chev">
+        <Setter Property="Opacity" Value="0" />
+    </Style>
+    <Style Selector="Button.reason-row:pointerover Path.row-icon">
+        <Setter Property="Opacity" Value="0" />
+    </Style>
+    <Style Selector="Button.reason-row:pointerover Path.row-chev-hover">
+        <Setter Property="Opacity" Value="1" />
+    </Style>
+    <Style Selector="Button.reason-row.expanded Path.row-icon">
+        <Setter Property="Opacity" Value="0" />
+    </Style>
+    <Style Selector="Button.reason-row.expanded Path.row-chev-hover">
+        <Setter Property="Opacity" Value="0" />
+    </Style>
+    <Style Selector="Button.reason-row.expanded Path.row-chev-open">
+        <Setter Property="Opacity" Value="1" />
     </Style>
     <!-- 新对话草稿页的工作区下拉：紧贴输入框上缘左对齐的圆角下拉按钮（Codex 风格），
          宽度随内容收缩；弹出列表行复用 PopupMenus 的 popup-item 样式。 -->
