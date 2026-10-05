@@ -14,10 +14,12 @@ public sealed class SimulatedSessionServiceTests
 
         var sessions = await service.GetSessionsAsync();
 
-        // 长会话翻页是模拟模式的功能演示会话，置为最新；其余按更新时间倒序。
-        ClassicAssert.AreEqual(4, sessions.Count);
+        // 长会话翻页是模拟模式的功能演示会话，置为最新；其余按更新时间倒序
+        //（任务面板演示会话最旧，居末位）。
+        ClassicAssert.AreEqual(5, sessions.Count);
         ClassicAssert.AreEqual("session-history", sessions[0].Id);
         ClassicAssert.AreEqual("session-welcome", sessions[1].Id);
+        ClassicAssert.AreEqual("session-todos", sessions[4].Id);
         ClassicAssert.IsTrue(sessions[0].UpdatedAt >= sessions[1].UpdatedAt);
         ClassicAssert.IsTrue(sessions[1].UpdatedAt >= sessions[2].UpdatedAt);
     }

@@ -3,9 +3,10 @@ using System.Text.Json;
 namespace DshDesktop.Harness.Models.Responses;
 
 /// <summary>settings/describe 返回值。hasDocument 上游恒为 true，本端不消费。</summary>
-public sealed record SettingsDescribeValueWire(bool                         Writable,
-                                               bool                         HasDocument,
-                                               IReadOnlyList<SettingsNamespaceViewWire> Namespaces);
+public sealed record SettingsDescribeValueWire(
+    bool                                     Writable,
+    bool                                     HasDocument,
+    IReadOnlyList<SettingsNamespaceViewWire> Namespaces);
 
 /// <summary>设置命名空间视图（线上形态）：schema 为序列化的 schemastery 包络，value 为脱敏后的生效值。</summary>
 public sealed record SettingsNamespaceViewWire(

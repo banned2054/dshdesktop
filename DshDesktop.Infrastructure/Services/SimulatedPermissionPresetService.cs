@@ -18,9 +18,9 @@ public sealed class SimulatedPermissionPresetService : IPermissionPresetService
         new PermissionPresetOption(PermissionPresetValues.FullAccess, PermissionPresetValues.FullAccess)
     ], PermissionPresetValues.WorkspaceWrite);
 
-    private readonly Lock _syncRoot = new();
-
     private readonly List<(string SessionId, string Preset)> _switches = [];
+
+    private readonly Lock _syncRoot = new();
 
     /// <summary>已下达的切换请求（按到达顺序）；供测试断言。</summary>
     public IReadOnlyList<(string SessionId, string Preset)> Switches
@@ -35,9 +35,6 @@ public sealed class SimulatedPermissionPresetService : IPermissionPresetService
     }
 
     public event EventHandler? CatalogChanged;
-
-    /// <summary>模拟后端接受了切换（宿主有 /permission 命令）；组装层据此推送投影回流。</summary>
-    public event EventHandler<(string SessionId, string Preset)>? PresetApplied;
 
     public Task<PermissionCatalog> GetCatalogAsync(CancellationToken cancellationToken = default)
     {
@@ -60,6 +57,9 @@ public sealed class SimulatedPermissionPresetService : IPermissionPresetService
         PresetApplied?.Invoke(this, (sessionId, preset));
         return Task.FromResult(true);
     }
+
+    /// <summary>模拟后端接受了切换（宿主有 /permission 命令）；组装层据此推送投影回流。</summary>
+    public event EventHandler<(string SessionId, string Preset)>? PresetApplied;
 
     /// <summary>模拟后端权限预设目录变化（驱动客户端重读目录）。</summary>
     public void RaiseCatalogChanged()

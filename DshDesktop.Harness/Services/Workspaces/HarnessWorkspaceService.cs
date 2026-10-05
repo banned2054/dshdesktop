@@ -18,11 +18,12 @@ public sealed class HarnessWorkspaceService(HarnessConnection connection) : IWor
 {
     private readonly Lock _sync = new();
 
-    private IReadOnlyList<WorkspaceSummary> _items = [];
-
     private IReadOnlySet<string> _archivedSessionIds = new HashSet<string>();
 
-    private Task?                    _pump;
+    private IReadOnlyList<WorkspaceSummary> _items = [];
+
+    private Task? _pump;
+
     private CancellationTokenSource? _pumpCancellation;
 
     public async ValueTask DisposeAsync()
@@ -60,7 +61,7 @@ public sealed class HarnessWorkspaceService(HarnessConnection connection) : IWor
                 _pumpCancellation = cancellation;
                 // 泵生命周期属于服务自身 CTS（随 Dispose 取消），与调用方 token 无关：
                 // 显式 None 声明有意不传播，避免调用方取消误杀后台泵。
-                _pump             = Task.Run(() => PumpAsync(cancellation.Token), CancellationToken.None);
+                _pump = Task.Run(() => PumpAsync(cancellation.Token), CancellationToken.None);
             }
         }
 
@@ -76,7 +77,10 @@ public sealed class HarnessWorkspaceService(HarnessConnection connection) : IWor
     {
         get
         {
-            lock (_sync) return _archivedSessionIds;
+            lock (_sync)
+            {
+                return _archivedSessionIds;
+            }
         }
     }
 

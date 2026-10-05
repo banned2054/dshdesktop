@@ -15,11 +15,11 @@ internal sealed record ListedSessionRow(SessionSummary Summary, SessionListMetad
 ///     - 首屏不等待：列表先正常返回并显示，Unknown 行随后在后台核实，结果经变更通知合并；
 ///     - 小并发（2）+ 同会话在途合并 + 每会话每连接代有限重试（指数退避）；
 ///     - 有效结论：blank=true → ConfirmedBlank；blank=false → Engaged；
-///       null（会话不存在）、元数据缺失、格式错误、超时或读取失败一律不判定（保持 Unknown，不误隐藏）；
+///     null（会话不存在）、元数据缺失、格式错误、超时或读取失败一律不判定（保持 Unknown，不误隐藏）；
 ///     - 竞争：本端已参与（台账）的会话不判空白；核实期间观察到会话活动则迟到结果作废并重验，
-///       已接受的非空证据不会被迟到的空白响应覆盖；不比较 cached 与 sequenced 两类水印的 seq；
+///     已接受的非空证据不会被迟到的空白响应覆盖；不比较 cached 与 sequenced 两类水印的 seq；
 ///     - 连接重置：取消旧代在途请求、递增代际并清空退避；旧代响应不写入新代，
-///       旧代结论保持生效（避免隐藏行闪现）但会在新代重新核实；
+///     旧代结论保持生效（避免隐藏行闪现）但会在新代重新核实；
 ///     - 结论只在内存中，随进程结束消失；不持久化，不写任何会话数据。
 /// </summary>
 internal sealed class SessionBlankVerifier(
@@ -29,10 +29,6 @@ internal sealed class SessionBlankVerifier(
     Func<DateTimeOffset>?                  now = null)
     : IDisposable
 {
-    /// <summary>session/projections 只读读取器；返回 null 表示后端确认会话不存在。</summary>
-    internal delegate Task<SessionProjectionsValue?> ProjectionsReader(
-        string sessionId, CancellationToken cancellationToken);
-
     /// <summary>核实请求并发上限。</summary>
     internal const int MaxConcurrency = 2;
 
@@ -43,35 +39,35 @@ internal sealed class SessionBlankVerifier(
     private static readonly TimeSpan RetryBaseDelay = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan RetryMaxDelay  = TimeSpan.FromSeconds(30);
 
-    private readonly Func<DateTimeOffset> _now  = now ?? (() => DateTimeOffset.UtcNow);
-    private readonly Lock                 _sync = new();
-
-    /// <summary>已核实结论；State=null 表示"不判定"结论（如会话不存在），仅抑制本轮重复扫描。</summary>
-    private readonly Dictionary<string, VerifiedEntry> _results = [];
+    /// <summary>会话活动版本：核实期间版本变化说明出现了更新证据，迟到结果作废。</summary>
+    private readonly Dictionary<string, long> _activityVersions = [];
 
     /// <summary>每会话的失败退避：尝试次数与下次允许核实的时刻。</summary>
     private readonly Dictionary<string, (int Attempts, DateTimeOffset NotBefore)> _failures = [];
 
-    /// <summary>会话活动版本：核实期间版本变化说明出现了更新证据，迟到结果作废。</summary>
-    private readonly Dictionary<string, long> _activityVersions = [];
-
-    /// <summary>已排队待发的会话（认领制：RunAsync 原子移除后进入在途）。</summary>
-    private readonly HashSet<string> _scheduled = [];
+    private readonly SemaphoreSlim _gate = new(MaxConcurrency, MaxConcurrency);
 
     /// <summary>在途核实的会话。</summary>
     private readonly HashSet<string> _inFlight = [];
 
-    private readonly SemaphoreSlim _gate = new(MaxConcurrency, MaxConcurrency);
+    private readonly Func<DateTimeOffset> _now = now ?? (() => DateTimeOffset.UtcNow);
 
-    private CancellationTokenSource _lifetime = new();
-    private TaskCompletionSource    _idle     = NewIdleSource();
+    /// <summary>已核实结论；State=null 表示"不判定"结论（如会话不存在），仅抑制本轮重复扫描。</summary>
+    private readonly Dictionary<string, VerifiedEntry> _results = [];
 
-    private long _generation;
-    private bool _unsupported;
+    /// <summary>已排队待发的会话（认领制：RunAsync 原子移除后进入在途）。</summary>
+    private readonly HashSet<string> _scheduled = [];
+
+    private readonly Lock _sync = new();
+
     private bool _disposed;
-    private int  _pending;
+    private long _generation;
 
-    private readonly record struct VerifiedEntry(SessionBlankState? State, long Generation);
+    private TaskCompletionSource    _idle     = NewIdleSource();
+    private CancellationTokenSource _lifetime = new();
+
+    private int  _pending;
+    private bool _unsupported;
 
     /// <summary>后端拒绝了 projections 接口（不支持或请求形状不符）；为 true 时不再发起核实。</summary>
     internal bool IsUnsupported
@@ -83,6 +79,20 @@ internal sealed class SessionBlankVerifier(
                 return _unsupported;
             }
         }
+    }
+
+    public void Dispose()
+    {
+        CancellationTokenSource lifetime;
+        lock (_sync)
+        {
+            if (_disposed) return;
+
+            _disposed = true;
+            lifetime  = _lifetime;
+        }
+
+        lifetime.Cancel();
     }
 
     /// <summary>等待全部排队与在途核实结束（测试辅助）。</summary>
@@ -135,7 +145,7 @@ internal sealed class SessionBlankVerifier(
         lock (_sync)
         {
             if (_results.TryGetValue(sessionId, out var entry) &&
-              entry.State == SessionBlankState.ConfirmedBlank)
+                entry.State == SessionBlankState.ConfirmedBlank)
                 _results[sessionId] = new VerifiedEntry(SessionBlankState.Engaged, entry.Generation);
 
             _failures.Remove(sessionId);
@@ -163,7 +173,6 @@ internal sealed class SessionBlankVerifier(
             _activityVersions[notice.SessionId] = _activityVersions.GetValueOrDefault(notice.SessionId) + 1;
 
             if (_results.TryGetValue(notice.SessionId, out var entry))
-            {
                 switch (entry.State)
                 {
                     case SessionBlankState.ConfirmedBlank :
@@ -178,7 +187,6 @@ internal sealed class SessionBlankVerifier(
                         hasScheduled = ScheduleCore(notice.SessionId);
                         break;
                 }
-            }
         }
 
         if (hasScheduled) DispatchScheduled();
@@ -201,20 +209,6 @@ internal sealed class SessionBlankVerifier(
         previous.Dispose();
     }
 
-    public void Dispose()
-    {
-        CancellationTokenSource lifetime;
-        lock (_sync)
-        {
-            if (_disposed) return;
-
-            _disposed = true;
-            lifetime  = _lifetime;
-        }
-
-        lifetime.Cancel();
-    }
-
     /// <summary>计算一行的最终空白状态。行内有效元数据视为当前代权威证据并写回核实结果。</summary>
     private SessionBlankState ResolveRowState(ListedSessionRow row)
     {
@@ -234,8 +228,8 @@ internal sealed class SessionBlankVerifier(
         }
 
         if (_results.TryGetValue(row.Summary.Id, out var entry) &&
-          entry.Generation == _generation &&
-          entry.State is { } verified)
+            entry.Generation == _generation                     &&
+            entry.State is { } verified)
             // 普通列表返回的 Unknown 行不得撤销当前连接上下文中的有效核实结论。
             return verified;
 
@@ -277,7 +271,7 @@ internal sealed class SessionBlankVerifier(
         if (_results.TryGetValue(sessionId, out var entry) && entry.Generation == _generation) return false;
 
         if (_failures.TryGetValue(sessionId, out var failure) &&
-          (failure.Attempts >= MaxAttemptsPerGeneration || failure.NotBefore > _now()))
+            (failure.Attempts >= MaxAttemptsPerGeneration || failure.NotBefore > _now()))
             return false;
 
         _scheduled.Add(sessionId);
@@ -302,9 +296,9 @@ internal sealed class SessionBlankVerifier(
     private async Task RunAsync(string sessionId)
     {
         long generationAtIssue = 0;
-        long activityAtIssue   = 0;
-        var  lifetimeToken     = CancellationToken.None;
-        var  staleResult       = false;
+        long activityAtIssue;
+        var  lifetimeToken = CancellationToken.None;
+        var  staleResult   = false;
 
         CancellationTokenSource? timeout = null;
         try
@@ -414,10 +408,9 @@ internal sealed class SessionBlankVerifier(
             }
             else
             {
-                _results[sessionId] = new VerifiedEntry(metadata.Blank
-                                                            ? SessionBlankState.ConfirmedBlank
-                                                            : SessionBlankState.Engaged,
-                                                        _generation);
+                _results[sessionId] =
+                    new VerifiedEntry(metadata.Blank ? SessionBlankState.ConfirmedBlank : SessionBlankState.Engaged,
+                                      _generation);
                 _failures.Remove(sessionId);
                 stored = true;
             }
@@ -460,4 +453,10 @@ internal sealed class SessionBlankVerifier(
     {
         return new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
     }
+
+    /// <summary>session/projections 只读读取器；返回 null 表示后端确认会话不存在。</summary>
+    internal delegate Task<SessionProjectionsValue?> ProjectionsReader(
+        string sessionId, CancellationToken cancellationToken);
+
+    private readonly record struct VerifiedEntry(SessionBlankState? State, long Generation);
 }

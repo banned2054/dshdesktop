@@ -30,10 +30,15 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
 
     private readonly IPermissionPresetService _permissionPresetService;
     private readonly Action<Action>           _postToUi;
-    private readonly ISessionService          _sessionService;
-    private readonly ISettingsService         _settingsService;
-    private readonly IToolApprovalService     _toolApprovalService;
-    private readonly IWorkspaceService        _workspaceService;
+
+    // 过程窗口本地状态：按会话身份隔离，再按稳定 turn 身份记忆可见锚点与展开态。
+    // 只覆盖已加载条目；后端未给 turn 时以组内首个 Seq 作退化身份，不跨会话复用。
+    private readonly Dictionary<string, Dictionary<string, TurnProcessExpansionState>> _processExpansionStates = [];
+
+    private readonly ISessionService      _sessionService;
+    private readonly ISettingsService     _settingsService;
+    private readonly IToolApprovalService _toolApprovalService;
+    private readonly IWorkspaceService    _workspaceService;
 
     private List<WorkspaceOptionViewModel> _allWorkspaceMenuOptions = [];
 
@@ -83,16 +88,20 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     private bool _isInitialized;
     private bool _isLoadingOlder;
     private bool _isPresetMenuOpen;
+    private bool _isRebuildingTimeline;
 
     // SelectedSession 切换时程序化装载草稿文本的同步守卫：装载属于同一份草稿的恢复，
     // 不让 DraftMessage 的 PropertyChanged 误增草稿版本。
     private bool _isRestoringComposerDraft;
     private bool _isSettingsOpen;
+    private bool _isTodoPanelExpanded;
 
     // 工作区/模式下拉展开态（Popup 双向绑定）；首次发送编排的在途标记（连点合并）。
     private bool _isWorkspaceMenuOpen;
 
     private int _navigationGeneration;
+
+    private string? _processExpansionSessionId;
 
     // 添加工作区登记的在途标记：侧栏与草稿页下拉两处入口共用，选完文件夹后合并连点。
     private int _registeringWorkspace;
@@ -104,6 +113,10 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
 
     // 已加载窗口的全量条目（按 seq 升序）；翻页折叠开关变化时据此整体重建时间线。
     private List<ConversationEntry> _timelineEntries = [];
+
+    // 任务面板（TodoPanel）：当前轮任务清单随 todo/write 整表替换（null=本会话尚无
+    // 写入）；_todoBaseline 同时是 todo_write 折叠行 diff 摘要的基线，随组装器重建恢复。
+    private IReadOnlyList<SessionTodoItem>? _todoBaseline;
 
     private long _windowStartSeq = 1;
 
@@ -181,6 +194,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         SendDraftCommand           = new AsyncRelayCommand(SendDraftAsync, () => CanSendDraft);
         ToggleWorkspaceMenuCommand = new RelayCommand(ToggleWorkspaceMenu);
         TogglePresetMenuCommand    = new RelayCommand(TogglePresetMenu);
+        ToggleTodoPanelCommand     = new RelayCommand(ToggleTodoPanel);
         ApproveApprovalCommand =
             new RelayCommand<PendingApprovalViewModel>(approval => _ = RespondApprovalAsync(approval, true));
         RejectApprovalCommand =
@@ -223,6 +237,55 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
 
     /// <summary>当前选中会话的待决审批（审批横幅）；随审批增删与会话切换重建。</summary>
     public ObservableCollection<PendingApprovalViewModel> SessionPendingApprovals { get; } = [];
+
+    /// <summary>composer 上方任务面板的条目（当前轮任务清单），随 todo/write 整表替换。</summary>
+    public ObservableCollection<TodoItemViewModel> TodoItems { get; } = [];
+
+    /// <summary>任务清单非空时显示面板；空清单与无清单都不渲染（对齐官方 TodoPanel）。</summary>
+    public bool HasTodoPanel => TodoItems.Count > 0;
+
+    /// <summary>
+    ///     面板头部进度段（官方 progressLabel）：「N 已完成 · N 进行中 · N 待处理」，
+    ///     计数为零的段整体省略；标题「任务」是独立元素，不拼进本串。
+    /// </summary>
+    public string TodoProgressText
+    {
+        get
+        {
+            var done    = 0;
+            var active  = 0;
+            var pending = 0;
+            foreach (var item in TodoItems)
+                switch (item.Status)
+                {
+                    case SessionTodoStatus.Completed :
+                        done++;
+                        break;
+                    case SessionTodoStatus.InProgress :
+                        active++;
+                        break;
+                    default :
+                        pending++;
+                        break;
+                }
+
+            var parts = new List<string>(3);
+            if (done    > 0) parts.Add($"{done} 已完成");
+            if (active  > 0) parts.Add($"{active} 进行中");
+            if (pending > 0) parts.Add($"{pending} 待处理");
+            return string.Join(" · ", parts);
+        }
+    }
+
+    /// <summary>任务面板展开态：默认收起且不持久化（对齐官方，面板重建即回默认）。</summary>
+    public bool IsTodoPanelExpanded
+    {
+        get => _isTodoPanelExpanded;
+        set => SetProperty(ref _isTodoPanelExpanded, value);
+    }
+
+    /// <summary>任务面板头部的展开/收起切换。</summary>
+    public RelayCommand ToggleTodoPanelCommand { get; }
 
     /// <summary>底部输入区子视图模型：草稿、发送/取消与模型选择；会话/后端上下文由本类在状态变化时推送。</summary>
     public ComposerViewModel Composer { get; }
@@ -676,6 +739,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
 
     private async Task FollowSelectedSessionAsync(SessionItemViewModel? session)
     {
+        _processExpansionSessionId = session?.Id;
         var cancellation = BeginFollow();
         int epoch;
         lock (_followGate)
@@ -687,6 +751,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         {
             ConversationItems.Clear();
             ResetStreamingMessage();
+            ResetTodoPanel();
             _timelineEntries = [];
             _assembly        = CreateAssembly();
             ResetHistoryWindow();
@@ -725,6 +790,9 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         {
             case SessionUpdate.Snapshot snapshot :
                 ResetStreamingMessage();
+                // 快照整体替换本地状态：任务面板先清空（防上一会话残留），
+                // 窗口内重放的 todo/write 随后按记录顺序填回最终态。
+                ResetTodoPanel();
                 _timelineEntries = [.. snapshot.Entries];
                 // 真实 Host 会在快照尾部为开放中的轮合成 interrupted 边界（seq 即 cursor，
                 // 持久日志中不存在）：丢弃它，让该轮保持开放，由后续真实 turn/end 收束；
@@ -754,6 +822,16 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
                 var boundary = new TurnBoundary(ended.Seq, ended.Turn, DateTimeOffset.Now, ended.Reason);
                 _timelineEntries.Add(boundary);
                 _assembly.Add(boundary);
+                break;
+
+            // 新一轮开始：清空任务面板显示（diff 基线保留，对齐官方投影语义）。
+            case SessionUpdate.TurnStarted :
+                ClearTodoPanel();
+                break;
+
+            // 任务清单整表替换：更新面板显示并记账 diff 基线（转交当前组装器）。
+            case SessionUpdate.TodoListUpdated todos :
+                ApplyTodoList(todos.Todos);
                 break;
 
             case SessionUpdate.ToolCallStarted started :
@@ -891,17 +969,97 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     /// <summary>从全量条目重建时间线；折叠资格逐轮判定（窗口内完整覆盖的轮次折叠）。</summary>
     private void RebuildTimeline()
     {
-        ConversationItems.Clear();
-        _assembly = CreateAssembly();
-        foreach (var entry in _timelineEntries) _assembly.Add(entry);
+        _isRebuildingTimeline = true;
+        try
+        {
+            ConversationItems.Clear();
+            _assembly = CreateAssembly();
+            foreach (var entry in _timelineEntries) _assembly.Add(entry);
+            _assembly.CompleteRestoredProjection();
 
-        // 重建会丢掉流式气泡；生成中重新挂回尾部，等待正式消息事件替换。
-        if (_streamingMessage is not null) ConversationItems.Add(_streamingMessage);
+            // 重建会丢掉流式气泡；生成中重新挂回尾部，等待正式消息事件替换。
+            if (_streamingMessage is not null) ConversationItems.Add(_streamingMessage);
+        }
+        finally
+        {
+            _isRebuildingTimeline = false;
+        }
     }
 
     private TimelineAssembly CreateAssembly()
     {
-        return new TimelineAssembly(ConversationItems);
+        var assembly = new TimelineAssembly(ConversationItems, ResolveProcessExpansionState);
+        // 翻页/重连重建组装器时恢复 todo diff 基线，实时调用的摘要不因重建丢失。
+        assembly.SetTodoBaseline(_todoBaseline);
+        return assembly;
+    }
+
+    private TurnProcessExpansionState? ResolveProcessExpansionState(
+        long? turn,
+        long  firstSeq,
+        bool  startExpanded)
+    {
+        var sessionId = _processExpansionSessionId;
+        if (sessionId is null) return null;
+
+        if (!_processExpansionStates.TryGetValue(sessionId, out var states))
+        {
+            states                             = [];
+            _processExpansionStates[sessionId] = states;
+        }
+
+        var identity = turn is { } turnId ? $"turn:{turnId}" : $"seq:{firstSeq}";
+        if (!states.TryGetValue(identity, out var state))
+        {
+            state = new TurnProcessExpansionState
+            {
+                IsExpanded = startExpanded
+            };
+            states[identity] = state;
+        }
+        else if (_isRebuildingTimeline && state is { IsFollowingLatest: false, EarliestVisibleSeq: not null })
+        {
+            state.IsRestorePending = true;
+        }
+
+        return state;
+    }
+
+    private void ToggleTodoPanel()
+    {
+        IsTodoPanelExpanded = !IsTodoPanelExpanded;
+    }
+
+    /// <summary>
+    ///     todo/write 到达：面板条目整表替换（官方 last-write-wins），展开态保留；
+    ///     清单同时记账为后续 todo_write 折叠行的 diff 基线。
+    /// </summary>
+    private void ApplyTodoList(IReadOnlyList<SessionTodoItem> todos)
+    {
+        TodoItems.Clear();
+        foreach (var todo in todos) TodoItems.Add(new TodoItemViewModel(todo.Content, todo.Status));
+
+        _todoBaseline = todos;
+        _assembly.SetTodoBaseline(todos);
+        OnPropertyChanged(nameof(HasTodoPanel));
+        OnPropertyChanged(nameof(TodoProgressText));
+    }
+
+    /// <summary>turn/start 到达：仅清空面板显示（收起复位），diff 基线保留给下一轮 diff。</summary>
+    private void ClearTodoPanel()
+    {
+        TodoItems.Clear();
+        IsTodoPanelExpanded = false;
+        OnPropertyChanged(nameof(HasTodoPanel));
+        OnPropertyChanged(nameof(TodoProgressText));
+    }
+
+    /// <summary>快照替换/切换会话：面板与 diff 基线一并重置，等待窗口内重放事件填回。</summary>
+    private void ResetTodoPanel()
+    {
+        ClearTodoPanel();
+        _todoBaseline = null;
+        _assembly.SetTodoBaseline(null);
     }
 
     private bool CanLoadOlder()

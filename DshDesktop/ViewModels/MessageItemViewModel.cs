@@ -13,6 +13,7 @@ public sealed class MessageItemViewModel : ConversationItemViewModel
     private string _content;
     private bool   _isInterrupted;
     private bool   _isReasoningExpanded;
+    private bool   _isReasoningProjected;
     private bool   _isStreaming;
 
     public MessageItemViewModel(ConversationMessage message) : base(message.Seq)
@@ -47,6 +48,21 @@ public sealed class MessageItemViewModel : ConversationItemViewModel
     public string? Reasoning { get; }
 
     public bool HasReasoning => !string.IsNullOrWhiteSpace(Reasoning);
+
+    /// <summary>
+    ///     已收束轮次的最终回复把 reasoning 投影进过程组后置位；
+    ///     <see cref="Reasoning" /> 仍保留原始消息数据，仅控制本条目是否重复展示思考行。
+    /// </summary>
+    public bool IsReasoningProjected
+    {
+        get => _isReasoningProjected;
+        private set
+        {
+            if (SetProperty(ref _isReasoningProjected, value)) OnPropertyChanged(nameof(HasVisibleReasoning));
+        }
+    }
+
+    public bool HasVisibleReasoning => HasReasoning && !IsReasoningProjected;
 
     /// <summary>思考行图标（官方 ReasoningRow 的 IconThinkOutlineRegular，弧线+中心点）。</summary>
     public StreamGeometry ThinkingIconStroke => ToolCallText.ThinkingIconStroke;
@@ -131,13 +147,17 @@ public sealed class MessageItemViewModel : ConversationItemViewModel
         return new MessageItemViewModel($"streaming-{Guid.NewGuid():N}", string.Empty);
     }
 
+    /// <summary>标记最终回复的思考已由过程组展示；只影响可见性，不丢弃协议数据。</summary>
+    public void ProjectReasoning()
+    {
+        IsReasoningProjected = true;
+    }
+
     public void AppendText(string text)
     {
-        if (text.Length > 0)
-        {
-            Content += text;
-            MarkdownBuilder.Append(text);
-        }
+        if (text.Length <= 0) return;
+        Content += text;
+        MarkdownBuilder.Append(text);
     }
 
     public void StopStreaming()

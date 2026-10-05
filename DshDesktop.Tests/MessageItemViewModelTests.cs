@@ -45,8 +45,9 @@ public sealed class MessageItemViewModelTests
     [Test]
     public void SettledMessageHasNoStatusHint()
     {
-        var message = new MessageItemViewModel(new ConversationMessage(
-            1, "m-1", MessageRole.Assistant, "正文", DateTimeOffset.UtcNow));
+        var message =
+            new MessageItemViewModel(new ConversationMessage(1, "m-1", MessageRole.Assistant, "正文",
+                                                             DateTimeOffset.UtcNow));
 
         ClassicAssert.IsFalse(message.HasStatusHint);
         ClassicAssert.IsFalse(message.IsStreaming);

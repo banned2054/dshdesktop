@@ -13,16 +13,9 @@ namespace DshDesktop.Infrastructure.Services;
 /// </summary>
 public sealed class SimulatedSettingsService : ISettingsService
 {
-    private sealed record NamespaceState(
-        string                            Ns,
-        JsonElement                       Schema,
-        JsonElement                       Base,
-        JsonElement                       User,
-        long                              Revision,
-        IReadOnlyList<SettingsSecretInfo> Secrets);
-
-    private readonly Lock                 _syncRoot   = new();
     private readonly List<NamespaceState> _namespaces = BuildSeed();
+
+    private readonly Lock _syncRoot = new();
 
     public event EventHandler<SettingsDocumentUpdate>? DocumentUpdated;
 
@@ -63,7 +56,6 @@ public sealed class SimulatedSettingsService : ISettingsService
         {
             var user = state.User;
             foreach (var op in ops)
-            {
                 switch (op.Op)
                 {
                     case SettingsMutationOp.SetOp :
@@ -79,7 +71,6 @@ public sealed class SimulatedSettingsService : ISettingsService
                     default :
                         throw new InvalidOperationException($"未知路径操作：{op.Op}");
                 }
-            }
 
             return state with { User = user };
         });
@@ -120,9 +111,11 @@ public sealed class SimulatedSettingsService : ISettingsService
                                          CollectSecrets(state.Secrets, value));
     }
 
-    /// <summary>凭据槽位：种子槽位 ∪ 生效值中的 apiKeyEnv 叶子。真实后端按 schema 的
-    /// credential-ref 路径派生并与凭据域联查；模拟环境以「引用名出现在值中即视为槽位已设置」
-    /// 近似（同路径种子槽位优先，保留其显式 set 状态）。</summary>
+    /// <summary>
+    ///     凭据槽位：种子槽位 ∪ 生效值中的 apiKeyEnv 叶子。真实后端按 schema 的
+    ///     credential-ref 路径派生并与凭据域联查；模拟环境以「引用名出现在值中即视为槽位已设置」
+    ///     近似（同路径种子槽位优先，保留其显式 set 状态）。
+    /// </summary>
     private static IReadOnlyList<SettingsSecretInfo> CollectSecrets(
         IReadOnlyList<SettingsSecretInfo> seeded, JsonElement value)
     {
@@ -194,7 +187,7 @@ public sealed class SimulatedSettingsService : ISettingsService
                                Json("""{"apiKeyEnv":"DEEPSEEK_API_KEY","baseURL":"https://api.deepseek.com","maxUses":5}"""),
                                EmptyObject(), 0, [new SettingsSecretInfo(["apiKeyEnv"], false)]),
             new NamespaceState("session-log-deepseek", Json("""{"type":"object"}"""),
-                               Json("""{"enabled":true,"maxBytes":8388608}"""), EmptyObject(), 0, []),
+                               Json("""{"enabled":true,"maxBytes":8388608}"""), EmptyObject(), 0, [])
         ];
     }
 
@@ -316,4 +309,12 @@ public sealed class SimulatedSettingsService : ISettingsService
         using var document = JsonDocument.Parse(buffer.WrittenMemory);
         return document.RootElement.Clone();
     }
+
+    private sealed record NamespaceState(
+        string                            Ns,
+        JsonElement                       Schema,
+        JsonElement                       Base,
+        JsonElement                       User,
+        long                              Revision,
+        IReadOnlyList<SettingsSecretInfo> Secrets);
 }

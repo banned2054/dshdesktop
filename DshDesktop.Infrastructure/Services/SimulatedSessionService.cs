@@ -78,15 +78,21 @@ public sealed class SimulatedSessionService(Action<string, string>? onSessionCre
         ["session-history"] =
             new SimulatedSession(new SessionSummary("session-history", "长会话翻页", DateTimeOffset.Now.AddMinutes(-1),
                                                     false, SessionBlankState.Engaged), BuildLongHistoryEntries(),
-                                 new ModelSelection("sim", "sim-chat"))
+                                 new ModelSelection("sim", "sim-chat")),
+        // 任务面板演示会话：一条 todo_write 调用（无 turn、其后无边界，保持逐项展示）
+        // 与同内容的种子清单——折叠行头段与任务面板在冒烟里同源可对。
+        ["session-todos"] =
+            new SimulatedSession(new SessionSummary("session-todos", "任务面板演示", DateTimeOffset.Now.AddDays(-2),
+                                                    false, SessionBlankState.Engaged),
+                                 BuildTodoDemoEntries(), null, SeedTodoItems())
     };
-
-    /// <summary>真实新建（非收养复用）的累计次数；测试用于断言"只创建一次"。</summary>
-    public int CreatedSessionCount { get; private set; }
 
     private readonly Lock _syncRoot = new();
 
     private int _nextSessionNumber = 5;
+
+    /// <summary>真实新建（非收养复用）的累计次数；测试用于断言"只创建一次"。</summary>
+    public int CreatedSessionCount { get; private set; }
 
     public event EventHandler? SessionsChanged;
 
@@ -213,21 +219,6 @@ public sealed class SimulatedSessionService(Action<string, string>? onSessionCre
         RaiseSessionsChanged();
     }
 
-    /// <summary>
-    ///     测试种子：预置一个确认空白的会话（携带 cwd 供复用候选匹配），不经过创建入口。
-    /// </summary>
-    internal void SeedBlankSession(string sessionId, string? cwd, string? title = null)
-    {
-        lock (_syncRoot)
-        {
-            var summary = new SessionSummary(sessionId, title, DateTimeOffset.Now, false,
-                                             SessionBlankState.ConfirmedBlank, cwd);
-            _sessions.Add(sessionId, new SimulatedSession(summary, []));
-        }
-
-        RaiseSessionsChanged();
-    }
-
     public Task<IReadOnlyList<ConversationMessage>> GetMessagesAsync(
         string sessionId, CancellationToken cancellationToken = default)
     {
@@ -291,12 +282,13 @@ public sealed class SimulatedSessionService(Action<string, string>? onSessionCre
     public async IAsyncEnumerable<SessionUpdate> FollowSessionAsync(
         string sessionId, [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        Channel<SessionUpdate> channel;
-        SessionUpdate.Snapshot snapshot;
-        SessionUsage           usage;
-        SessionStats           stats;
-        string                 permission;
-        long                   statsSeq;
+        Channel<SessionUpdate>          channel;
+        SessionUpdate.Snapshot          snapshot;
+        SessionUsage                    usage;
+        SessionStats                    stats;
+        string                          permission;
+        long                            statsSeq;
+        IReadOnlyList<SessionTodoItem>? seedTodos;
         lock (_syncRoot)
         {
             if (!_sessions.TryGetValue(sessionId, out var session))
@@ -308,6 +300,7 @@ public sealed class SimulatedSessionService(Action<string, string>? onSessionCre
             stats      = session.Stats;
             permission = session.CurrentPermission;
             statsSeq   = session.LastSeq;
+            seedTodos  = session.SeedTodos;
         }
 
         yield return snapshot;
@@ -315,6 +308,9 @@ public sealed class SimulatedSessionService(Action<string, string>? onSessionCre
         yield return new SessionUpdate.UsageUpdated(usage, statsSeq);
         yield return new SessionUpdate.StatsUpdated(stats, statsSeq);
         yield return new SessionUpdate.PermissionsUpdated(permission, statsSeq);
+        // 种子任务清单随快照透出（对齐真实后端的 todos 投影 checkpoint 重放）。
+        if (seedTodos is { Count: > 0 })
+            yield return new SessionUpdate.TodoListUpdated(seedTodos, statsSeq);
 
         try
         {
@@ -328,6 +324,21 @@ public sealed class SimulatedSessionService(Action<string, string>? onSessionCre
                 if (_sessions.TryGetValue(sessionId, out var session)) session.Unsubscribe(channel);
             }
         }
+    }
+
+    /// <summary>
+    ///     测试种子：预置一个确认空白的会话（携带 cwd 供复用候选匹配），不经过创建入口。
+    /// </summary>
+    internal void SeedBlankSession(string sessionId, string? cwd, string? title = null)
+    {
+        lock (_syncRoot)
+        {
+            var summary = new SessionSummary(sessionId, title, DateTimeOffset.Now, false,
+                                             SessionBlankState.ConfirmedBlank, cwd);
+            _sessions.Add(sessionId, new SimulatedSession(summary, []));
+        }
+
+        RaiseSessionsChanged();
     }
 
     /// <summary>快照携带会话当前选型；调用方持有 _syncRoot。</summary>
@@ -407,6 +418,35 @@ public sealed class SimulatedSessionService(Action<string, string>? onSessionCre
         }
 
         return entries;
+    }
+
+    /// <summary>任务面板演示会话的条目：todo_write 调用保持逐项展示，便于冒烟核对折叠行摘要。</summary>
+    private static List<ConversationEntry> BuildTodoDemoEntries()
+    {
+        return
+        [
+            CreateMessage(1, "todos-user", MessageRole.User, "帮我规划这轮迁移并记录任务清单。", -120, 1),
+            CreateMessage(2, "todos-assistant", MessageRole.Assistant,
+                          "已把迁移拆成三步记入任务清单，当前在第二步。", -119, 1),
+            CreateBoundary(3, 1, -119),
+            new ToolActivity(4, "call-todo-seed", "todo_write",
+                             """
+                             {"todos":[{"content":"梳理迁移方案","status":"completed"},{"content":"实现投影接入","status":"in_progress"},{"content":"回归验证","status":"pending"}]}
+                             """,
+                             ToolActivityStatus.Succeeded, "清单已更新。", null,
+                             DateTimeOffset.Now.AddMinutes(-118), DateTimeOffset.Now.AddMinutes(-118))
+        ];
+    }
+
+    /// <summary>任务面板演示会话的种子清单（与 todo_write 种子参数一致，快照后随投影透出）。</summary>
+    private static IReadOnlyList<SessionTodoItem> SeedTodoItems()
+    {
+        return
+        [
+            new SessionTodoItem("梳理迁移方案", SessionTodoStatus.Completed),
+            new SessionTodoItem("实现投影接入", SessionTodoStatus.InProgress),
+            new SessionTodoItem("回归验证", SessionTodoStatus.Pending)
+        ];
     }
 
     /// <summary>模拟发送后推送助手回复，验证流式 UI 路径；结算按一步计费。</summary>
@@ -579,12 +619,14 @@ public sealed class SimulatedSessionService(Action<string, string>? onSessionCre
 
         private readonly List<Channel<SessionUpdate>> _subscribers = [];
 
-        public SimulatedSession(SessionSummary  summary, List<ConversationEntry> entries,
-                                ModelSelection? currentModel = null)
+        public SimulatedSession(SessionSummary                  summary, List<ConversationEntry> entries,
+                                ModelSelection?                 currentModel = null,
+                                IReadOnlyList<SessionTodoItem>? seedTodos    = null)
         {
             Summary      = summary;
             Entries      = entries;
             CurrentModel = currentModel;
+            SeedTodos    = seedTodos;
             LastSeq      = entries.Count > 0 ? entries[^1].Seq : 0;
 
             // 预置会话从既有条目推演初始计量：每条助手消息结算按一步计费。
@@ -598,6 +640,9 @@ public sealed class SimulatedSessionService(Action<string, string>? onSessionCre
         public List<ConversationEntry> Entries { get; }
 
         public ModelSelection? CurrentModel { get; set; }
+
+        /// <summary>种子任务清单（todos 投影；快照后随投影透出，模拟官方 todos checkpoint）。</summary>
+        public IReadOnlyList<SessionTodoItem>? SeedTodos { get; }
 
         /// <summary>会话当前权限预设（permissions 投影；新会话按 base 组合默认播种 workspace-write）。</summary>
         public string CurrentPermission { get; set; } = PermissionPresetValues.WorkspaceWrite;

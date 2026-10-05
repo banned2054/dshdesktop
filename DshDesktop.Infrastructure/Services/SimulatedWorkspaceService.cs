@@ -42,7 +42,7 @@ public sealed class SimulatedWorkspaceService : IWorkspaceService
                                                                         StringComparison.OrdinalIgnoreCase));
             if (existing is not null) return Task.FromResult(existing);
 
-            var title = System.IO.Path.GetFileName(normalized.TrimEnd('/', '\\'));
+            var title = Path.GetFileName(normalized.TrimEnd('/', '\\'));
             workspace = new WorkspaceSummary($"workspace-{Guid.NewGuid():N}",
                                              string.IsNullOrEmpty(title) ? normalized : title,
                                              normalized, [], DateTimeOffset.Now);
@@ -51,28 +51,6 @@ public sealed class SimulatedWorkspaceService : IWorkspaceService
 
         WorkspacesChanged?.Invoke(this, EventArgs.Empty);
         return Task.FromResult(workspace);
-    }
-
-    /// <summary>模拟 session/create 的后端副作用：把新会话记入工作区并广播投影变化。</summary>
-    public void AddSession(string workspaceId, string sessionId)
-    {
-        var changed = false;
-        lock (_syncRoot)
-        {
-            var index = _workspaces.FindIndex(workspace => workspace.Id == workspaceId);
-            if (index >= 0 && !_workspaces[index].SessionIds.Contains(sessionId))
-            {
-                var workspace = _workspaces[index];
-                _workspaces[index] = workspace with
-                {
-                    SessionIds = [..workspace.SessionIds, sessionId],
-                    UpdatedAt = DateTimeOffset.Now
-                };
-                changed = true;
-            }
-        }
-
-        if (changed) WorkspacesChanged?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>模拟 workspace/rename：按 id 重命名显示名并广播；工作区不存在对齐 not-found 业务错误。</summary>
@@ -121,5 +99,27 @@ public sealed class SimulatedWorkspaceService : IWorkspaceService
 
         WorkspacesChanged?.Invoke(this, EventArgs.Empty);
         return Task.CompletedTask;
+    }
+
+    /// <summary>模拟 session/create 的后端副作用：把新会话记入工作区并广播投影变化。</summary>
+    public void AddSession(string workspaceId, string sessionId)
+    {
+        var changed = false;
+        lock (_syncRoot)
+        {
+            var index = _workspaces.FindIndex(workspace => workspace.Id == workspaceId);
+            if (index >= 0 && !_workspaces[index].SessionIds.Contains(sessionId))
+            {
+                var workspace = _workspaces[index];
+                _workspaces[index] = workspace with
+                {
+                    SessionIds = [..workspace.SessionIds, sessionId],
+                    UpdatedAt = DateTimeOffset.Now
+                };
+                changed = true;
+            }
+        }
+
+        if (changed) WorkspacesChanged?.Invoke(this, EventArgs.Empty);
     }
 }

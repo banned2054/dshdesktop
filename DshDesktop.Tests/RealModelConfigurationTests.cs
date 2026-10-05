@@ -51,26 +51,27 @@ public sealed class RealModelConfigurationTests
             await hostService.StartAsync().WaitAsync(TimeSpan.FromSeconds(150));
 
             var catalog = await sessions.GetModelCatalogAsync().WaitAsync(TimeSpan.FromSeconds(30));
-            TestContext.Out.WriteLine($"默认模型：{catalog.Default?.Provider}/{catalog.Default?.Model}");
-            TestContext.Out.WriteLine($"目录提供方：{string.Join(", ", catalog.Groups.Select(group => group.Id))}");
+            await TestContext.Out.WriteLineAsync($"默认模型：{catalog.Default?.Provider}/{catalog.Default?.Model}");
+            await TestContext.Out
+                             .WriteLineAsync($"目录提供方：{string.Join(", ", catalog.Groups.Select(group => group.Id))}");
             Assert.That(catalog.Groups.Any(group => group.Id == provider), Is.True);
 
             var created = await sessions.CreateSessionAsync().WaitAsync(TimeSpan.FromSeconds(30));
-            TestContext.Out.WriteLine($"新会话：{created.Id}");
+            await TestContext.Out.WriteLineAsync($"新会话：{created.Id}");
 
             var selection = await sessions.SelectModelAsync(created.Id, provider, model)
                                           .WaitAsync(TimeSpan.FromSeconds(30));
             ClassicAssert.AreEqual(provider, selection.Provider);
             ClassicAssert.AreEqual(model, selection.Model);
-            TestContext.Out.WriteLine($"已选型：{selection.Provider}/{selection.Model}");
+            await TestContext.Out.WriteLineAsync($"已选型：{selection.Provider}/{selection.Model}");
 
             // 凭据判定交给当前 Host（credentials/describe），客户端不解析凭据文件。
             var entries = await credentials.DescribeAsync([credentialRef]).WaitAsync(TimeSpan.FromSeconds(30));
             entries.TryGetValue(credentialRef, out var status);
             ClassicAssert.IsNotNull(status);
-            TestContext.Out.WriteLine(status!.Configured
-                                          ? $"凭据 {credentialRef}：已配置（来源 {status.Source ?? "未报告"}，可写 {status.Writable}）。"
-                                          : $"凭据 {credentialRef}：未配置（可写 {status.Writable}）。完整模型往返见 RealModelConversationTests。");
+            await TestContext.Out.WriteLineAsync(status!.Configured
+                                                     ? $"凭据 {credentialRef}：已配置（来源 {status.Source ?? "未报告"}，可写 {status.Writable}）。"
+                                                     : $"凭据 {credentialRef}：未配置（可写 {status.Writable}）。完整模型往返见 RealModelConversationTests。");
 
             ClassicAssert.IsFalse(hostService.LastError is { Length: > 0 }, $"后端意外出错：{hostService.LastError}");
         }

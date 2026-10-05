@@ -28,6 +28,9 @@
     <!-- DSH IconChevronDown/UpOutlineRegular（16 viewBox、1px）：折叠行悬停/展开态行首箭头。 -->
     <StreamGeometry x:Key="Icon.RowChevronDown">M4,6 L7.29289,9.29289 C7.68342,9.68342 8.31658,9.68342 8.70711,9.29289 L12,6</StreamGeometry>
     <StreamGeometry x:Key="Icon.RowChevronUp">M12,10 L8.70711,6.70711 C8.31658,6.31658 7.68342,6.31658 7.29289,6.70711 L4,10</StreamGeometry>
+    <!-- DSH IconChecklistOutlineRegular（16 viewBox、1px）：任务面板头部图标，与
+         ToolCallText 的 checklist 行图标同源（同一官方几何，两处各自持有）。 -->
+    <StreamGeometry x:Key="Icon.ChecklistOutlineRegular">M3.75,6.25 C4.7165,6.25 5.5,5.4665 5.5,4.5 C5.5,3.5335 4.7165,2.75 3.75,2.75 C2.7835,2.75 2,3.5335 2,4.5 C2,5.4665 2.7835,6.25 3.75,6.25 Z M7.5,4.5 L13.5,4.5 M3.75,13.25 C4.7165,13.25 5.5,12.4665 5.5,11.5 C5.5,10.5335 4.7165,9.75 3.75,9.75 C2.7835,9.75 2,10.5335 2,11.5 C2,12.4665 2.7835,13.25 3.75,13.25 Z M7.5,11.5 L13.5,11.5</StreamGeometry>
     <!-- 下拉小箭头（8×4 描边）：各选择器按钮尾部。 -->
     <StreamGeometry x:Key="Icon.DropdownChevron">M0,0 L4,4 L8,0</StreamGeometry>
     <!-- DSH IconFolderCloseRegular：描边关闭文件夹 + 中分隔线（16 viewBox、1px）。 -->

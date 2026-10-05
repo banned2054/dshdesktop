@@ -107,16 +107,31 @@ public sealed record SessionAddress(string SessionId)
 
 /// <summary>session/follow 请求；AssistantStream 为 true 时订阅助手流式分块。</summary>
 public sealed record SessionFollowRequest(
-    SessionAddress Address,
-    int?           MaxMessages     = null,
-    bool?          AssistantStream = null);
+    SessionAddress     Address,
+    int?               MaxMessages     = null,
+    bool?              AssistantStream = null,
+    SessionTurnWindow? TurnWindow      = null);
+
+/// <summary>在达到消息预算前，至少跨过指定消息数和轮次起点的分页窗口。</summary>
+public sealed record SessionTurnWindow(int MinMessages, int MinTurns);
+
+/// <summary>与 Harness Web 客户端历史分页参数一致。</summary>
+public static class SessionHistoryPaging
+{
+    public const int MaxMessages = 500;
+    public const int MinMessages = 50;
+    public const int MinTurns    = 2;
+
+    public static SessionTurnWindow TurnWindow { get; } = new(MinMessages, MinTurns);
+}
 
 /// <summary>
 ///     session/page 请求：向后翻一页更早历史。ThroughSeq 是快照游标（包含性上界），
 ///     BeforeSeq 是当前窗口首条事件 seq（排除性上界），每页按消息对齐裁剪。
 /// </summary>
 public sealed record SessionPageRequest(
-    SessionAddress Address,
-    long           ThroughSeq,
-    long?          BeforeSeq   = null,
-    int?           MaxMessages = null);
+    SessionAddress     Address,
+    long               ThroughSeq,
+    long?              BeforeSeq   = null,
+    int?               MaxMessages = null,
+    SessionTurnWindow? TurnWindow  = null);

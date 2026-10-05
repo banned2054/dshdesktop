@@ -167,7 +167,6 @@ public sealed class HarnessConnection(Func<CancellationToken, Task<BackendConnec
             finally
             {
                 if (!committed)
-                {
                     try
                     {
                         if (mux is not null)
@@ -190,7 +189,6 @@ public sealed class HarnessConnection(Func<CancellationToken, Task<BackendConnec
                     {
                         http.Dispose();
                     }
-                }
             }
 
             if (isReconnect) RaiseConnectionReset();
@@ -293,8 +291,8 @@ public sealed class HarnessConnection(Func<CancellationToken, Task<BackendConnec
                 var http = CurrentHttp()
                         ?? throw new HarnessConnectionException("连接尚未建立。");
                 using var response = await http
-                                   .GetAsync(new Uri($"/{route}?{query}", UriKind.Relative), cancellationToken)
-                                   .ConfigureAwait(false);
+                                          .GetAsync(new Uri($"/{route}?{query}", UriKind.Relative), cancellationToken)
+                                          .ConfigureAwait(false);
                 if (response.StatusCode == HttpStatusCode.NotFound) return default;
                 if (!response.IsSuccessStatusCode)
                 {
@@ -626,7 +624,7 @@ public sealed class HarnessConnection(Func<CancellationToken, Task<BackendConnec
                                                           new EventsOutcomeWire("rejected",
                                                                                     Error : new
                                                                                         EventsOutcomeErrorWire("Error",
-                                                                                            "桌面客户端暂不支持该交互。"))),
+                                                                                                 "桌面客户端暂不支持该交互。"))),
                                   HarnessJsonContext.Default.EventsResultRequest,
                                   HarnessJsonContext.Default.SessionAcceptedValue, CancellationToken.None)
                      .ConfigureAwait(false);
@@ -736,7 +734,8 @@ public sealed class HarnessConnection(Func<CancellationToken, Task<BackendConnec
 
     private static JsonElement BuildFollowPayload(string sessionId)
     {
-        var request = new SessionFollowRequest(new SessionAddress(sessionId), AssistantStream : true);
+        var request = new SessionFollowRequest(new SessionAddress(sessionId), SessionHistoryPaging.MaxMessages,
+                                               true, SessionHistoryPaging.TurnWindow);
         var requestElement =
             JsonSerializer.SerializeToElement(request, HarnessJsonContext.Default.SessionFollowRequest);
         return JsonSerializer.SerializeToElement(new StreamPayloadWire(new Dictionary<string, JsonElement>

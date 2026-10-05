@@ -8,6 +8,8 @@
          MaxWidth 的处理（ArrangeCore 中与 Center 同分支，截断后自动居中）。 -->
     <Styles.Resources>
         <x:Double x:Key="ConversationColumnMaxWidth">816</x:Double>
+        <!-- 展开思考的阅读上限：与工具结果卡片一致，超长内容在块内滚动。 -->
+        <x:Double x:Key="ReasoningBodyMaxHeight">320</x:Double>
     </Styles.Resources>
 
     <Style Selector="Border.message-bubble">
@@ -81,14 +83,21 @@
     <Style Selector="Button.reason-row:pressed /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="Transparent" />
     </Style>
-    <!-- 行首图标盒：类型图标 14px 居中于 16px 盒；悬停淡出换折叠 chevron，
-         展开态常显展开 chevron——opacity 交叉淡化（对齐官方 100ms 过渡）。 -->
+    <!-- 行首图标盒：图标可能由描边/填充多个部件几何叠成，部件必须共用同一 16 单位
+         坐标系（Path 尺寸=viewBox、Stretch=None），再由 RenderTransform 统一做官方
+         14/16 缩放（×0.875 + 1px 居中，与官方 svg viewBox 16→14px 逐像素等价）。
+         不能用 Stretch=Uniform：它按每个 Path 自己的包围盒独立缩放，混合图标的
+         中心点会被放大成实心盘（思考图标）、笔线与文档框会错位（编辑/读取）。 -->
     <Style Selector="Panel.row-leading Path">
-        <Setter Property="Stretch" Value="Uniform" />
-        <Setter Property="Width" Value="14" />
-        <Setter Property="Height" Value="14" />
+        <Setter Property="Stretch" Value="None" />
+        <Setter Property="Width" Value="16" />
+        <Setter Property="Height" Value="16" />
         <Setter Property="HorizontalAlignment" Value="Center" />
         <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="RenderTransformOrigin" Value="0,0" />
+        <Setter Property="RenderTransform">
+            <MatrixTransform Matrix="0.875,0,0,0.875,1,1" />
+        </Setter>
         <Setter Property="Transitions">
             <Transitions>
                 <DoubleTransition Property="Opacity" Duration="0:0:0.1" />

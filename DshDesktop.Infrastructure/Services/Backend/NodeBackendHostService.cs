@@ -93,7 +93,6 @@ public sealed class NodeBackendHostService : IBackendHostService
         }
 
         if (startTask is not null)
-        {
             try
             {
                 // Startup owns the launcher cleanup on cancellation/failure; wait
@@ -104,7 +103,6 @@ public sealed class NodeBackendHostService : IBackendHostService
             {
                 // The startup exception is already reported to its caller.
             }
-        }
 
         NodeHostLauncher? launcher;
         lock (_lock)

@@ -13,8 +13,8 @@ namespace DshDesktop.Harness.Services.Changes;
 /// </summary>
 public sealed class HarnessWorkspaceChangesService(HarnessConnection connection) : IWorkspaceChangesService
 {
-    public async Task<WorkspaceChangesSummary?> GetSummaryAsync(string sessionId, long seq,
-                                                                CancellationToken cancellationToken = default)
+    public async Task<WorkspaceChangesSummary?> GetSummaryAsync(
+        string sessionId, long seq, CancellationToken cancellationToken = default)
     {
         var wire = await connection
                         .GetAsync("api/changes.summary",
@@ -25,8 +25,8 @@ public sealed class HarnessWorkspaceChangesService(HarnessConnection connection)
         return wire is null ? null : ToSummary(wire);
     }
 
-    public async Task<WorkspaceFileDiff?> GetDiffAsync(string sessionId, long seq, int index,
-                                                       CancellationToken cancellationToken = default)
+    public async Task<WorkspaceFileDiff?> GetDiffAsync(
+        string sessionId, long seq, int index, CancellationToken cancellationToken = default)
     {
         var wire = await connection
                         .GetAsync("api/changes.diff",
@@ -41,12 +41,8 @@ public sealed class HarnessWorkspaceChangesService(HarnessConnection connection)
     {
         // STJ 对缺失字段填 null，先补空集合并过滤空元素，保证应用模型不接收空引用。
         return new WorkspaceChangesSummary(wire.Turn,
-                                           [.. (wire.Files ?? [])
-                                               .Where(file => file is not null)
-                                               .Select(ToFile)],
-                                           wire.Total,
-                                           wire.Added,
-                                           wire.Deleted);
+                                           [.. (wire.Files ?? []).Where(file => file is not null).Select(ToFile)],
+                                           wire.Total, wire.Added, wire.Deleted);
     }
 
     internal static WorkspaceFileDiff ToDiff(WorkspaceFileDiffWire wire)
@@ -56,17 +52,12 @@ public sealed class HarnessWorkspaceChangesService(HarnessConnection connection)
             "text"      => WorkspaceDiffKind.Text,
             "binary"    => WorkspaceDiffKind.Binary,
             "oversized" => WorkspaceDiffKind.Oversized,
-            _ => throw new HarnessConnectionException($"changes.diff 返回了未知形态 {wire.Kind}。")
+            _           => throw new HarnessConnectionException($"changes.diff 返回了未知形态 {wire.Kind}。")
         };
-        return new WorkspaceFileDiff(kind,
-                                     wire.Path,
-                                     wire.Display,
-                                     wire.Before  ?? false,
-                                     wire.After   ?? false,
+        return new WorkspaceFileDiff(kind, wire.Path, wire.Display, wire.Before ?? false, wire.After ?? false,
                                      wire.Hunks is null
                                          ? []
-                                         : [.. wire.Hunks.Where(hunk => hunk is not null)
-                                                         .Select(ToHunk)],
+                                         : [.. wire.Hunks.Where(hunk => hunk is not null).Select(ToHunk)],
                                      wire.Coarse ?? false);
     }
 
@@ -78,11 +69,7 @@ public sealed class HarnessWorkspaceChangesService(HarnessConnection connection)
 
     private static WorkspaceChangedFileInfo ToFile(WorkspaceChangedFileWire wire)
     {
-        return new WorkspaceChangedFileInfo(wire.Path,
-                                            wire.Display,
-                                            wire.Added,
-                                            wire.Deleted,
-                                            wire.Binary    == true,
-                                            wire.Oversized == true);
+        return new WorkspaceChangedFileInfo(wire.Path, wire.Display, wire.Added, wire.Deleted, wire.Binary == true,
+                                            wire.Oversized                                                 == true);
     }
 }

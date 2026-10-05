@@ -13,6 +13,9 @@
     <SolidColorBrush x:Key="CodeBlockBackgroundBrush" Color="#1E1E1E" />
     <SolidColorBrush x:Key="CodeBlockForegroundBrush" Color="#D4D4D4" />
     <SolidColorBrush x:Key="CodeBlockMutedBrush" Color="#9DA5B4" />
+    <!-- 任务面板状态圆点：官方 StateDot 的 static 两档（成功绿与待处理灰不随主题）。 -->
+    <SolidColorBrush x:Key="StateSuccessBrush" Color="#22C55E" />
+    <SolidColorBrush x:Key="StateIdleBrush" Color="#D4D4D4" />
     <!-- 换行开关默认处于选中态（IsCodeWrapped 默认 true），压掉 Fluent 的强调色底保持幽灵观感。 -->
     <SolidColorBrush x:Key="CodeBlockButtonActiveBrush" Color="#2EFFFFFF" />
 

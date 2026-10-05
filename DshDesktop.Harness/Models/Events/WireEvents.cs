@@ -1,3 +1,4 @@
+using DshDesktop.Core.Models;
 using DshDesktop.Harness.Models.Responses;
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
@@ -105,6 +106,43 @@ public static class WireEventJson
         turn = 0;
         return wireEvent is { Type: "turn/end", Data.ValueKind: JsonValueKind.Object } &&
                TryGetNumber(wireEvent.Data, "turn", out turn);
+    }
+
+    /// <summary>
+    ///     todo/write 事件：任务清单整体替换，载荷为 data.todos 数组。content 为
+    ///     字符串的条目才收（与官方 zod 校验一致，不做空白过滤）；status 未知值
+    ///     回退 pending。data 无 todos 数组返回假（空数组是合法清空，返回真）。
+    /// </summary>
+    public static bool TryGetTodos(SessionWireEvent wireEvent, out IReadOnlyList<SessionTodoItem> todos)
+    {
+        todos = [];
+        if (wireEvent.Type           != "todo/write"               ||
+            wireEvent.Data.ValueKind != JsonValueKind.Object       ||
+            !wireEvent.Data.TryGetProperty("todos", out var array) ||
+            array.ValueKind != JsonValueKind.Array)
+            return false;
+
+        var items = new List<SessionTodoItem>();
+        foreach (var element in array.EnumerateArray())
+        {
+            if (element.ValueKind != JsonValueKind.Object ||
+                !TryGetString(element, "content", out var content))
+                continue;
+
+            var status = element.TryGetProperty("status", out var statusElement) &&
+                         statusElement.ValueKind == JsonValueKind.String
+                ? statusElement.GetString()
+                : null;
+            items.Add(new SessionTodoItem(content, status switch
+            {
+                "completed"   => SessionTodoStatus.Completed,
+                "in_progress" => SessionTodoStatus.InProgress,
+                _             => SessionTodoStatus.Pending
+            }));
+        }
+
+        todos = items;
+        return true;
     }
 
     /// <summary>

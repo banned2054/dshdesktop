@@ -15,21 +15,20 @@ namespace DshDesktop.Infrastructure.Services;
 /// </summary>
 public sealed class SidebarPinService : ISidebarPinService
 {
-    private readonly Lock _sync = new();
+    private static readonly TimeSpan ProcessLockRetryInterval = TimeSpan.FromMilliseconds(50);
+
+    private static readonly TimeSpan DefaultProcessLockTimeout = TimeSpan.FromSeconds(5);
+
+    private readonly string _filePath;
 
     // 同实例并发变更先在进程内排队（命令可能从 UI 线程与后台线程同时触发），
     // 跨进程互斥由 .lock 文件承担；两者缺一不可。
     private readonly SemaphoreSlim _gate = new(1, 1);
 
-    private static readonly TimeSpan ProcessLockRetryInterval = TimeSpan.FromMilliseconds(50);
-
-    private static readonly TimeSpan DefaultProcessLockTimeout = TimeSpan.FromSeconds(5);
+    private readonly string _lockFilePath;
 
     private readonly TimeSpan _processLockTimeout;
-
-    private readonly string _filePath;
-
-    private readonly string _lockFilePath;
+    private readonly Lock     _sync = new();
 
     private List<string> _pinnedSessions   = [];
     private List<string> _pinnedWorkspaces = [];
@@ -49,7 +48,10 @@ public sealed class SidebarPinService : ISidebarPinService
     {
         get
         {
-            lock (_sync) return _pinnedSessions.ToArray();
+            lock (_sync)
+            {
+                return _pinnedSessions.ToArray();
+            }
         }
     }
 
@@ -57,21 +59,32 @@ public sealed class SidebarPinService : ISidebarPinService
     {
         get
         {
-            lock (_sync) return _pinnedWorkspaces.ToArray();
+            lock (_sync)
+            {
+                return _pinnedWorkspaces.ToArray();
+            }
         }
     }
 
-    public Task PinSessionAsync(string sessionId, CancellationToken cancellationToken = default) =>
-        SetPinnedAsync(sessionId, pinned : true, isSession : true, cancellationToken);
+    public Task PinSessionAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        return SetPinnedAsync(sessionId, true, true, cancellationToken);
+    }
 
-    public Task UnpinSessionAsync(string sessionId, CancellationToken cancellationToken = default) =>
-        SetPinnedAsync(sessionId, pinned : false, isSession : true, cancellationToken);
+    public Task UnpinSessionAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        return SetPinnedAsync(sessionId, false, true, cancellationToken);
+    }
 
-    public Task PinWorkspaceAsync(string workspaceId, CancellationToken cancellationToken = default) =>
-        SetPinnedAsync(workspaceId, pinned : true, isSession : false, cancellationToken);
+    public Task PinWorkspaceAsync(string workspaceId, CancellationToken cancellationToken = default)
+    {
+        return SetPinnedAsync(workspaceId, true, false, cancellationToken);
+    }
 
-    public Task UnpinWorkspaceAsync(string workspaceId, CancellationToken cancellationToken = default) =>
-        SetPinnedAsync(workspaceId, pinned : false, isSession : false, cancellationToken);
+    public Task UnpinWorkspaceAsync(string workspaceId, CancellationToken cancellationToken = default)
+    {
+        return SetPinnedAsync(workspaceId, false, false, cancellationToken);
+    }
 
     /// <summary>
     ///     幂等变更：持锁读取最新持久状态，在其上应用本次变更；目标状态已在最新持久层
@@ -159,14 +172,11 @@ public sealed class SidebarPinService : ISidebarPinService
         }
     }
 
-    private sealed class LockFileScope(FileStream stream) : IAsyncDisposable
-    {
-        public ValueTask DisposeAsync() => stream.DisposeAsync();
-    }
-
     /// <summary>落盘集合的读取清洗：去空白项与重复项，保持首次出现顺序；null 按空集合处理。</summary>
-    private static List<string> Sanitize(IReadOnlyList<string>? ids) =>
-        ids?.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct().ToList() ?? [];
+    private static List<string> Sanitize(IReadOnlyList<string>? ids)
+    {
+        return ids?.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct().ToList() ?? [];
+    }
 
     /// <summary>从磁盘重读最新持久状态；缺失或损坏按空起底（与 Load 同一语义），IO 失败上抛。</summary>
     private async Task<SidebarPinState> ReadLatestStateAsync(CancellationToken cancellationToken)
@@ -247,6 +257,14 @@ public sealed class SidebarPinService : ISidebarPinService
             // 配置文件不可读：按空集合起底，不阻塞启动；下次置顶变更整体重写。
             _pinnedSessions   = [];
             _pinnedWorkspaces = [];
+        }
+    }
+
+    private sealed class LockFileScope(FileStream stream) : IAsyncDisposable
+    {
+        public ValueTask DisposeAsync()
+        {
+            return stream.DisposeAsync();
         }
     }
 }

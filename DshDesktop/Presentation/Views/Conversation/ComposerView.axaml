@@ -13,6 +13,69 @@
          左侧工具栏与底部统计栏是视觉占位：附件与统计的协议链路未接入，
          保持禁用或以 — 展示，不伪装成可用功能。 -->
     <StackPanel Spacing="6">
+        <!-- 任务面板：当前轮任务清单（todo/write 事件整表替换），官方 dock 槽位在
+             输入框上方；默认收起只显头部进度，展开态不持久化。 -->
+        <Border Classes="todo-panel" IsVisible="{Binding HasTodoPanel}">
+            <StackPanel Spacing="8">
+                <Button Classes="todo-header" Command="{Binding ToggleTodoPanelCommand}">
+                    <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="10">
+                        <Path Data="{StaticResource Icon.ChecklistOutlineRegular}"
+                              Classes="todo-icon" />
+                        <TextBlock Grid.Column="1" Text="任务" Classes="todo-title" />
+                        <TextBlock Grid.Column="2" Text="{Binding TodoProgressText}"
+                                   Classes="todo-progress" TextTrimming="CharacterEllipsis" />
+                        <!-- 箭头方向对齐官方：收起显向上箭头、展开显向下箭头。 -->
+                        <Panel Grid.Column="3" Width="16" Height="16">
+                            <Path Data="{StaticResource Icon.RowChevronUp}"
+                                  Classes="todo-icon"
+                                  IsVisible="{Binding !IsTodoPanelExpanded}" />
+                            <Path Data="{StaticResource Icon.RowChevronDown}"
+                                  Classes="todo-icon"
+                                  IsVisible="{Binding IsTodoPanelExpanded}" />
+                        </Panel>
+                    </Grid>
+                </Button>
+                <!-- 条目列表：约 6-7 条后滚动（官方 max-height 180px），单行省略不换行。 -->
+                <ScrollViewer MaxHeight="180" IsVisible="{Binding IsTodoPanelExpanded}">
+                    <ItemsControl ItemsSource="{Binding TodoItems}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Spacing="8" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:TodoItemViewModel">
+                                <Grid ColumnDefinitions="16,*" ColumnSpacing="10">
+                                    <!-- 状态点槽：完成/待处理为 6px 实心点（绿/灰），
+                                         进行中为圆环（官方为旋转 spinner，本端先以静态环表达）。 -->
+                                    <Panel Width="16" Height="20"
+                                           ToolTip.Tip="{Binding StatusText}">
+                                        <Ellipse Width="6" Height="6"
+                                                 Fill="{DynamicResource StateSuccessBrush}"
+                                                 IsVisible="{Binding IsCompleted}"
+                                                 HorizontalAlignment="Center"
+                                                 VerticalAlignment="Center" />
+                                        <Ellipse Width="6" Height="6"
+                                                 Fill="{DynamicResource StateIdleBrush}"
+                                                 IsVisible="{Binding IsPending}"
+                                                 HorizontalAlignment="Center"
+                                                 VerticalAlignment="Center" />
+                                        <Ellipse Width="12" Height="12"
+                                                 StrokeThickness="1.5"
+                                                 Stroke="{DynamicResource ToolRowLabelBrush}"
+                                                 IsVisible="{Binding IsInProgress}"
+                                                 HorizontalAlignment="Center"
+                                                 VerticalAlignment="Center" />
+                                    </Panel>
+                                    <TextBlock Grid.Column="1" Text="{Binding Content}"
+                                               Classes="todo-item-text" />
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </StackPanel>
+        </Border>
         <Border x:Name="ComposerSurface" Classes="composer-panel">
             <StackPanel Spacing="8">
                 <!-- 审批横幅：选中会话的待决 approval/request 瀑布，裁决经 $events/result 回执。 -->

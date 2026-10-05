@@ -9,8 +9,10 @@ public sealed record SettingsUpdateRequest(string Ns, JsonElement Patch, long? E
 public sealed record SettingsReplaceRequest(string Ns, JsonElement Section, long? ExpectedRevision = null);
 
 /// <summary>settings/mutate 请求：ops 按序解析于服务端现存储段。</summary>
-public sealed record SettingsMutateRequest(string Ns, IReadOnlyList<SettingsOpRequest> Ops,
-                                           long? ExpectedRevision = null);
+public sealed record SettingsMutateRequest(
+    string                           Ns,
+    IReadOnlyList<SettingsOpRequest> Ops,
+    long?                            ExpectedRevision = null);
 
 /// <summary>settings/mutate 的单个路径操作；unset 不携带 value（WhenWritingNull 自动省略）。</summary>
 public sealed record SettingsOpRequest(string Op, IReadOnlyList<string> Path, JsonElement? Value = null);

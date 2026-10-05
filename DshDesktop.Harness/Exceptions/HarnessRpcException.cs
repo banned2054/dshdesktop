@@ -7,8 +7,11 @@ namespace DshDesktop.Harness.Exceptions;
 ///     Details 是错误携带的原始结构（参考实现 error.details，如 session/writer-held 的
 ///     { sessionId }），按错误码选择性消费，不做通用解释。
 /// </summary>
-public sealed class HarnessRpcException(string  code, string message, JsonElement? details = null,
-                                        string? rawMessage = null)
+public sealed class HarnessRpcException(
+    string       code,
+    string       message,
+    JsonElement? details    = null,
+    string?      rawMessage = null)
     : Exception(message)
 {
     public string Code { get; } = code;

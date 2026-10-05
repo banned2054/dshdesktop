@@ -1,19 +1,20 @@
 using DshDesktop.Core.Models;
+using DshDesktop.Utils;
 using DshDesktop.ViewModels;
 using System.Collections.ObjectModel;
 
 namespace DshDesktop.Services.Conversations;
 
 /// <summary>
-///     把会话条目组装为时间线项目，折叠规则对齐参考 Web 客户端的 turn-process 投影：
-///     轮内条目（中间助手消息、工具调用）先逐项显示；turn/end 到达后按「最后一轮步的
-///     有正文且不含工具调用的助手消息为最终回复」结算，最终回复存在时其之前的过程条目
-///     折叠为一个 <see cref="TurnProcessGroupViewModel" />。快照、增量与翻页共用同一套规则。
-///     逐轮判定折叠资格：只有本轮起点（用户消息或上一轮边界）落在已加载窗口内时才折叠，
-///     被窗口截断的首轮保持逐项展示——否则中途 attach 长会话时，全程要手动翻到顶才能
-///     看到折叠形态（WebUI 实时会话的已加载窗口天然是全量，不存在此落差）。
+///     把会话条目组装为时间线项目。轮内过程即时进入 <see cref="TurnProcessGroupViewModel" />，
+///     组内保留完整已加载投影输入，界面只显示其尾部窗口；最终回复候选保持组外可见。
+///     turn/end 按「最后一轮步的有正文且不含工具调用的助手消息为最终回复」结算。
+///     快照、增量与翻页共用同一套规则。起点不在已加载窗口内的轮次标记为部分加载，
+///     但仍然限制显示长度，且不虚构完整 turn 或完整总数。
 /// </summary>
-internal sealed class TimelineAssembly(ObservableCollection<ConversationItemViewModel> target)
+internal sealed class TimelineAssembly(
+    ObservableCollection<ConversationItemViewModel>      target,
+    Func<long?, long, bool, TurnProcessExpansionState?>? processExpansionStateResolver = null)
 {
     private readonly ObservableCollection<ConversationItemViewModel> _target = target;
 
@@ -25,6 +26,18 @@ internal sealed class TimelineAssembly(ObservableCollection<ConversationItemView
 
     private readonly List<ConversationItemViewModel> _turnItems = [];
 
+    /// <summary>运行中的过程组：完整条目保存在组内，界面只读它的可见窗口。</summary>
+    private TurnProcessGroupViewModel? _activeGroup;
+
+    /// <summary>运行中的最终回复候选；新过程条目到达时并入过程组，轮末确认后留在组外。</summary>
+    private MessageItemViewModel? _provisionalAnswer;
+
+    /// <summary>
+    ///     最近一次 todo/write 写入的清单，是 todo_write 折叠行 diff 摘要的基线；
+    ///     null 表示尚无写入（对齐官方 todo-history 的 previous 口径，轮次边界不清除）。
+    /// </summary>
+    private IReadOnlyList<SessionTodoItem>? _todoBaseline;
+
     private long? _turn;
 
     /// <summary>上一条目是否是轮次起点（用户消息或 turn/end 边界）；窗口首条目按截断处理（假）。</summary>
@@ -33,16 +46,26 @@ internal sealed class TimelineAssembly(ObservableCollection<ConversationItemView
     /// <summary>本轮起点是否在已加载窗口内；在本轮首个条目到达时快照 <see cref="_turnOpeningSeen" />。</summary>
     private bool _turnStartObserved;
 
+    /// <summary>todo/write 事件到达：更新后续 todo_write 折叠行的 diff 基线。</summary>
+    public void SetTodoBaseline(IReadOnlyList<SessionTodoItem>? todos)
+    {
+        _todoBaseline = todos;
+    }
+
     public void Add(ConversationEntry entry)
     {
         switch (entry)
         {
             case TurnBoundary boundary :
-                if (_turn is { } openTurn && openTurn == boundary.Turn)
-                    CloseTurn(_turnStartObserved);
-                else if (_turn is not null)
-                    // 轮次号不衔接（窗口裁剪等）：当前轮保守收尾，不折叠。
-                    CloseTurn(false);
+                if (_turnItems.Count > 0)
+                {
+                    // Turn 身份缺失时以当前唯一开放轮回退；已知身份不匹配时视为迟到边界，
+                    // 不得提前收束另一条已知轮次。
+                    if (_turn is not null && _turn != boundary.Turn) return;
+
+                    var endedNormally = boundary.Reason is null or "completed";
+                    CloseTurn(_turnStartObserved && endedNormally);
+                }
 
                 // 边界收束上一轮，其后是新一轮的起点。
                 _turnOpeningSeen = true;
@@ -67,22 +90,41 @@ internal sealed class TimelineAssembly(ObservableCollection<ConversationItemView
                 OpenTurn(message.Turn);
                 var messageItem = new MessageItemViewModel(message);
                 _turnEntries.Add(message);
-                Append(messageItem);
+                _turnItems.Add(messageItem);
+                if (IsPotentialAnswer(message))
+                    SetProvisionalAnswer(messageItem);
+                else
+                    AppendProcess(messageItem);
+
                 _turnOpeningSeen = false;
                 return;
 
             case ToolActivity tool :
                 OpenTurn(tool.Turn);
-                var card = new ToolActivityItemViewModel(tool);
+                // todo_write 的 diff 摘要在发起时定格：基线是上一次 todo/write 的清单
+                //（事件先于下一次 tool/call 到达），基线本身不随本次调用更新。
+                var todoDiff = tool.Name == "todo_write"
+                    ? ToolCallText.TodoDiffSummary(_todoBaseline,
+                                                   ToolCallText.ParseTodos(tool.ArgumentsJson) ?? [])
+                    : null;
+                var card = new ToolActivityItemViewModel(tool, todoDiff);
                 _toolsByCallId[tool.CallId] = (card, null);
                 _turnEntries.Add(tool);
-                Append(card);
+                _turnItems.Add(card);
+                AppendProcess(card);
                 _turnOpeningSeen = false;
                 return;
 
             default :
                 throw new NotSupportedException($"未支持的会话条目类型：{entry.GetType().Name}");
         }
+    }
+
+    /// <summary>完成快照/历史重建后再固定每个过程组的恢复锚点。</summary>
+    public void CompleteRestoredProjection()
+    {
+        foreach (var group in _target.OfType<TurnProcessGroupViewModel>())
+            group.CompleteRestoredProjection();
     }
 
     /// <summary>
@@ -99,54 +141,150 @@ internal sealed class TimelineAssembly(ObservableCollection<ConversationItemView
 
     private void OpenTurn(long? turn)
     {
-        if (_turnItems.Count != 0) return;
+        if (_turnItems.Count != 0)
+        {
+            // Turn 可缺省：后续工具/消息提供身份时补全，但保留最初用户起点状态。
+            if (_turn is null)
+            {
+                if (turn is not null) _turn = turn;
+                return;
+            }
+
+            // 未知身份仍沿用当前轮；不同的已知身份不能混进同一过程组。
+            if (turn is null || turn == _turn) return;
+
+            CloseTurn(false);
+        }
+
         _turn              = turn;
         _turnStartObserved = _turnOpeningSeen;
     }
 
     /// <summary>
     ///     结算当前轮：最终回复是轮内最后一条助手消息且它有正文（思考不算正文）、
-    ///     不含工具调用块；存在且轮起点在窗口内时，其余过程条目收入过程组，最终回复保持
-    ///     独立气泡。被窗口截断的轮次（起点未观察到）与被打断无正文的轮次保持逐项展示。
+    ///     不含工具调用块。最终回复与流式气泡始终在过程组外完整显示；若最终回复带思考，
+    ///     生成思考-only 投影入组，本体经 HasVisibleReasoning 停止重复展示。
+    ///     起点被窗口截断的轮次标记部分加载，但过程仍按可见窗口限制。
     /// </summary>
     private void CloseTurn(bool foldAllowed)
     {
         try
         {
-            if (!foldAllowed || _turnItems.Count == 0) return;
+            if (_turnItems.Count == 0) return;
 
             var answer = FindAnswer();
             if (answer is null)
-                // 不折叠：条目保持逐项显示。
-                return;
-
-            var members = _turnItems.Where(item => !ReferenceEquals(item, answer)).ToList();
-            if (members.Count == 0) return;
-
-            var group = new TurnProcessGroupViewModel(members[0].Seq);
-            foreach (var item in members)
             {
-                if (item is ToolActivityItemViewModel card) _toolsByCallId[card.CallId] = (card, group);
-
-                group.Add(item);
+                // 没有独立最终回复时，已加载过程继续交给窗口化过程组展示。
+                PromoteProvisionalAnswer();
+                if (_activeGroup is not null && !foldAllowed) _activeGroup.MarkPartialTurn();
+                return;
             }
 
-            // 先移除整轮条目再按「过程组、最终回复」的顺序放回。
-            foreach (var item in _turnItems) _target.Remove(item);
+            var settledAnswer = answer.Value;
+            _activeGroup?.Remove(settledAnswer.Item);
+            if (_provisionalAnswer is not null &&
+                !ReferenceEquals(_provisionalAnswer, settledAnswer.Item))
+                PromoteProvisionalAnswer();
 
-            _target.Add(group);
-            _target.Add(answer);
+            _provisionalAnswer = null;
+
+            // 最终消息可同时携带正文与 reasoning。投影只进入本帧过程组，不改
+            // _turnItems/_turnEntries 的 1:1 索引；空 Content 保持 MessageCount 的正文口径。
+            if (!string.IsNullOrWhiteSpace(settledAnswer.Message.Reasoning))
+            {
+                // 中断标记属于最终气泡的状态，不随思考-only 投影复制；否则收束后
+                // 组内思考行和组外正文气泡会重复显示「已中断」。
+                var members = new List<ConversationItemViewModel>
+                {
+                    new MessageItemViewModel(settledAnswer.Message with
+                    {
+                        Content = string.Empty,
+                        IsInterrupted = false
+                    })
+                };
+                settledAnswer.Item.ProjectReasoning();
+
+                var group = _activeGroup;
+                if (group is null)
+                {
+                    group = CreateProcessGroup(members[0].Seq, false);
+                    var answerIndex = _target.IndexOf(settledAnswer.Item);
+                    _target.Remove(group);
+                    _target.Insert(answerIndex < 0 ? _target.Count - 1 : answerIndex, group);
+                }
+
+                foreach (var item in members)
+                    group.Add(item);
+            }
+
+            // 运行中的组已经位于最终回复之前；只移除空组，保留有效过程投影。
+            if (_activeGroup is not null && _activeGroup.Process.Count == 0)
+                _target.Remove(_activeGroup);
+
+            if (_activeGroup is null) return;
+            if (foldAllowed && !_activeGroup.HasUserSetExpansion) _activeGroup.IsExpanded = false;
+            else _activeGroup.MarkPartialTurn();
         }
         finally
         {
             _turnItems.Clear();
             _turnEntries.Clear();
-            _turn = null;
+            _turn              = null;
+            _activeGroup       = null;
+            _provisionalAnswer = null;
         }
     }
 
+    /// <summary>最终回复候选的运行中判定与轮末判定一致：有正文且不含工具调用块。</summary>
+    private static bool IsPotentialAnswer(ConversationMessage message)
+    {
+        return !string.IsNullOrWhiteSpace(message.Content) && !message.HasToolCalls;
+    }
+
+    /// <summary>新的过程条目到达时，先让旧的最终候选回到过程投影，再追加该条目。</summary>
+    private void AppendProcess(ConversationItemViewModel item)
+    {
+        PromoteProvisionalAnswer();
+        var group                                                               = CreateProcessGroup(item.Seq, true);
+        if (item is ToolActivityItemViewModel card) _toolsByCallId[card.CallId] = (card, group);
+
+        group.Add(item);
+    }
+
+    private void SetProvisionalAnswer(MessageItemViewModel item)
+    {
+        PromoteProvisionalAnswer();
+        _provisionalAnswer = item;
+        _target.Add(item);
+    }
+
+    private void PromoteProvisionalAnswer()
+    {
+        if (_provisionalAnswer is null) return;
+
+        var candidate = _provisionalAnswer;
+        _provisionalAnswer = null;
+        _target.Remove(candidate);
+        var group = CreateProcessGroup(candidate.Seq, true);
+        group.Add(candidate);
+    }
+
+    private TurnProcessGroupViewModel CreateProcessGroup(long seq, bool startExpanded)
+    {
+        if (_activeGroup is not null) return _activeGroup;
+
+        var state = processExpansionStateResolver?.Invoke(_turn, seq, startExpanded);
+        var group = new TurnProcessGroupViewModel(seq, _turn, state, startExpanded);
+        if (!_turnStartObserved) group.MarkPartialTurn();
+
+        _activeGroup = group;
+        _target.Add(group);
+        return group;
+    }
+
     /// <summary>最终回复候选：轮内最后一条助手消息，须有正文且不含工具调用块。</summary>
-    private MessageItemViewModel? FindAnswer()
+    private (ConversationMessage Message, MessageItemViewModel Item)? FindAnswer()
     {
         for (var index = _turnEntries.Count - 1; index >= 0; index--)
         {
@@ -157,16 +295,10 @@ internal sealed class TimelineAssembly(ObservableCollection<ConversationItemView
             return !string.IsNullOrWhiteSpace(message.Content) &&
                    !message.HasToolCalls                       &&
                    _turnItems[index] is MessageItemViewModel item
-                ? item
+                ? (message, item)
                 : null;
         }
 
         return null;
-    }
-
-    private void Append(ConversationItemViewModel item)
-    {
-        _target.Add(item);
-        _turnItems.Add(item);
     }
 }

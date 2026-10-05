@@ -14,16 +14,10 @@ namespace DshDesktop.Harness.Services.Sessions;
 /// <summary>基于真实 Harness 协议的会话服务：协议 DTO 到应用模型的转换。</summary>
 public sealed class HarnessSessionService : ISessionService
 {
-    /// <summary>与参考实现一致的单页消息预算（服务端默认也是 50）。</summary>
-    private const int HistoryPageMessages = 50;
-
     /// <summary>后端会要求 IANA 时区；Windows 本地 id 需要转换，无法确定时省略。</summary>
     private static readonly string? ClientTimeZone = ResolveClientTimeZone();
 
     private readonly HarnessConnection _connection;
-
-    /// <summary>创建会话后自动选用的模型（provider/model 形态）；未配置时不干预。</summary>
-    private readonly (string Provider, string Model)? _preferredModel;
 
     /// <summary>
     ///     本端"已参与对话"台账（发送被接受等过渡信号）。进程内生效、可重建：
@@ -31,6 +25,9 @@ public sealed class HarnessSessionService : ISessionService
     ///     重连与重启后以后端重新验证的元数据为准。
     /// </summary>
     private readonly HashSet<string> _engagedSessionIds = [];
+
+    /// <summary>创建会话后自动选用的模型（provider/model 形态）；未配置时不干预。</summary>
+    private readonly (string Provider, string Model)? _preferredModel;
 
     /// <summary>历史 Unknown 会话的后台空白核实（只读 session/projections）；核实结论的单一协调位置。</summary>
     private readonly SessionBlankVerifier _verifier;
@@ -191,7 +188,8 @@ public sealed class HarnessSessionService : ISessionService
     {
         var value = await _connection.InvokeAsync("session/page",
                                                   new SessionPageRequest(new SessionAddress(sessionId), throughSeq,
-                                                                         beforeSeq, HistoryPageMessages),
+                                                                         beforeSeq, SessionHistoryPaging.MaxMessages,
+                                                                         SessionHistoryPaging.TurnWindow),
                                                   HarnessJsonContext.Default.SessionPageRequest,
                                                   HarnessJsonContext.Default.SessionPageValue, cancellationToken)
                                      .ConfigureAwait(false);
@@ -389,6 +387,14 @@ public sealed class HarnessSessionService : ISessionService
                     if (WireEventJson.TryGetWorkspaceChanges(wireEvent, out var snapshotChangedTurn))
                         yield return new SessionUpdate.WorkspaceChanged(snapshotChangedTurn, wireEvent.Seq);
 
+                // 任务清单与轮次边界按记录顺序随重放透出：turn/start 清空面板显示，
+                // todo/write 填入清单，重放结束后与官方投影 checkpoint 的最终态一致。
+                foreach (var wireEvent in snapshot.Records)
+                    if (wireEvent.Type == "turn/start")
+                        yield return new SessionUpdate.TurnStarted(wireEvent.Seq);
+                    else if (WireEventJson.TryGetTodos(wireEvent, out var snapshotTodos))
+                        yield return new SessionUpdate.TodoListUpdated(snapshotTodos, wireEvent.Seq);
+
                 break;
 
             case FollowFrame.EventFrame { Event: var wireEvent } :
@@ -434,6 +440,14 @@ public sealed class HarnessSessionService : ISessionService
                 else if (WireEventJson.TryGetWorkspaceChanges(wireEvent, out var changedTurn))
                 {
                     yield return new SessionUpdate.WorkspaceChanged(changedTurn, wireEvent.Seq);
+                }
+                else if (wireEvent.Type == "turn/start")
+                {
+                    yield return new SessionUpdate.TurnStarted(wireEvent.Seq);
+                }
+                else if (WireEventJson.TryGetTodos(wireEvent, out var todos))
+                {
+                    yield return new SessionUpdate.TodoListUpdated(todos, wireEvent.Seq);
                 }
 
                 break;
@@ -540,7 +554,6 @@ public sealed class HarnessSessionService : ISessionService
         var entries           = new List<ConversationEntry>();
         var toolIndexByCallId = new Dictionary<string, int>();
         foreach (var wireEvent in records)
-        {
             switch (wireEvent.Type)
             {
                 case "user/message" or "assistant/message" :
@@ -596,7 +609,6 @@ public sealed class HarnessSessionService : ISessionService
 
                     break;
             }
-        }
 
         return entries;
     }

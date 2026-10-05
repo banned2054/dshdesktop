@@ -50,8 +50,8 @@ public sealed class HarnessProtocolJsonTests
                                                 new LlmDiscoverModelsRequest(
                                                                              "llm-pi-ai",
                                                                              new LlmDiscoveryProbeRequest("glm",
-                                                                                      "https://relay.example/v1",
-                                                                                      "openai-completions", null)),
+                                                                                 "https://relay.example/v1",
+                                                                                 "openai-completions", null)),
                                                 HarnessJsonContext.Default.LlmDiscoverModelsRequest);
 
         using var document = JsonDocument.Parse(body);
@@ -164,14 +164,31 @@ public sealed class HarnessProtocolJsonTests
     public void SessionPageRequestSerializesBackwardCursorWireShape()
     {
         var element =
-            JsonSerializer.SerializeToElement(new SessionPageRequest(new SessionAddress("session-1"), 42, 9, 50),
+            JsonSerializer.SerializeToElement(new SessionPageRequest(new SessionAddress("session-1"), 42, 9,
+                                                                     SessionHistoryPaging.MaxMessages,
+                                                                     SessionHistoryPaging.TurnWindow),
                                               HarnessJsonContext.Default.SessionPageRequest);
 
         ClassicAssert.AreEqual("session", element.GetProperty("address").GetProperty("kind").GetString());
         ClassicAssert.AreEqual("session-1", element.GetProperty("address").GetProperty("sessionId").GetString());
         ClassicAssert.AreEqual(42, element.GetProperty("throughSeq").GetInt64());
         ClassicAssert.AreEqual(9, element.GetProperty("beforeSeq").GetInt64());
-        ClassicAssert.AreEqual(50, element.GetProperty("maxMessages").GetInt32());
+        ClassicAssert.AreEqual(500, element.GetProperty("maxMessages").GetInt32());
+        ClassicAssert.AreEqual(50, element.GetProperty("turnWindow").GetProperty("minMessages").GetInt32());
+        ClassicAssert.AreEqual(2, element.GetProperty("turnWindow").GetProperty("minTurns").GetInt32());
+    }
+
+    [Test]
+    public void SessionFollowRequestSerializesTurnAlignedHistoryWindow()
+    {
+        var request = new SessionFollowRequest(new SessionAddress("session-1"), SessionHistoryPaging.MaxMessages, true,
+                                               SessionHistoryPaging.TurnWindow);
+        var element = JsonSerializer.SerializeToElement(request, HarnessJsonContext.Default.SessionFollowRequest);
+
+        ClassicAssert.AreEqual(500, element.GetProperty("maxMessages").GetInt32());
+        ClassicAssert.IsTrue(element.GetProperty("assistantStream").GetBoolean());
+        ClassicAssert.AreEqual(50, element.GetProperty("turnWindow").GetProperty("minMessages").GetInt32());
+        ClassicAssert.AreEqual(2, element.GetProperty("turnWindow").GetProperty("minTurns").GetInt32());
     }
 
     [Test]
@@ -459,9 +476,9 @@ public sealed class HarnessProtocolJsonTests
         var rejected =
             JsonSerializer.SerializeToElement(new EventsResultRequest("client-1", "event-2",
                                                                       new EventsOutcomeWire("rejected",
-                                                                               Error : new
-                                                                                   EventsOutcomeErrorWire("Error",
-                                                                                            "不支持的交互"))),
+                                                                          Error : new
+                                                                              EventsOutcomeErrorWire("Error",
+                                                                                  "不支持的交互"))),
                                               HarnessJsonContext.Default.EventsResultRequest);
         var error = rejected.GetProperty("outcome").GetProperty("error");
         ClassicAssert.AreEqual("rejected", rejected.GetProperty("outcome").GetProperty("kind").GetString());
@@ -647,10 +664,10 @@ public sealed class HarnessProtocolJsonTests
     {
         var baseline = new WorkspaceFollowFrame.Baseline([
                                                              new WorkspaceViewWire("ws-1", "C:/Main", "主工作区",
-                                                                      ["session-a"],
-                                                                      DateTimeOffset.Parse("2026-09-20T10:00:00Z")),
+                                                                 ["session-a"],
+                                                                 DateTimeOffset.Parse("2026-09-20T10:00:00Z")),
                                                              new WorkspaceViewWire("ws-2", "C:/Docs", "文档", [],
-                                                                      DateTimeOffset.Parse("2026-09-19T10:00:00Z"))
+                                                                 DateTimeOffset.Parse("2026-09-19T10:00:00Z"))
                                                          ],
                                                          ["session-archived"]);
         var items = HarnessWorkspaceService.ApplyFrame([], baseline);
@@ -660,27 +677,27 @@ public sealed class HarnessProtocolJsonTests
         var replaced =
             HarnessWorkspaceService.ApplyFrame(items,
                                                new WorkspaceFollowFrame.Upsert(new WorkspaceViewWire("ws-2", "C:/Docs",
-                                                                                        "文档", ["session-b"],
-                                                                                        DateTimeOffset
-                                                                                           .Parse("2026-09-21T10:00:00Z"))));
+                                                                                   "文档", ["session-b"],
+                                                                                   DateTimeOffset
+                                                                                      .Parse("2026-09-21T10:00:00Z"))));
         ClassicAssert.AreEqual(new[] { "ws-1", "ws-2" }, replaced.Select(item => item.Id));
         ClassicAssert.AreEqual(new[] { "session-b" }, replaced[1].SessionIds);
 
         // 旧投影不覆盖新（乱序到达）。
         var stale = HarnessWorkspaceService.ApplyFrame(replaced,
                                                        new WorkspaceFollowFrame.Upsert(new WorkspaceViewWire("ws-2",
-                                                                         "C:/Docs", "文档", [],
-                                                                         DateTimeOffset
-                                                                            .Parse("2026-09-18T10:00:00Z"))));
+                                                           "C:/Docs", "文档", [],
+                                                           DateTimeOffset
+                                                              .Parse("2026-09-18T10:00:00Z"))));
         ClassicAssert.AreEqual(new[] { "session-b" }, stale[1].SessionIds);
 
         // 新工作区插到头部（对齐参考客户端 upsert 语义）。
         var added =
             HarnessWorkspaceService.ApplyFrame(stale,
                                                new WorkspaceFollowFrame.Upsert(new WorkspaceViewWire("ws-3", "C:/New",
-                                                                                        "新工作区", [],
-                                                                                        DateTimeOffset
-                                                                                           .Parse("2026-09-21T11:00:00Z"))));
+                                                                                   "新工作区", [],
+                                                                                   DateTimeOffset
+                                                                                      .Parse("2026-09-21T11:00:00Z"))));
         ClassicAssert.AreEqual(new[] { "ws-3", "ws-1", "ws-2" }, added.Select(item => item.Id));
 
         // order 按给出的顺序重排，未知 id 排尾。
@@ -1117,6 +1134,73 @@ public sealed class HarnessProtocolJsonTests
         Assert.That(updates.Single(), Is.TypeOf<SessionUpdate.WorkspaceChanged>());
         var changed = (SessionUpdate.WorkspaceChanged)updates.Single();
         ClassicAssert.AreEqual((3L, 41L), (changed.Turn, changed.Seq));
+    }
+
+    [Test]
+    public void TodoWriteAndTurnStartEventFramesMapToSessionUpdates()
+    {
+        var updates = ParseFollowEventFrames("""
+                                             [
+                                               {"type": "turn/start", "seq": 7, "time": 1700000007000, "data": {}},
+                                               {"type": "todo/write", "seq": 8, "time": 1700000008000,
+                                                "data": {"todos": [{"content": "a", "status": "completed"},
+                                                                   {"content": "b", "status": "in_progress"},
+                                                                   {"content": "c"}]}},
+                                               {"type": "todo/write", "seq": 9, "time": 1700000009000, "data": {"todos": []}}
+                                             ]
+                                             """);
+
+        // turn/start 透出清空信号；todo/write 透出整表替换，未知 status 回退待处理。
+        Assert.That(updates[0], Is.TypeOf<SessionUpdate.TurnStarted>());
+        ClassicAssert.AreEqual(7L, ((SessionUpdate.TurnStarted)updates[0]).Seq);
+        Assert.That(updates[1], Is.TypeOf<SessionUpdate.TodoListUpdated>());
+        var filled = (SessionUpdate.TodoListUpdated)updates[1];
+        ClassicAssert.AreEqual(8L, filled.Seq);
+        ClassicAssert.AreEqual(3, filled.Todos.Count);
+        ClassicAssert.AreEqual((SessionTodoStatus.Completed, SessionTodoStatus.InProgress, SessionTodoStatus.Pending),
+                               (filled.Todos[0].Status, filled.Todos[1].Status, filled.Todos[2].Status));
+        // 空清单是合法清空写入：透出为空列表而非丢弃。
+        Assert.That(updates[2], Is.TypeOf<SessionUpdate.TodoListUpdated>());
+        ClassicAssert.IsEmpty(((SessionUpdate.TodoListUpdated)updates[2]).Todos);
+    }
+
+    [Test]
+    public void FollowSnapshotReplaysTurnStartAndTodoWriteRecords()
+    {
+        var frame = FollowFrameJson.Parse(JsonDocument.Parse("""
+                                                             {"type": "snapshot",
+                                                              "header": {"version": 4, "id": "session-1", "createdAt": 1700000000000, "isSeeded": false},
+                                                              "cursor": 3,
+                                                              "records": [
+                                                                {"type": "event", "event": {"type": "todo/write", "seq": 1, "time": 1700000001000, "data": {"todos": [{"content": "a", "status": "pending"}]}}},
+                                                                {"type": "event", "event": {"type": "turn/start", "seq": 2, "time": 1700000002000, "data": {}}},
+                                                                {"type": "event", "event": {"type": "todo/write", "seq": 3, "time": 1700000003000, "data": {"todos": [{"content": "a", "status": "completed"}]}}}],
+                                                              "hasMore": false}
+                                                             """).RootElement.Clone());
+        Assert.That(frame, Is.TypeOf<FollowFrame.Snapshot>());
+        var snapshotFrame = (FollowFrame.Snapshot)frame;
+
+        var updates = HarnessSessionService.MapFollowFrame(snapshotFrame).ToList();
+
+        // 快照窗口内的轮次边界与清单按记录顺序重放，最终态为最后一条 todo/write。
+        ClassicAssert.AreEqual(4, updates.Count);
+        ClassicAssert.IsInstanceOf<SessionUpdate.Snapshot>(updates[0]);
+        Assert.That(updates[1], Is.TypeOf<SessionUpdate.TodoListUpdated>());
+        Assert.That(updates[2], Is.TypeOf<SessionUpdate.TurnStarted>());
+        Assert.That(updates[3], Is.TypeOf<SessionUpdate.TodoListUpdated>());
+        var last = (SessionUpdate.TodoListUpdated)updates[3];
+        ClassicAssert.AreEqual((SessionTodoStatus.Completed, 3L), (last.Todos[0].Status, last.Seq));
+    }
+
+    /// <summary>按事件 JSON 数组构造 EventFrame 序列并映射为会话更新。</summary>
+    private static List<SessionUpdate> ParseFollowEventFrames(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        var frames = document.RootElement.EnumerateArray()
+                             .Select(FollowFrame (element) =>
+                                         new FollowFrame.EventFrame(WireEventJson.ParseEvent(element.Clone())!))
+                             .ToArray();
+        return frames.SelectMany(HarnessSessionService.MapFollowFrame).ToList();
     }
 
     [Test]

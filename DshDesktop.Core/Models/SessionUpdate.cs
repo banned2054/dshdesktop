@@ -20,8 +20,8 @@ public enum StreamOutcomeKind
 public abstract record SessionUpdate
 {
     /// <summary>
-    ///     整窗替换：包含窗口内全部可显示条目。窗口是消息对齐的（默认最近 50 条消息，
-    ///     工具调用与其来源消息同组），<see cref="WindowStartSeq" /> 是窗口首条事件的 seq，
+    ///     整窗替换：包含窗口内全部可显示条目。窗口与消息和轮次对齐（至少 50 条消息、
+    ///     2 个轮次起点，最多 500 条消息；工具调用与其来源消息同组），<see cref="WindowStartSeq" /> 是窗口首条事件的 seq，
     ///     <see cref="HasMore" /> 表示仍有更早历史可经 LoadOlderAsync 翻页。
     ///     <see cref="CurrentModel" /> 是快照投影里会话当前生效的模型选型，未选过型时为 null。
     /// </summary>
@@ -64,6 +64,15 @@ public abstract record SessionUpdate
 
     /// <summary>一轮对话收束（turn/end）：界面据此折叠该轮的过程条目；Reason 为结束原因。</summary>
     public sealed record TurnEnded(long Turn, long Seq, string? Reason = null) : SessionUpdate;
+
+    /// <summary>一轮对话开始（turn/start）：界面据此清空上一轮的任务面板显示。</summary>
+    public sealed record TurnStarted(long Seq) : SessionUpdate;
+
+    /// <summary>
+    ///     任务清单被整体替换（todo/write 事件，快照重放同样到达）。Todos 是最新全量
+    ///     清单（可能为空）；空清单与无清单在面板显示上同义，但差异基线语义不同。
+    /// </summary>
+    public sealed record TodoListUpdated(IReadOnlyList<SessionTodoItem> Todos, long Seq) : SessionUpdate;
 
     /// <summary>
     ///     一轮文件改动摘要已宣告（workspace/changes 持久事件，快照重放同样到达）。

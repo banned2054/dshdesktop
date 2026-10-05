@@ -165,4 +165,54 @@
         <Setter Property="FontSize" Value="12" />
         <Setter Property="Foreground" Value="{DynamicResource ComposerTextMutedBrush}" />
     </Style>
+
+    <!-- 任务面板（TodoPanel）：输入框上方的任务清单卡片，形态对齐官方 dock 卡片——
+         与输入卡片同底色、radius-lg 16px、body padding 6px 12px、头部与列表 gap 8px。 -->
+    <Style Selector="Border.todo-panel">
+        <Setter Property="Background" Value="{DynamicResource ComposerBackgroundBrush}" />
+        <Setter Property="CornerRadius" Value="16" />
+        <Setter Property="Padding" Value="12,6" />
+    </Style>
+    <!-- 头部整行可点：透明按钮，悬停不画底（收起态的点击区即整行，对齐官方 header button）。 -->
+    <Style Selector="Button.todo-header">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.todo-header:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="Button.todo-header:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <!-- 头部文案：标题 13px/24px 中量级 primary；进度段 13px/20px tertiary 单行省略。 -->
+    <Style Selector="TextBlock.todo-title">
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="FontWeight" Value="Medium" />
+        <Setter Property="LineHeight" Value="24" />
+        <Setter Property="Foreground" Value="{DynamicResource ComposerTextBrush}" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="TextBlock.todo-progress">
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="LineHeight" Value="20" />
+        <Setter Property="Foreground" Value="{DynamicResource ToolRowLabelBrush}" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <!-- 头部清单图标与箭头：16 空间 1px 线稿原尺寸渲染（同折叠行几何来源）。 -->
+    <Style Selector="Path.todo-icon">
+        <Setter Property="Stretch" Value="None" />
+        <Setter Property="Stroke" Value="{DynamicResource ToolRowLabelBrush}" />
+        <Setter Property="StrokeThickness" Value="1" />
+    </Style>
+    <!-- 条目文字：13px/20px secondary 单行省略（官方 Figma strip 单行口径）。 -->
+    <Style Selector="TextBlock.todo-item-text">
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="LineHeight" Value="20" />
+        <Setter Property="Foreground" Value="{DynamicResource ToolRowLabelHoverBrush}" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
 </Styles>

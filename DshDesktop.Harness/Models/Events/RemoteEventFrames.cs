@@ -138,13 +138,13 @@ public static class RemoteEventJson
     }
 
     /// <summary>解析 settings/document-updated 的 (ns, revision) 位置参数。</summary>
-    public static bool TryGetSettingsDocumentUpdate(RemoteEventFrame.Emit emit,
-                                                    [NotNullWhen(true)] out SettingsDocumentNotice? notice)
+    public static bool TryGetSettingsDocumentUpdate(
+        RemoteEventFrame.Emit emit, [NotNullWhen(true)] out SettingsDocumentNotice? notice)
     {
         notice = null;
-        if (emit.Args.Count < 2                              ||
-            emit.Args[0].ValueKind != JsonValueKind.String   ||
-            emit.Args[1].ValueKind != JsonValueKind.Number   ||
+        if (emit.Args.Count        < 2                     ||
+            emit.Args[0].ValueKind != JsonValueKind.String ||
+            emit.Args[1].ValueKind != JsonValueKind.Number ||
             !emit.Args[1].TryGetInt64(out var revision))
             return false;
 
@@ -153,8 +153,8 @@ public static class RemoteEventJson
     }
 
     /// <summary>解析 credentials/reference-updated 的 (ref) 位置参数。</summary>
-    public static bool TryGetCredentialReference(RemoteEventFrame.Emit emit,
-                                                 [NotNullWhen(true)] out string? reference)
+    public static bool TryGetCredentialReference(
+        RemoteEventFrame.Emit emit, [NotNullWhen(true)] out string? reference)
     {
         reference = emit.Args.Count > 0 && emit.Args[0].ValueKind == JsonValueKind.String
             ? emit.Args[0].GetString()

@@ -3,9 +3,11 @@ using DshDesktop.Core.Services;
 
 namespace DshDesktop.Infrastructure.Services;
 
-/// <summary>模拟 llm 目录域：目录种子对齐上游 pi-ai 内置厂商全集（显示名用 id 占位），
-/// 另含 DeepSeek 两条第一方路由与一条 declared 自定义路由（glm）。模型发现按
-/// 已知目录厂商回 canned 目录、带 baseURL 的未知厂商回占位模型的语义模拟。</summary>
+/// <summary>
+///     模拟 llm 目录域：目录种子对齐上游 pi-ai 内置厂商全集（显示名用 id 占位），
+///     另含 DeepSeek 两条第一方路由与一条 declared 自定义路由（glm）。模型发现按
+///     已知目录厂商回 canned 目录、带 baseURL 的未知厂商回占位模型的语义模拟。
+/// </summary>
 public sealed class SimulatedLlmCatalogService : ILlmCatalogService
 {
     /// <summary>pi-ai 内置厂商 id 全集（getBuiltinProviders 对齐，声明顺序近似字母序）。</summary>
@@ -18,7 +20,7 @@ public sealed class SimulatedLlmCatalogService : ILlmCatalogService
         "openai-codex", "opencode", "opencode-go", "openrouter", "qwen-token-plan",
         "qwen-token-plan-cn", "qwen-token-plan-individual", "radius", "together",
         "vercel-ai-gateway", "xai", "xiaomi", "xiaomi-token-plan-ams", "xiaomi-token-plan-cn",
-        "xiaomi-token-plan-sgp", "zai", "zai-coding-cn",
+        "xiaomi-token-plan-sgp", "zai", "zai-coding-cn"
     ];
 
     private static readonly Dictionary<string, LlmDiscoveredModel[]> CatalogSeeds = new()
@@ -26,31 +28,31 @@ public sealed class SimulatedLlmCatalogService : ILlmCatalogService
         ["anthropic"] =
         [
             new LlmDiscoveredModel("claude-sonnet-4-5", "Claude Sonnet 4.5", 200000, 64000, ["text", "image"]),
-            new LlmDiscoveredModel("claude-opus-4-1", "Claude Opus 4.1", 200000, 32000, ["text", "image"]),
+            new LlmDiscoveredModel("claude-opus-4-1", "Claude Opus 4.1", 200000, 32000, ["text", "image"])
         ],
         ["openai"] =
         [
             new LlmDiscoveredModel("gpt-5.1", "GPT-5.1", 400000, 128000, ["text", "image"]),
-            new LlmDiscoveredModel("gpt-5.1-codex", "GPT-5.1 Codex", 400000, 128000, ["text", "image"]),
+            new LlmDiscoveredModel("gpt-5.1-codex", "GPT-5.1 Codex", 400000, 128000, ["text", "image"])
         ],
         ["google"] =
         [
-            new LlmDiscoveredModel("gemini-3-pro-preview", "Gemini 3 Pro", 1048576, 65536, ["text", "image"]),
+            new LlmDiscoveredModel("gemini-3-pro-preview", "Gemini 3 Pro", 1048576, 65536, ["text", "image"])
         ],
         ["deepseek"] =
         [
-            new LlmDiscoveredModel("deepseek-chat", "DeepSeek Chat", 128000, 8192, ["text"]),
+            new LlmDiscoveredModel("deepseek-chat", "DeepSeek Chat", 128000, 8192, ["text"])
         ],
         ["mistral"] =
         [
-            new LlmDiscoveredModel("mistral-large-latest", "Mistral Large", 128000, 8192, ["text"]),
+            new LlmDiscoveredModel("mistral-large-latest", "Mistral Large", 128000, 8192, ["text"])
         ],
         ["glm"] =
         [
             new LlmDiscoveredModel("glm-4.7", "GLM-4.7", 200000, 32768, ["text", "image"]),
             new LlmDiscoveredModel("glm-4.7-air", "GLM-4.7-Air", 128000, 32768, ["text"]),
-            new LlmDiscoveredModel("glm-4.7-flash", "GLM-4.7-Flash", 128000, 32768, ["text"]),
-        ],
+            new LlmDiscoveredModel("glm-4.7-flash", "GLM-4.7-Flash", 128000, 32768, ["text"])
+        ]
     };
 
     public Task<IReadOnlyList<LlmConfigurableProvider>> GetConfigurableProvidersAsync(
@@ -59,7 +61,7 @@ public sealed class SimulatedLlmCatalogService : ILlmCatalogService
         List<LlmConfigurableProvider> entries =
         [
             new("deepseek-account", "DeepSeek Account", "llm-deepseek-account", []),
-            new("deepseek-official", "DeepSeek", "llm-deepseek", []),
+            new("deepseek-official", "DeepSeek", "llm-deepseek", [])
         ];
         entries.AddRange(BuiltinProviderIds.Select(id => new LlmConfigurableProvider(id, id, "llm-pi-ai",
                                                             ["providers", id], false)));

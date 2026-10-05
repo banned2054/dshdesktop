@@ -27,10 +27,10 @@
                     <!-- 历史分页按钮随内容滚动，位于时间线顶端；点击加载一页更早消息。 -->
                     <Button Classes="load-older"
                             Content="{Binding LoadOlderText}"
-                            Command="{Binding LoadOlderCommand}"
                             HorizontalAlignment="Center"
-                            IsVisible="{Binding HasMoreHistory}" />
-                    <ItemsControl ItemsSource="{Binding ConversationItems}">
+                            IsVisible="{Binding HasMoreHistory}"
+                            Click="OnLoadOlderClick" />
+                    <ItemsControl x:Name="ConversationItemsControl" ItemsSource="{Binding ConversationItems}">
                         <ItemsControl.DataTemplates>
                             <DataTemplate x:DataType="vm:MessageItemViewModel">
                                 <conversation:MessageView />
@@ -61,7 +61,12 @@
                                             </Panel>
                                         </StackPanel>
                                     </Button>
-                                    <ItemsControl ItemsSource="{Binding Process}"
+                                    <Button Classes="load-older"
+                                            Content="{Binding HiddenProcessCountText}"
+                                            HorizontalAlignment="Left"
+                                            IsVisible="{Binding ShowEarlierProcessPrompt}"
+                                            Click="OnShowEarlierProcessClick" />
+                                    <ItemsControl ItemsSource="{Binding VisibleProcess}"
                                                   IsVisible="{Binding IsExpanded}">
                                         <ItemsControl.ItemsPanel>
                                             <ItemsPanelTemplate>

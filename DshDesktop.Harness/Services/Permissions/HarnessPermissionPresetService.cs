@@ -62,9 +62,7 @@ public sealed class HarnessPermissionPresetService : IPermissionPresetService
     {
         return new PermissionCatalog(value.Options
                                           .Select(option => new PermissionPresetOption(option.Value, option.Name,
-                                                      option.Description))
-                                          .ToArray(),
-                                     value.DefaultPreset);
+                                                      option.Description)).ToArray(), value.DefaultPreset);
     }
 
     private void OnPermissionCatalogChanged(object? sender, EventArgs e)

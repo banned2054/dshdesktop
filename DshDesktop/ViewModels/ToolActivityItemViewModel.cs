@@ -14,13 +14,16 @@ public sealed class ToolActivityItemViewModel : ConversationItemViewModel
     /// <summary>结果文本的截断上限；完整文本不再重复保存，避免长会话双份大字符串。</summary>
     private const int ResultPreviewLimit = 2000;
 
+    /// <summary>todo_write 的 diff 摘要段（新增/更新/移除），发起时由组装器定格；其余工具为 null。</summary>
+    private readonly string? _todoDiffSummary;
+
     private string? _errorReason;
     private bool    _isExpanded;
     private string? _resultText;
 
     private ToolActivityStatus _status;
 
-    public ToolActivityItemViewModel(ToolActivity activity) : base(activity.Seq)
+    public ToolActivityItemViewModel(ToolActivity activity, string? todoDiffSummary = null) : base(activity.Seq)
     {
         CallId               = activity.CallId;
         Name                 = activity.Name;
@@ -28,6 +31,7 @@ public sealed class ToolActivityItemViewModel : ConversationItemViewModel
         _status              = activity.Status;
         _resultText          = activity.ResultText;
         _errorReason         = activity.ErrorReason;
+        _todoDiffSummary     = todoDiffSummary;
         CreatedAtText        = activity.CreatedAt.ToLocalTime().ToString("HH:mm");
         ToggleDetailsCommand = new RelayCommand(() => IsExpanded = !IsExpanded);
     }
@@ -60,10 +64,13 @@ public sealed class ToolActivityItemViewModel : ConversationItemViewModel
     /// <summary>折叠行口语化标题：已知工具映射中文动词，未知名回退通用词。</summary>
     public string Title => ToolCallText.GetTitle(Name);
 
-    /// <summary>折叠行摘要：失败时显示错误首行，否则按工具变体从参数推导。</summary>
+    /// <summary>
+    ///     折叠行摘要：失败时显示错误首行，否则按工具变体从参数推导；
+    ///     todo_write 在其后拼 diff 段（对齐官方 summarySuffix 的拼接位）。
+    /// </summary>
     public string SummaryText => IsFailed && !string.IsNullOrWhiteSpace(ErrorReason)
         ? ToolCallText.FirstLine(ErrorReason)
-        : ToolCallText.GetSummary(Name, ArgumentsText);
+        : JoinWithDiff(ToolCallText.GetSummary(Name, ArgumentsText), _todoDiffSummary);
 
     public string StatusText => ToolCallText.GetStatusText(Name, Status);
 
@@ -115,6 +122,12 @@ public sealed class ToolActivityItemViewModel : ConversationItemViewModel
 
     /// <summary>折叠行图标填充部件；纯描边图标为 null（Data 空即不渲染）。</summary>
     public StreamGeometry? IconFill => ToolCallText.GetIconFill(Name);
+
+    private static string JoinWithDiff(string summary, string? diffSummary)
+    {
+        if (string.IsNullOrEmpty(diffSummary)) return summary;
+        return string.IsNullOrEmpty(summary) ? diffSummary : $"{summary} · {diffSummary}";
+    }
 
     /// <summary>结果事件到达：保持发起位置与参数，落定状态与结果。</summary>
     public void Settle(ToolActivity settled)

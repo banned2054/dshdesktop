@@ -21,7 +21,7 @@ public sealed class HarnessSettingsService : ISettingsService
 
     public HarnessSettingsService(HarnessConnection connection)
     {
-        _connection = connection;
+        _connection                         =  connection;
         _connection.SettingsDocumentUpdated += OnConnectionDocumentUpdated;
     }
 
@@ -32,36 +32,36 @@ public sealed class HarnessSettingsService : ISettingsService
         var value = await _connection.InvokeEmptyAsync("settings/describe",
                                                        HarnessJsonContext.Default.SettingsDescribeValueWire,
                                                        cancellationToken)
-                                      .ConfigureAwait(false);
+                                     .ConfigureAwait(false);
         return ToDescribeValue(value);
     }
 
-    public async Task<SettingsNamespaceView> UpdateAsync(string ns, JsonElement patch,
-                                                         long? expectedRevision = null,
+    public async Task<SettingsNamespaceView> UpdateAsync(string            ns, JsonElement patch,
+                                                         long?             expectedRevision  = null,
                                                          CancellationToken cancellationToken = default)
     {
         var value = await WriteAsync("settings/update",
                                      new SettingsUpdateRequest(ns, patch, expectedRevision),
                                      HarnessJsonContext.Default.SettingsUpdateRequest,
                                      cancellationToken)
-                         .ConfigureAwait(false);
+           .ConfigureAwait(false);
         return ToNamespaceView(value);
     }
 
-    public async Task<SettingsNamespaceView> ReplaceAsync(string ns, JsonElement section,
-                                                          long? expectedRevision = null,
+    public async Task<SettingsNamespaceView> ReplaceAsync(string            ns, JsonElement section,
+                                                          long?             expectedRevision  = null,
                                                           CancellationToken cancellationToken = default)
     {
         var value = await WriteAsync("settings/replace",
                                      new SettingsReplaceRequest(ns, section, expectedRevision),
                                      HarnessJsonContext.Default.SettingsReplaceRequest,
                                      cancellationToken)
-                         .ConfigureAwait(false);
+           .ConfigureAwait(false);
         return ToNamespaceView(value);
     }
 
-    public async Task<SettingsNamespaceView> MutateAsync(string ns, IReadOnlyList<SettingsMutationOp> ops,
-                                                         long? expectedRevision = null,
+    public async Task<SettingsNamespaceView> MutateAsync(string            ns, IReadOnlyList<SettingsMutationOp> ops,
+                                                         long?             expectedRevision  = null,
                                                          CancellationToken cancellationToken = default)
     {
         var wireOps = ops.Select(op => new SettingsOpRequest(op.Op, op.Path, op.Value)).ToArray();
@@ -69,7 +69,7 @@ public sealed class HarnessSettingsService : ISettingsService
                                      new SettingsMutateRequest(ns, wireOps, expectedRevision),
                                      HarnessJsonContext.Default.SettingsMutateRequest,
                                      cancellationToken)
-                         .ConfigureAwait(false);
+           .ConfigureAwait(false);
         return ToNamespaceView(value);
     }
 
@@ -113,15 +113,12 @@ public sealed class HarnessSettingsService : ISettingsService
 
     internal static SettingsNamespaceView ToNamespaceView(SettingsNamespaceViewWire wire)
     {
-        return new SettingsNamespaceView(wire.Ns,
-                                         wire.AutoGenerate,
-                                         wire.Schema,
-                                         wire.Value,
-                                         wire.Applies,
-                                         wire.Revision,
-                                         wire.Base,
-                                         wire.User,
-                                         [.. (wire.Secrets ?? [])
-                                             .Select(secret => new SettingsSecretInfo(secret.Path, secret.Set))]);
+        return new SettingsNamespaceView(wire.Ns, wire.AutoGenerate, wire.Schema, wire.Value, wire.Applies,
+                                         wire.Revision, wire.Base, wire.User,
+                                         [
+                                             .. (wire.Secrets ?? []).Select(secret =>
+                                                                                new SettingsSecretInfo(secret.Path,
+                                                                                    secret.Set))
+                                         ]);
     }
 }

@@ -7,8 +7,10 @@ using DshDesktop.Harness.Services.Connection;
 
 namespace DshDesktop.Harness.Services.Llm;
 
-/// <summary>llm 目录域服务：listConfigurableProviders（无参）与 discoverModels（settingsNs + 探测参数）。
-/// 发现失败（无发现注册、参数缺失、端点拒绝）由后端以 RPC 错误返回，原样抛给消费方。</summary>
+/// <summary>
+///     llm 目录域服务：listConfigurableProviders（无参）与 discoverModels（settingsNs + 探测参数）。
+///     发现失败（无发现注册、参数缺失、端点拒绝）由后端以 RPC 错误返回，原样抛给消费方。
+/// </summary>
 public sealed class HarnessLlmCatalogService(HarnessConnection connection) : ILlmCatalogService
 {
     private readonly HarnessConnection _connection = connection;
@@ -31,9 +33,9 @@ public sealed class HarnessLlmCatalogService(HarnessConnection connection) : ILl
 
         var value = await _connection.InvokeArgsAsync("llm/discoverModels",
                                                       new LlmDiscoverModelsRequest(settingsNs,
-                                                                                   new LlmDiscoveryProbeRequest(request
-                                                                                               .Provider, request.BaseUrl,
-                                                                                                request.Api, request.ApiKey)),
+                                                               new LlmDiscoveryProbeRequest(request
+                                                                           .Provider, request.BaseUrl,
+                                                                        request.Api, request.ApiKey)),
                                                       HarnessJsonContext.Default.LlmDiscoverModelsRequest,
                                                       HarnessJsonContext.Default.LlmDiscoveredModelWireArray,
                                                       cancellationToken).ConfigureAwait(false);

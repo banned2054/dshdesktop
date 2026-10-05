@@ -1,4 +1,6 @@
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Interactivity;
 using Avalonia.Threading;
 using DshDesktop.ViewModels;
 using System.Collections.Specialized;
@@ -10,8 +12,20 @@ namespace DshDesktop.Presentation.Views.Conversation;
 public partial class ConversationView : UserControl
 {
     private const double AutoScrollBottomTolerance = 140;
-    private       bool   _anchoringPrepend;
-    private       double _messagesExtent;
+
+    private bool   _anchoringPrepend;
+    private bool   _anchoringProcessExpand;
+    private double _lastSettleExtent = double.NaN;
+    private double _lastSettleY      = double.NaN;
+    private double _messagesExtent;
+    private double _prependAnchorExtent;
+
+    private ConversationItemViewModel? _prependAnchorItem;
+
+    private double _prependAnchorOffset;
+    private double _prependAnchorY;
+    private bool   _restoringPrependAnchor;
+    private int    _stableSettlePasses;
 
     private MainWindowViewModel? _viewModel;
 
@@ -42,7 +56,7 @@ public partial class ConversationView : UserControl
     {
         if (e.PropertyName == nameof(MainWindowViewModel.IsLoadingOlder) &&
             DataContext is MainWindowViewModel { IsLoadingOlder: false })
-            Dispatcher.UIThread.Post(() => _anchoringPrepend = false, DispatcherPriority.Background);
+            Dispatcher.UIThread.Post(SettlePrependAnchor, DispatcherPriority.Render);
     }
 
     /// <summary>新消息到达时，若用户本就停在底部附近则继续贴底；用户上翻时不打扰。</summary>
@@ -54,7 +68,14 @@ public partial class ConversationView : UserControl
         // Reset 不置锚——其偏移归零属预期，补偿反而会把视口抬到错误位置。
         if (e.Action == NotifyCollectionChangedAction.Reset &&
             DataContext is MainWindowViewModel { IsLoadingOlder: true })
+        {
             _anchoringPrepend = true;
+            if (_prependAnchorItem is null) CapturePrependAnchor();
+            return;
+        }
+
+        // 重建时间线会在 Reset 后连续发 Add；这些只是前插批次的一部分，不能排队贴底。
+        if (_anchoringPrepend) return;
 
         var scroll = MessagesScroll;
         if (scroll is not null && WasNearBottom(scroll, scroll.Extent.Height)) PostScrollToEnd(scroll);
@@ -70,6 +91,29 @@ public partial class ConversationView : UserControl
     {
         if (sender is not ScrollViewer scroll) return;
 
+        if (_anchoringPrepend)
+        {
+            if (!_restoringPrependAnchor && !e.OffsetDelta.Y.Equals(0) && e.ExtentDelta.Y.Equals(0))
+            {
+                // 翻页等待期间用户主动滚动，立即让用户操作接管视口。
+                ClearPrependAnchor();
+            }
+            else
+            {
+                _messagesExtent = scroll.Extent.Height;
+                RestorePrependAnchor();
+                return;
+            }
+        }
+
+        if (_anchoringProcessExpand && e.ExtentDelta.Y > 0)
+        {
+            // 过程组顶部展开把既有可见行向下推；同步抬高偏移，保持用户正在读的行不动。
+            _messagesExtent = scroll.Extent.Height;
+            scroll.Offset   = scroll.Offset.WithY(scroll.Offset.Y + e.ExtentDelta.Y);
+            return;
+        }
+
         if (_anchoringPrepend && e.ExtentDelta.Y > 0)
         {
             // 顶部插入内容把既有内容向下推；同步抬高偏移，用户看到的位置保持不变。
@@ -77,6 +121,17 @@ public partial class ConversationView : UserControl
             _messagesExtent = scroll.Extent.Height;
             scroll.Offset   = scroll.Offset.WithY(scroll.Offset.Y + e.ExtentDelta.Y);
             return;
+        }
+
+        // Offset changes without an extent change are user/programmatic viewport movement.
+        // Freeze the active process windows while reading above the tail; returning to the
+        // bottom restores the default tail only for groups the user did not expand manually.
+        if (!e.OffsetDelta.Y.Equals(0) && e.ExtentDelta.Y.Equals(0))
+        {
+            // Any explicit upward movement starts a reading window, including small moves
+            // that remain within the auto-follow tolerance. Moving down resumes only near tail.
+            var followsLatest = e.OffsetDelta.Y > 0 && WasNearBottom(scroll, scroll.Extent.Height);
+            UpdateProcessWindowFollowing(followsLatest);
         }
 
         var previousExtent = _messagesExtent;
@@ -87,6 +142,17 @@ public partial class ConversationView : UserControl
             PostScrollToEnd(scroll);
     }
 
+    private void UpdateProcessWindowFollowing(bool followsLatest)
+    {
+        if (_viewModel is null) return;
+
+        foreach (var group in _viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>())
+            if (followsLatest)
+                group.ResumeLatestWindow();
+            else if (group is { IsExpanded: true, IsFollowingLatest: true })
+                group.PinVisibleWindow();
+    }
+
     private static bool WasNearBottom(ScrollViewer scroll, double extent)
     {
         return extent - (scroll.Offset.Y + scroll.Viewport.Height) <= AutoScrollBottomTolerance;
@@ -95,5 +161,149 @@ public partial class ConversationView : UserControl
     private static void PostScrollToEnd(ScrollViewer scroll)
     {
         Dispatcher.UIThread.Post(scroll.ScrollToEnd, DispatcherPriority.Background);
+    }
+
+    /// <summary>按钮执行命令前记录首个当前可见时间线项及其相对 ScrollViewer 的 Y 坐标。</summary>
+    private void OnLoadOlderClick(object? sender, RoutedEventArgs e)
+    {
+        if (_viewModel is null || !_viewModel.HasMoreHistory || _viewModel.IsLoadingOlder) return;
+
+        CapturePrependAnchor();
+        _viewModel.LoadOlderCommand.Execute(null);
+    }
+
+    private void CapturePrependAnchor()
+    {
+        var scroll = MessagesScroll;
+        if (scroll is null || _viewModel is null) return;
+
+        _prependAnchorItem   = null;
+        _prependAnchorOffset = scroll.Offset.Y;
+        _prependAnchorExtent = scroll.Extent.Height;
+        _lastSettleY         = double.NaN;
+        _lastSettleExtent    = double.NaN;
+        _stableSettlePasses  = 0;
+
+        foreach (var item in _viewModel.ConversationItems)
+        {
+            if (ConversationItemsControl.ContainerFromItem(item) is not Control container ||
+                container.TranslatePoint(default, scroll) is not { } point                ||
+                point.Y + container.Bounds.Height <= 0)
+                continue;
+
+            _prependAnchorItem = item;
+            _prependAnchorY    = point.Y;
+            break;
+        }
+    }
+
+    /// <summary>跨整表重建按稳定 Seq/turn 找回原条目，再抵消其实际屏幕位移。</summary>
+    private void RestorePrependAnchor()
+    {
+        if (!_anchoringPrepend || _viewModel is null || _prependAnchorItem is null) return;
+
+        var item = ResolvePrependAnchor(_prependAnchorItem);
+        if (item is null || ConversationItemsControl.ContainerFromItem(item) is not Control container ||
+            container.TranslatePoint(default, MessagesScroll) is not { } point)
+        {
+            var fallbackOffset = _prependAnchorOffset + MessagesScroll.Extent.Height - _prependAnchorExtent;
+            _restoringPrependAnchor = true;
+            try
+            {
+                MessagesScroll.Offset = MessagesScroll.Offset.WithY(fallbackOffset);
+            }
+            finally
+            {
+                _restoringPrependAnchor = false;
+            }
+
+            return;
+        }
+
+        var delta = point.Y - _prependAnchorY;
+        if (Math.Abs(delta) < 0.5) return;
+
+        _restoringPrependAnchor = true;
+        try
+        {
+            MessagesScroll.Offset = MessagesScroll.Offset.WithY(MessagesScroll.Offset.Y + delta);
+        }
+        finally
+        {
+            _restoringPrependAnchor = false;
+        }
+    }
+
+    private ConversationItemViewModel? ResolvePrependAnchor(ConversationItemViewModel anchor)
+    {
+        if (_viewModel is null) return null;
+
+        if (anchor is TurnProcessGroupViewModel anchorGroup)
+            return _viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>().FirstOrDefault(group =>
+                         anchorGroup.Turn is { } turn
+                             ? group.Turn == turn
+                             : group.Process.Any(item => item.Seq == anchorGroup.Seq));
+
+        var direct = _viewModel.ConversationItems.FirstOrDefault(item =>
+                                                                     item.GetType() == anchor.GetType() &&
+                                                                     item.Seq       == anchor.Seq       &&
+                                                                     (item is not MessageItemViewModel message ||
+                                                                      (anchor is MessageItemViewModel oldMessage &&
+                                                                       message.Id == oldMessage.Id)) &&
+                                                                     (item is not ToolActivityItemViewModel tool ||
+                                                                      (anchor is ToolActivityItemViewModel oldTool &&
+                                                                       tool.CallId == oldTool.CallId)));
+        if (direct is not null) return direct;
+
+        // 补齐历史后，先前单独显示的工具/消息可能归入完整 turn 过程组；组头仍是稳定锚点。
+        return _viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>()
+                         .FirstOrDefault(group => group.Process.Any(item => item.Seq == anchor.Seq));
+    }
+
+    private void SettlePrependAnchor()
+    {
+        if (!_anchoringPrepend) return;
+
+        RestorePrependAnchor();
+        var extent = MessagesScroll.Extent.Height;
+        var y = _prependAnchorItem is { } anchor                                          && _viewModel is not null &&
+                ResolvePrependAnchor(anchor) is { } resolved                              &&
+                ConversationItemsControl.ContainerFromItem(resolved) is Control container &&
+                container.TranslatePoint(default, MessagesScroll) is { } point
+            ? point.Y
+            : _prependAnchorOffset + extent - _prependAnchorExtent;
+
+        if (Math.Abs(extent - _lastSettleExtent) < 0.5 && Math.Abs(y - _lastSettleY) < 0.5)
+            _stableSettlePasses++;
+        else
+            _stableSettlePasses = 0;
+
+        _lastSettleExtent = extent;
+        _lastSettleY      = y;
+        if (_stableSettlePasses >= 1)
+        {
+            ClearPrependAnchor();
+            return;
+        }
+
+        Dispatcher.UIThread.Post(SettlePrependAnchor, DispatcherPriority.Background);
+    }
+
+    private void ClearPrependAnchor()
+    {
+        _anchoringPrepend   = false;
+        _prependAnchorItem  = null;
+        _stableSettlePasses = 0;
+    }
+
+    /// <summary>展开更早过程：先标记锚定，再让组内可见窗口变化，布局后补偿偏移。</summary>
+    private void OnShowEarlierProcessClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: TurnProcessGroupViewModel { HasEarlierProcess: true } group })
+            return;
+
+        _anchoringProcessExpand = true;
+        group.ShowEarlierProcess();
+        Dispatcher.UIThread.Post(() => _anchoringProcessExpand = false, DispatcherPriority.Background);
     }
 }

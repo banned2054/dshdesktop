@@ -66,7 +66,7 @@ public sealed class MainWindowViewModelTests
         var viewModel = CreateViewModel();
         await viewModel.InitializeAsync();
         viewModel.SelectedSession = viewModel.Sidebar.Sessions.First(session => session.Id == "session-history");
-        await WaitUntilAsync(() => viewModel.ConversationItems.Count                       == 5);
+        await WaitUntilAsync(() => viewModel.ConversationItems.Count > 0 && viewModel.HasMoreHistory);
 
         // 视图以前插锚定补偿翻页跳动，置锚判据是「IsLoadingOlder 窗口内到达的 Reset」：
         // 翻页重建（Clear + 整体重灌，见 RebuildTimeline）的 Reset 必须发生在窗口内，
@@ -189,7 +189,7 @@ public sealed class MainWindowViewModelTests
 
         viewModel.PermissionSelector.SelectOptionCommand.Execute(
                                                                  viewModel.PermissionSelector.Options.Single(option =>
-                                                                              option.Value == "read-only"));
+                                                                     option.Value == "read-only"));
         Assert.That(permissionPresetService.Switches, Has.Count.EqualTo(1));
         var (switchedSession, preset) = permissionPresetService.Switches.Single();
         ClassicAssert.AreEqual(selectedSessionId, switchedSession);
@@ -552,12 +552,14 @@ public sealed class MainWindowViewModelTests
         viewModel.SelectedSession = viewModel.Sidebar.Sessions.First(session => session.Id == "session-history");
         // 初始窗口是最近 3 条消息及其附随条目（说明、工具、思考、工具、总结、turn/end）；
         // turn/end 边界不产生可见条目，可见项为 5。
-        await WaitUntilAsync(() => viewModel.ConversationItems.Count == 5);
+        await WaitUntilAsync(() => viewModel.ConversationItems.Count > 0 && viewModel.HasMoreHistory);
 
-        // 首轮被窗口截断（turn 4 的用户消息与首个思考在窗口之外）：起点未观察到，不折叠。
+        // 首轮被窗口截断（turn 4 的用户消息与首个思考在窗口之外）：仍限制在过程组内显示，
+        // 并标记部分加载；不能因历史窗口不完整而把过程重新铺成顶层项目。
         ClassicAssert.IsTrue(viewModel.HasMoreHistory);
         ClassicAssert.AreEqual(27, viewModel.ConversationItems[0].Seq);
-        Assert.That(viewModel.ConversationItems.Any(item => item is TurnProcessGroupViewModel), Is.False);
+        Assert.That(viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>()
+                             .Any(group => group.IsPartialTurn), Is.True);
 
         viewModel.LoadOlderCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.ConversationItems[0].Seq == 23 && !viewModel.IsLoadingOlder);
@@ -590,9 +592,10 @@ public sealed class MainWindowViewModelTests
         ClassicAssert.AreEqual(2, group.ToolCallCount);
         ClassicAssert.AreEqual(1, group.MessageCount);
         ClassicAssert.AreEqual("2 次工具调用 · 1 条消息", group.SummaryText);
-        // 过程组内的条目：两段思考、中间说明与两枚工具；思考条目不算「消息」。
-        ClassicAssert.AreEqual(5, group.Process.Count);
-        ClassicAssert.AreEqual(2, group.Process.OfType<MessageItemViewModel>()
+        // 过程组内的条目：两段中间思考、最终 reasoning 投影、中间说明与两枚工具；
+        // 思考条目（包括投影）不算「消息」。
+        ClassicAssert.AreEqual(6, group.Process.Count);
+        ClassicAssert.AreEqual(3, group.Process.OfType<MessageItemViewModel>()
                                        .Count(message => message.HasReasoning &&
                                                          string.IsNullOrWhiteSpace(message.Content)));
         Assert.That(group.Process.Any(item => item is MessageItemViewModel { Content: "先查看第 1 轮的相关记录，再做定点更新。" }),
@@ -602,6 +605,13 @@ public sealed class MainWindowViewModelTests
                               .Single(item => item.Content == "历史回答 0：基于第 1 轮工具结果的整理。");
         ClassicAssert.AreEqual(7, answer.Seq);
         ClassicAssert.IsTrue(answer.HasReasoning);
+        ClassicAssert.IsTrue(answer.IsReasoningProjected);
+        ClassicAssert.IsFalse(answer.HasVisibleReasoning);
+        var finalReasoning = group.Process.OfType<MessageItemViewModel>()
+                                  .Single(item => item.Seq == answer.Seq &&
+                                                  string.IsNullOrWhiteSpace(item.Content));
+        ClassicAssert.AreEqual(answer.Id, finalReasoning.Id);
+        ClassicAssert.AreEqual(answer.Reasoning, finalReasoning.Reasoning);
 
         await viewModel.DisposeAsync();
     }
@@ -616,10 +626,11 @@ public sealed class MainWindowViewModelTests
         await SelectFirstSessionAsync(viewModel);
 
         // 中途 attach 到生成中的会话：快照尾部带 Host 合成的 interrupted 边界（seq 即 cursor，
-        // 持久日志中不存在）。该边界不得结算当前轮——条目保持逐项显示，无过程组。
+        // 持久日志中不存在）。该边界不得结算当前轮；已有过程仍在活动过程组内。
         await WaitUntilAsync(() => viewModel.ConversationItems.OfType<MessageItemViewModel>()
                                             .Any(message => message.Content == "阶段性回复"));
-        Assert.That(viewModel.ConversationItems.Any(item => item is TurnProcessGroupViewModel), Is.False);
+        Assert.That(viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>()
+                             .Any(group => group.Process.Any(item => item.Seq == 2)), Is.True);
 
         // 生成继续：新工具与真正的最终回复落地，随后真实的 turn/end 到达——此时才折叠，
         // 且只折叠一次（合成边界若被结算会出现两个过程组/错误的最终回复）。
@@ -650,12 +661,165 @@ public sealed class MainWindowViewModelTests
         await viewModel.InitializeAsync();
         viewModel.SelectedSession = viewModel.Sidebar.Sessions.First(session => session.Id == "session-history");
 
-        await WaitUntilAsync(() => viewModel.ConversationItems.Count == 5);
+        await WaitUntilAsync(() => viewModel.ConversationItems.Count > 0 && viewModel.HasMoreHistory);
 
+        viewModel.SelectedSession = viewModel.Sidebar.Sessions.First(session => session.Id == "session-welcome");
+        await WaitUntilAsync(() => viewModel.SelectedSession?.Id == "session-welcome" &&
+                                   viewModel.ConversationItems.OfType<MessageItemViewModel>().Count() == 2,
+                             10000);
+
+        ClassicAssert.IsFalse(viewModel.HasMoreHistory);
+
+        await viewModel.DisposeAsync();
+    }
+
+    [Test]
+    public async Task RunningLongTurnPagesProcessAndKeepsExpandedAnchorAcrossNewEvents()
+    {
+        var sessionService = new SimulatedSessionService();
+        var backendService = new SimulatedBackendStatusService();
+        var viewModel      = new MainWindowViewModel(sessionService, backendService, new StaticWorkspaceService());
+        await viewModel.InitializeAsync();
         viewModel.SelectedSession = viewModel.Sidebar.Sessions.First(session => session.Id == "session-welcome");
         await WaitUntilAsync(() => viewModel.ConversationItems.OfType<MessageItemViewModel>().Count() == 2);
 
-        ClassicAssert.IsFalse(viewModel.HasMoreHistory);
+        var sessionId = viewModel.SelectedSession!.Id;
+        await sessionService.SendPromptAsync(sessionId, Guid.NewGuid().ToString(), "检查长轮次");
+
+        // 工具先发起、结果稍后到达；其间的长过程通过真实 FollowSessionAsync 事件链进入 VM。
+        var       pendingTool    = sessionService.BeginToolActivity(sessionId, "fs.read", 2)!;
+        const int reasoningCount = 44;
+        var       fullReasoning  = new string('思', 4096);
+        for (var index = 0; index < reasoningCount; index++)
+            sessionService.PushCommittedAssistantMessage(sessionId, string.Empty, 2,
+                                                         reasoning : index == 0 ? fullReasoning : $"过程思考 {index}");
+
+        await WaitUntilAsync(() => viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>()
+                                            .Any(group => group.Process.Count == reasoningCount + 1), 10000);
+        var group = viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>()
+                             .Single(group => group.Process.Count == reasoningCount + 1);
+
+        Assert.That(group.Process, Has.Count.EqualTo(45));
+        Assert.That(group.VisibleProcess, Has.Count.EqualTo(20));
+        Assert.That(group.HiddenProcessCount, Is.EqualTo(25));
+        Assert.That(group.HasEarlierProcess, Is.True);
+
+        group.ShowEarlierProcess();
+        Assert.That(group.VisibleProcess, Has.Count.EqualTo(40));
+        Assert.That(group.HiddenProcessCount, Is.EqualTo(5));
+        var earliestVisibleSeq = group.VisibleProcess[0].Seq;
+
+        sessionService.SettleToolActivity(sessionId, pendingTool.CallId, "完整工具结果", false);
+        sessionService.PushCommittedAssistantMessage(sessionId, string.Empty, 2, reasoning : "追加思考 A");
+        sessionService.PushCommittedAssistantMessage(sessionId, string.Empty, 2, reasoning : "追加思考 B");
+        await WaitUntilAsync(() => group.Process.Count == 47 && group.VisibleProcess.Count == 42);
+
+        Assert.That(group.VisibleProcess[0].Seq, Is.EqualTo(earliestVisibleSeq),
+                    "新事件不能把已经展开到的最早过程条目挤出可见范围。");
+        Assert.That(group.HiddenProcessCount, Is.EqualTo(5));
+        var toolCard = group.Process.OfType<ToolActivityItemViewModel>().Single();
+        Assert.That(toolCard.CallId, Is.EqualTo(pendingTool.CallId));
+        Assert.That(toolCard.IsSucceeded, Is.True);
+        Assert.That(toolCard.ResultText, Is.EqualTo("完整工具结果"));
+
+        group.ShowEarlierProcess();
+        Assert.That(group.VisibleProcess, Has.Count.EqualTo(47));
+        Assert.That(group.HiddenProcessCount, Is.Zero);
+        Assert.That(group.VisibleProcess[0].Seq, Is.EqualTo(group.Process[0].Seq));
+        var fullyExpandedAnchorSeq = group.VisibleProcess[0].Seq;
+        var reasoningItem = group.Process.OfType<MessageItemViewModel>()
+                                 .Single(message => message.Reasoning == fullReasoning);
+        Assert.That(reasoningItem.Reasoning, Is.EqualTo(fullReasoning),
+                    "过程窗口不能截断已存储的思考原文。");
+        Assert.That(group.VisibleProcess, Does.Contain(toolCard),
+                    "调用与结果必须仍是同一张工具卡片，并能随过程窗口显示。");
+
+        const string finalAnswer = "完整终答原文";
+        sessionService.BeginAssistantStream(sessionId, "正在生成完整终答");
+        await WaitUntilAsync(() => viewModel.ConversationItems.OfType<MessageItemViewModel>()
+                                            .Any(message => message is { IsStreaming: true, Content: "正在生成完整终答" }));
+        Assert.That(viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>()
+                             .SelectMany(candidate => candidate.Process).OfType<MessageItemViewModel>()
+                             .Any(message => message.IsStreaming), Is.False,
+                    "当前流式气泡必须留在过程组外。");
+
+        sessionService.PushCommittedAssistantMessage(sessionId, finalAnswer, 2, reasoning : "终答思考");
+        await WaitUntilAsync(() => viewModel.ConversationItems.OfType<MessageItemViewModel>()
+                                            .Any(message => message.Content == finalAnswer));
+        sessionService.PushTurnEnded(sessionId, 2);
+        await WaitUntilAsync(() => viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>()
+                                            .Any(candidate => candidate.Process.OfType<MessageItemViewModel>()
+                                                                       .Any(message => message is
+                                                                                { Content: "", Reasoning: "终答思考" })),
+                             10000);
+
+        var answer = viewModel.ConversationItems.OfType<MessageItemViewModel>()
+                              .Single(message => message.Content == finalAnswer);
+        var finalizedGroup = viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>().Single();
+        Assert.That(answer.Content, Is.EqualTo(finalAnswer));
+        Assert.That(finalizedGroup.IsExpanded, Is.True,
+                    "用户展开旧过程后，turn/end 不应收回明确的阅读状态。");
+        Assert.That(finalizedGroup.VisibleProcess[0].Seq, Is.EqualTo(fullyExpandedAnchorSeq),
+                    "最终收束和思考投影不得改变用户已展开的 Seq 锚点。");
+        Assert.That(finalizedGroup.Process.OfType<MessageItemViewModel>()
+                                  .Any(message => message.Content == finalAnswer), Is.False);
+
+        await viewModel.DisposeAsync();
+    }
+
+    [Test]
+    public async Task LoadingOlderPreservesExpandedProcessSeqBoundaryAndDoesNotLeakAcrossSessions()
+    {
+        var sessionService = new SimulatedSessionService();
+        var backendService = new SimulatedBackendStatusService();
+        var viewModel      = new MainWindowViewModel(sessionService, backendService, new StaticWorkspaceService());
+        await viewModel.InitializeAsync();
+        viewModel.SelectedSession = viewModel.Sidebar.Sessions.First(session => session.Id == "session-history");
+        await WaitUntilAsync(() => viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>().Any() &&
+                                   viewModel.HasMoreHistory);
+
+        var firstSessionId = viewModel.SelectedSession!.Id;
+        await sessionService.SendPromptAsync(firstSessionId, Guid.NewGuid().ToString(), "保留过程锚点");
+        const int processCount = 45;
+        for (var index = 0; index < processCount; index++)
+            sessionService.PushCommittedAssistantMessage(firstSessionId, string.Empty, 90,
+                                                         reasoning : $"历史重建过程 {index}");
+
+        await WaitUntilAsync(() => viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>()
+                                            .Any(group => group.Process.Count == processCount), 10000);
+        var expandedGroup = viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>()
+                                     .Single(group => group.Process.Count == processCount);
+        expandedGroup.ShowEarlierProcess();
+        var earliestVisibleSeq = expandedGroup.VisibleProcess[0].Seq;
+        var firstSeqBeforeLoad = viewModel.ConversationItems[0].Seq;
+
+        viewModel.LoadOlderCommand.Execute(null);
+        await WaitUntilAsync(() => viewModel.ConversationItems[0].Seq < firstSeqBeforeLoad &&
+                                   !viewModel.IsLoadingOlder);
+
+        var rebuiltGroup = viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>()
+                                    .Single(group => group.Process.Any(item => item.Seq == earliestVisibleSeq));
+        Assert.That(rebuiltGroup.VisibleProcess[0].Seq, Is.EqualTo(earliestVisibleSeq),
+                    "按 Seq 保存的展开边界在历史前插与时间线重建后必须仍然有效。");
+        Assert.That(rebuiltGroup.HiddenProcessCount, Is.EqualTo(5));
+        Assert.That(rebuiltGroup.Process, Has.Count.EqualTo(processCount));
+
+        var otherSession = viewModel.Sidebar.Sessions.First(session => session.Id == "session-welcome");
+        viewModel.SelectedSession = otherSession;
+        await WaitUntilAsync(() => viewModel.ConversationItems.OfType<MessageItemViewModel>().Count() == 2);
+        await sessionService.SendPromptAsync(otherSession.Id, Guid.NewGuid().ToString(), "隔离展开状态");
+        for (var index = 0; index < processCount; index++)
+            sessionService.PushCommittedAssistantMessage(otherSession.Id, string.Empty, 90,
+                                                         reasoning : $"另一会话过程 {index}");
+
+        await WaitUntilAsync(() => viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>()
+                                            .Any(group => group.Process.Count == processCount), 10000);
+        var otherGroup = viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>()
+                                  .Single(group => group.Process.Count == processCount);
+        Assert.That(otherGroup.VisibleProcess, Has.Count.EqualTo(20));
+        Assert.That(otherGroup.HiddenProcessCount, Is.EqualTo(25));
+        Assert.That(otherGroup.VisibleProcess[0].Seq, Is.Not.EqualTo(earliestVisibleSeq),
+                    "另一会话必须使用自己的过程展开状态。");
 
         await viewModel.DisposeAsync();
     }
@@ -674,10 +838,12 @@ public sealed class MainWindowViewModelTests
 
         sessionService.PushToolActivity(viewModel.SelectedSession!.Id, "fs.read", "文件内容摘要", false);
 
-        // 运行中的轮次条目逐项显示：工具卡片直接位于时间线顶层。
-        await WaitUntilAsync(() => viewModel.ConversationItems.OfType<ToolActivityItemViewModel>()
+        // 运行中的工具卡片进入活动过程组，但调用和结果仍落在同一条目上。
+        await WaitUntilAsync(() => viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>()
+                                            .SelectMany(group => group.Process.OfType<ToolActivityItemViewModel>())
                                             .Any(tool => tool.Status == ToolActivityStatus.Succeeded));
-        var card = viewModel.ConversationItems.OfType<ToolActivityItemViewModel>()
+        var card = viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>()
+                            .SelectMany(group => group.Process.OfType<ToolActivityItemViewModel>())
                             .Single(tool => tool.Name == "fs.read");
         ClassicAssert.AreEqual(before + 1, viewModel.ConversationItems.Count);
         ClassicAssert.IsFalse(card.IsRunning);
@@ -699,9 +865,11 @@ public sealed class MainWindowViewModelTests
 
         sessionService.PushToolActivity(viewModel.SelectedSession!.Id, "shell.run", null, true);
 
-        await WaitUntilAsync(() => viewModel.ConversationItems.OfType<ToolActivityItemViewModel>()
+        await WaitUntilAsync(() => viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>()
+                                            .SelectMany(group => group.Process.OfType<ToolActivityItemViewModel>())
                                             .Any(tool => tool.IsFailed));
-        var card = viewModel.ConversationItems.OfType<ToolActivityItemViewModel>()
+        var card = viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>()
+                            .SelectMany(group => group.Process.OfType<ToolActivityItemViewModel>())
                             .Single(tool => tool.IsFailed);
         ClassicAssert.AreEqual("失败", card.StatusText);
         Assert.That(card.ErrorReason, Does.Contain("simulated"));
@@ -719,6 +887,7 @@ public sealed class MainWindowViewModelTests
         viewModel.SelectedSession = viewModel.Sidebar.Sessions.First(session => session.Id == "session-welcome");
         await WaitUntilAsync(() => viewModel.ConversationItems.OfType<MessageItemViewModel>().Count() == 2);
         var sessionId = viewModel.SelectedSession!.Id;
+        await sessionService.SendPromptAsync(sessionId, Guid.NewGuid().ToString(), "开始完整工具轮次");
 
         // 一轮真实形态的工具执行：空提交 → 思考 → 中间说明 → 工具 → 再思考 → 工具 → 带思考的总结
         // → turn/end。
@@ -735,11 +904,15 @@ public sealed class MainWindowViewModelTests
 
         await WaitUntilAsync(() => viewModel.ConversationItems.OfType<MessageItemViewModel>()
                                             .Any(message => message.Content == "总结回答"));
-        // turn/end 之前条目逐项显示（生成中的轮次不折叠）；思考条目与工具卡片一样逐项出现。
-        Assert.That(viewModel.ConversationItems.Any(item => item is TurnProcessGroupViewModel), Is.False);
-        ClassicAssert.AreEqual(2, viewModel.ConversationItems.OfType<MessageItemViewModel>()
-                                           .Count(message => message.HasReasoning &&
-                                                             string.IsNullOrWhiteSpace(message.Content)));
+        // turn/end 前就建立活动过程组；最新正文候选仍独立、完整地显示在组外。
+        var runningGroup = viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>().Single();
+        ClassicAssert.AreEqual(5, runningGroup.Process.Count);
+        ClassicAssert.IsTrue(runningGroup.IsExpanded);
+        Assert.That(viewModel.ConversationItems.OfType<MessageItemViewModel>()
+                             .Any(message => message.Content == "总结回答"), Is.True);
+        ClassicAssert.AreEqual(2, runningGroup.Process.OfType<MessageItemViewModel>()
+                                              .Count(message => message.HasReasoning &&
+                                                                string.IsNullOrWhiteSpace(message.Content)));
         // 无正文助手提交不产生空气泡。
         Assert.That(viewModel.ConversationItems.OfType<MessageItemViewModel>()
                              .Any(message => message is { Role: MessageRole.Assistant } &&
@@ -747,15 +920,17 @@ public sealed class MainWindowViewModelTests
                     Is.False);
 
         sessionService.PushTurnEnded(sessionId, 2);
+        await WaitUntilAsync(() => viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>()
+                                            .Any(group => !group.IsExpanded), 10000);
 
-        await WaitUntilAsync(() => viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>().Any());
         var group = viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>().Single();
         ClassicAssert.AreEqual(2, group.ToolCallCount);
         ClassicAssert.AreEqual(1, group.MessageCount);
         ClassicAssert.AreEqual("2 次工具调用 · 1 条消息", group.SummaryText);
         ClassicAssert.IsFalse(group.IsExpanded);
-        // 过程组包含两段思考、中间说明与工具卡片；最终回复保持独立气泡。
-        ClassicAssert.AreEqual(5, group.Process.Count);
+        // 过程组包含两段中间思考、最终 reasoning 投影、中间说明与工具卡片；
+        // 最终回复保持独立气泡。
+        ClassicAssert.AreEqual(6, group.Process.Count);
         Assert.That(group.Process.Any(item => item is MessageItemViewModel
         {
             Content: "先重读当前文件，再做定点替换。"
@@ -763,14 +938,23 @@ public sealed class MainWindowViewModelTests
         var answer = viewModel.ConversationItems.OfType<MessageItemViewModel>()
                               .Single(message => message.Content == "总结回答");
         ClassicAssert.IsTrue(answer.HasReasoning);
+        ClassicAssert.IsTrue(answer.IsReasoningProjected);
+        ClassicAssert.IsFalse(answer.HasVisibleReasoning);
         ClassicAssert.IsFalse(answer.IsReasoningExpanded);
+        var finalReasoning = group.Process.OfType<MessageItemViewModel>()
+                                  .Single(item => item.Seq == answer.Seq &&
+                                                  string.IsNullOrWhiteSpace(item.Content));
+        ClassicAssert.AreEqual(answer.Id, finalReasoning.Id);
+        ClassicAssert.AreEqual("两步都已完成，给出结论。", finalReasoning.Reasoning);
 
         // 用户消息开新一轮：之后的工具调用属于未收束的新轮次，另起显示不并入旧组。
         await sessionService.SendPromptAsync(sessionId, Guid.NewGuid().ToString(), "下一轮问题");
         sessionService.PushToolActivity(sessionId, "fs.read", "再次读取", false, 3);
-        await WaitUntilAsync(() => viewModel.ConversationItems.OfType<ToolActivityItemViewModel>()
+        await WaitUntilAsync(() => viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>()
+                                            .SelectMany(candidate =>
+                                                            candidate.Process.OfType<ToolActivityItemViewModel>())
                                             .Any(tool => tool.ResultText == "再次读取"));
-        Assert.That(viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>().Count(), Is.EqualTo(1));
+        Assert.That(viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>().Count(), Is.EqualTo(2));
 
         await viewModel.DisposeAsync();
     }
@@ -787,19 +971,20 @@ public sealed class MainWindowViewModelTests
         var sessionId = viewModel.SelectedSession!.Id;
 
         // 被打断的轮次：思考与说明之后直接中断，没有可展示的最终回复；
-        // 该轮过程（含思考条目）保持逐项展示，不折叠。
+        // 该轮过程（含思考条目）仍保留在活动过程组中。
         sessionService.PushCommittedAssistantMessage(sessionId, string.Empty, 2, reasoning : "准备读取文件，先确认路径。");
         sessionService.PushToolActivity(sessionId, "fs.read", "文件内容摘要", false, 2);
         sessionService.PushCommittedAssistantMessage(sessionId, string.Empty, 2, reasoning : "读到一半被取消了。",
                                                      isInterrupted : true);
         sessionService.PushTurnEnded(sessionId, 2);
 
-        await WaitUntilAsync(() => viewModel.ConversationItems.OfType<MessageItemViewModel>()
+        await WaitUntilAsync(() => viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>()
+                                            .SelectMany(group => group.Process.OfType<MessageItemViewModel>())
                                             .Any(message => message.IsInterrupted));
-        Assert.That(viewModel.ConversationItems.Any(item => item is TurnProcessGroupViewModel), Is.False);
+        var interruptedGroup = viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>().Single();
         // 中断标注在思考条目上，不产生只有「已中断」的空气泡。
-        var interrupted = viewModel.ConversationItems.OfType<MessageItemViewModel>()
-                                   .Single(message => message.IsInterrupted);
+        var interrupted = interruptedGroup.Process.OfType<MessageItemViewModel>()
+                                          .Single(message => message.IsInterrupted);
         ClassicAssert.IsTrue(interrupted.HasReasoning);
         ClassicAssert.IsTrue(string.IsNullOrWhiteSpace(interrupted.Content));
 
@@ -810,8 +995,11 @@ public sealed class MainWindowViewModelTests
         sessionService.PushCommittedAssistantMessage(sessionId, "恢复正常后的回答。", 3);
         sessionService.PushTurnEnded(sessionId, 3);
 
-        await WaitUntilAsync(() => viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>().Any());
-        var group = viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>().Single();
+        await WaitUntilAsync(() => viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>()
+                                            .Any(group => !group.IsExpanded));
+        var group = viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>()
+                             .Single(candidate => candidate.Process.OfType<MessageItemViewModel>()
+                                                           .Any(message => message.Reasoning == "重新读取。"));
         ClassicAssert.AreEqual(1, group.ToolCallCount);
         Assert.That(viewModel.ConversationItems.OfType<MessageItemViewModel>()
                              .Any(message => message.Content == "恢复正常后的回答。"), Is.True);
@@ -830,13 +1018,15 @@ public sealed class MainWindowViewModelTests
         await WaitUntilAsync(() => viewModel.ConversationItems.OfType<MessageItemViewModel>().Count() == 2);
         var sessionId = viewModel.SelectedSession!.Id;
 
-        // 轮次以工具调用收尾、没有最终回复：与参考实现一致，不折叠，条目保持逐项。
+        // 轮次以工具调用收尾、没有最终回复：仍以过程组呈现，工具卡片保留在完整过程内。
         sessionService.PushToolActivity(sessionId, "fs.read", "文件内容摘要", false, 2);
         sessionService.PushTurnEnded(sessionId, 2);
-        await WaitUntilAsync(() => viewModel.ConversationItems.OfType<ToolActivityItemViewModel>()
-                                            .Any(tool => tool.Status == ToolActivityStatus.Succeeded));
-        Assert.That(viewModel.ConversationItems.Any(item => item is TurnProcessGroupViewModel), Is.False);
-        Assert.That(viewModel.ConversationItems.Any(item => item is ToolActivityItemViewModel), Is.True);
+        await WaitUntilAsync(() => viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>()
+                                            .Any(group => group.Process.OfType<ToolActivityItemViewModel>()
+                                                               .Any(tool => tool.Status ==
+                                                                            ToolActivityStatus.Succeeded)));
+        Assert.That(viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>()
+                             .SelectMany(group => group.Process).OfType<ToolActivityItemViewModel>().Any(), Is.True);
 
         await viewModel.DisposeAsync();
     }
@@ -856,10 +1046,12 @@ public sealed class MainWindowViewModelTests
         var second = sessionService.BeginToolActivity(sessionId, "fs.edit", 2);
         ClassicAssert.IsNotNull(first);
         ClassicAssert.IsNotNull(second);
-        await WaitUntilAsync(() => viewModel.ConversationItems.OfType<ToolActivityItemViewModel>().Count() == 2);
-        var cards = viewModel.ConversationItems.OfType<ToolActivityItemViewModel>().ToList();
-        // 生成中的轮次不折叠：运行中的卡片逐项显示。
-        Assert.That(viewModel.ConversationItems.Any(item => item is TurnProcessGroupViewModel), Is.False);
+        await WaitUntilAsync(() => viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>()
+                                            .SelectMany(group => group.Process.OfType<ToolActivityItemViewModel>())
+                                            .Count() == 2);
+        var activeGroup = viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>().Single();
+        var cards       = activeGroup.Process.OfType<ToolActivityItemViewModel>().ToList();
+        Assert.That(activeGroup.IsExpanded, Is.True);
         foreach (var card in cards) ClassicAssert.IsTrue(card.IsRunning);
 
         sessionService.SettleToolActivity(sessionId, first!.CallId, "文件内容摘要", false);
@@ -890,7 +1082,7 @@ public sealed class MainWindowViewModelTests
         ClassicAssert.IsTrue(viewModel.SelectedSession!.IsCurrent);
         foreach (var session in viewModel.Sidebar.Sessions.Where(session =>
                                                                      !ReferenceEquals(session,
-                                                                              viewModel.SelectedSession)))
+                                                                         viewModel.SelectedSession)))
             ClassicAssert.IsFalse(session.IsCurrent);
 
         // 切回单列表：行投影就是会话顺序本身，无分组头。
@@ -930,7 +1122,7 @@ public sealed class MainWindowViewModelTests
         {
             "header:工作区", "header:主工作区", "session:session-history", "session:session-native",
             "header:空工作区",
-            "header:未分组", "session:session-welcome", "session:session-design"
+            "header:未分组", "session:session-welcome", "session:session-design", "session:session-todos"
         }, shape);
         // 模式切换不重建会话实例：选中与高亮保持。
         ClassicAssert.IsTrue(viewModel.SelectedSession!.IsCurrent);
@@ -1047,7 +1239,7 @@ public sealed class MainWindowViewModelTests
             "header:工作区",
             "header:后到的工作区", "session:session-welcome",
             "header:未分组", "session:session-history", "session:session-native",
-            "session:session-design"
+            "session:session-design", "session:session-todos"
         }, shape);
 
         await viewModel.DisposeAsync();
@@ -1511,7 +1703,7 @@ public sealed class MainWindowViewModelTests
 
         // 手动点击行不受守卫影响；再进草稿页文本仍在。
         viewModel.Sidebar.SelectSessionCommand.Execute(viewModel.Sidebar.Sessions.First(session => session.Id !=
-                                                                    created.Id));
+                                                           created.Id));
         await WaitUntilAsync(() => !viewModel.ShowNewConversationPage);
         viewModel.Sidebar.NewSessionCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.ShowNewConversationPage);
@@ -2144,11 +2336,11 @@ public sealed class MainWindowViewModelTests
         {
             var now = DateTimeOffset.Now;
             _liveTail.Writer.TryWrite(new SessionUpdate.ToolCallStarted(new ToolActivity(6, "call-attach-2", "fs.read",
-                                                                                 "{}", ToolActivityStatus.Running, null,
-                                                                                 null, now, Turn : 1)));
+                                                                            "{}", ToolActivityStatus.Running, null,
+                                                                            null, now, Turn : 1)));
             _liveTail.Writer.TryWrite(new SessionUpdate.MessageAppended(new ConversationMessage(7, "attach-final",
-                                                                                 MessageRole.Assistant, "真正的最终回复", now,
-                                                                                 1)));
+                                                                            MessageRole.Assistant, "真正的最终回复", now,
+                                                                            1)));
         }
 
         public void PushRealTurnEnd()
