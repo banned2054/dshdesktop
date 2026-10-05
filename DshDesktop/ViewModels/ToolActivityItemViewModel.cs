@@ -99,6 +99,9 @@ public sealed class ToolActivityItemViewModel : ConversationItemViewModel
 
     public bool HasError => !string.IsNullOrWhiteSpace(ErrorReason) || IsFailed;
 
+    /// <summary>条目已折叠进过程组：组内工具行不再显示状态与时间尾注。</summary>
+    public bool IsInProcessGroup { get; private set; }
+
     /// <summary>结果文本的截断展示，仅在展开时渲染。</summary>
     public string ResultPreview => Truncate(ResultText);
 
@@ -122,6 +125,24 @@ public sealed class ToolActivityItemViewModel : ConversationItemViewModel
 
     /// <summary>折叠行图标填充部件；纯描边图标为 null（Data 空即不渲染）。</summary>
     public StreamGeometry? IconFill => ToolCallText.GetIconFill(Name);
+
+    /// <summary>过程组收纳条目时置位；运行中的顶层工具卡片不受影响。</summary>
+    public void MarkInProcessGroup()
+    {
+        if (IsInProcessGroup) return;
+
+        IsInProcessGroup = true;
+        OnPropertyChanged(nameof(IsInProcessGroup));
+    }
+
+    /// <summary>条目移出过程组时复位；当前仅最终回复会走该路径。</summary>
+    public void UnmarkInProcessGroup()
+    {
+        if (!IsInProcessGroup) return;
+
+        IsInProcessGroup = false;
+        OnPropertyChanged(nameof(IsInProcessGroup));
+    }
 
     private static string JoinWithDiff(string summary, string? diffSummary)
     {

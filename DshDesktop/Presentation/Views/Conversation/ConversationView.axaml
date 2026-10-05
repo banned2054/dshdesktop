@@ -61,12 +61,7 @@
                                             </Panel>
                                         </StackPanel>
                                     </Button>
-                                    <Button Classes="load-older"
-                                            Content="{Binding HiddenProcessCountText}"
-                                            HorizontalAlignment="Left"
-                                            IsVisible="{Binding ShowEarlierProcessPrompt}"
-                                            Click="OnShowEarlierProcessClick" />
-                                    <ItemsControl ItemsSource="{Binding VisibleProcess}"
+                                    <ItemsControl ItemsSource="{Binding SegmentedProcess}"
                                                   IsVisible="{Binding IsExpanded}">
                                         <ItemsControl.ItemsPanel>
                                             <ItemsPanelTemplate>
@@ -74,6 +69,55 @@
                                             </ItemsPanelTemplate>
                                         </ItemsControl.ItemsPanel>
                                         <ItemsControl.DataTemplates>
+                                            <DataTemplate x:DataType="vm:TurnProcessSegmentViewModel">
+                                                <StackPanel Spacing="4">
+                                                    <Button Classes="reason-row"
+                                                            Classes.expanded="{Binding IsExpanded}"
+                                                            Command="{Binding ToggleCommand}">
+                                                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
+                                                            <Panel Grid.Column="0" Classes="row-leading"
+                                                                   Width="16" Height="16"
+                                                                   VerticalAlignment="Center">
+                                                                <Path Classes="row-icon"
+                                                                      Data="{Binding LeadingIconStroke}"
+                                                                      Stroke="{Binding $parent[Button].Foreground}"
+                                                                      StrokeThickness="1" />
+                                                                <Path Classes="row-icon"
+                                                                      Data="{Binding LeadingIconFill}"
+                                                                      Fill="{Binding $parent[Button].Foreground}" />
+                                                                <Path Classes="row-chev row-chev-hover"
+                                                                      Data="{StaticResource Icon.RowChevronDown}"
+                                                                      Stroke="{Binding $parent[Button].Foreground}"
+                                                                      StrokeThickness="1" />
+                                                                <Path Classes="row-chev row-chev-open"
+                                                                      Data="{StaticResource Icon.RowChevronUp}"
+                                                                      Stroke="{Binding $parent[Button].Foreground}"
+                                                                      StrokeThickness="1" />
+                                                            </Panel>
+                                                            <TextBlock Grid.Column="1"
+                                                                       Text="{Binding SummaryText}"
+                                                                       Classes="tool-summary"
+                                                                       VerticalAlignment="Center" />
+                                                        </Grid>
+                                                    </Button>
+                                                    <ItemsControl ItemsSource="{Binding Items}"
+                                                                  IsVisible="{Binding IsExpanded}">
+                                                        <ItemsControl.ItemsPanel>
+                                                            <ItemsPanelTemplate>
+                                                                <StackPanel Spacing="6" />
+                                                            </ItemsPanelTemplate>
+                                                        </ItemsControl.ItemsPanel>
+                                                        <ItemsControl.DataTemplates>
+                                                            <DataTemplate x:DataType="vm:ToolActivityItemViewModel">
+                                                                <tooling:ToolActivityView />
+                                                            </DataTemplate>
+                                                            <DataTemplate x:DataType="vm:MessageItemViewModel">
+                                                                <conversation:MessageView />
+                                                            </DataTemplate>
+                                                        </ItemsControl.DataTemplates>
+                                                    </ItemsControl>
+                                                </StackPanel>
+                                            </DataTemplate>
                                             <DataTemplate x:DataType="vm:ToolActivityItemViewModel">
                                                 <tooling:ToolActivityView />
                                             </DataTemplate>

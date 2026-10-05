@@ -14,20 +14,17 @@ public partial class ConversationView : UserControl
     private const double AutoScrollBottomTolerance = 140;
 
     private bool   _anchoringPrepend;
-    private bool   _anchoringProcessExpand;
     private double _lastSettleExtent = double.NaN;
     private double _lastSettleY      = double.NaN;
     private double _messagesExtent;
     private double _prependAnchorExtent;
-
-    private ConversationItemViewModel? _prependAnchorItem;
-
     private double _prependAnchorOffset;
     private double _prependAnchorY;
     private bool   _restoringPrependAnchor;
     private int    _stableSettlePasses;
 
-    private MainWindowViewModel? _viewModel;
+    private ConversationItemViewModel? _prependAnchorItem;
+    private MainWindowViewModel?       _viewModel;
 
     public ConversationView()
     {
@@ -106,14 +103,6 @@ public partial class ConversationView : UserControl
             }
         }
 
-        if (_anchoringProcessExpand && e.ExtentDelta.Y > 0)
-        {
-            // 过程组顶部展开把既有可见行向下推；同步抬高偏移，保持用户正在读的行不动。
-            _messagesExtent = scroll.Extent.Height;
-            scroll.Offset   = scroll.Offset.WithY(scroll.Offset.Y + e.ExtentDelta.Y);
-            return;
-        }
-
         if (_anchoringPrepend && e.ExtentDelta.Y > 0)
         {
             // 顶部插入内容把既有内容向下推；同步抬高偏移，用户看到的位置保持不变。
@@ -123,34 +112,12 @@ public partial class ConversationView : UserControl
             return;
         }
 
-        // Offset changes without an extent change are user/programmatic viewport movement.
-        // Freeze the active process windows while reading above the tail; returning to the
-        // bottom restores the default tail only for groups the user did not expand manually.
-        if (!e.OffsetDelta.Y.Equals(0) && e.ExtentDelta.Y.Equals(0))
-        {
-            // Any explicit upward movement starts a reading window, including small moves
-            // that remain within the auto-follow tolerance. Moving down resumes only near tail.
-            var followsLatest = e.OffsetDelta.Y > 0 && WasNearBottom(scroll, scroll.Extent.Height);
-            UpdateProcessWindowFollowing(followsLatest);
-        }
-
         var previousExtent = _messagesExtent;
         _messagesExtent = scroll.Extent.Height;
         if (previousExtent > 0         &&
             !e.ExtentDelta.Y.Equals(0) &&
             WasNearBottom(scroll, previousExtent))
             PostScrollToEnd(scroll);
-    }
-
-    private void UpdateProcessWindowFollowing(bool followsLatest)
-    {
-        if (_viewModel is null) return;
-
-        foreach (var group in _viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>())
-            if (followsLatest)
-                group.ResumeLatestWindow();
-            else if (group is { IsExpanded: true, IsFollowingLatest: true })
-                group.PinVisibleWindow();
     }
 
     private static bool WasNearBottom(ScrollViewer scroll, double extent)
@@ -294,16 +261,5 @@ public partial class ConversationView : UserControl
         _anchoringPrepend   = false;
         _prependAnchorItem  = null;
         _stableSettlePasses = 0;
-    }
-
-    /// <summary>展开更早过程：先标记锚定，再让组内可见窗口变化，布局后补偿偏移。</summary>
-    private void OnShowEarlierProcessClick(object? sender, RoutedEventArgs e)
-    {
-        if (sender is not Button { DataContext: TurnProcessGroupViewModel { HasEarlierProcess: true } group })
-            return;
-
-        _anchoringProcessExpand = true;
-        group.ShowEarlierProcess();
-        Dispatcher.UIThread.Post(() => _anchoringProcessExpand = false, DispatcherPriority.Background);
     }
 }

@@ -31,8 +31,8 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     private readonly IPermissionPresetService _permissionPresetService;
     private readonly Action<Action>           _postToUi;
 
-    // 过程窗口本地状态：按会话身份隔离，再按稳定 turn 身份记忆可见锚点与展开态。
-    // 只覆盖已加载条目；后端未给 turn 时以组内首个 Seq 作退化身份，不跨会话复用。
+    // 过程组折叠状态按会话身份隔离，再按稳定 turn 身份记忆展开态。
+    // 后端未给 turn 时以组内首个 Seq 作退化身份，不跨会话复用。
     private readonly Dictionary<string, Dictionary<string, TurnProcessExpansionState>> _processExpansionStates = [];
 
     private readonly ISessionService      _sessionService;
@@ -1016,10 +1016,6 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
                 IsExpanded = startExpanded
             };
             states[identity] = state;
-        }
-        else if (_isRebuildingTimeline && state is { IsFollowingLatest: false, EarliestVisibleSeq: not null })
-        {
-            state.IsRestorePending = true;
         }
 
         return state;

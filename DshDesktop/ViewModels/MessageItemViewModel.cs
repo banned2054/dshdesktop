@@ -16,6 +16,8 @@ public sealed class MessageItemViewModel : ConversationItemViewModel
     private bool   _isReasoningProjected;
     private bool   _isStreaming;
 
+    private MessageItemViewModel? _processReasoningProjection;
+
     public MessageItemViewModel(ConversationMessage message) : base(message.Seq)
     {
         Id                     = message.Id;
@@ -38,6 +40,18 @@ public sealed class MessageItemViewModel : ConversationItemViewModel
         _isStreaming           = true;
         MarkdownBuilder        = new ObservableStringBuilder(content);
         ToggleReasoningCommand = new RelayCommand(() => IsReasoningExpanded = !IsReasoningExpanded);
+    }
+
+    private MessageItemViewModel(MessageItemViewModel source) : base(source.Seq)
+    {
+        Id                     = source.Id;
+        Role                   = source.Role;
+        _content               = string.Empty;
+        Reasoning              = source.Reasoning;
+        CreatedAtText          = source.CreatedAtText;
+        MarkdownBuilder        = new ObservableStringBuilder(string.Empty);
+        ToggleReasoningCommand = new RelayCommand(() => IsReasoningExpanded = !IsReasoningExpanded);
+        IsInProcessGroup       = true;
     }
 
     public string Id { get; }
@@ -128,6 +142,9 @@ public sealed class MessageItemViewModel : ConversationItemViewModel
     /// <summary>角色标签已从助手消息移除（思考行与工具行并列）；本行仅在流式或中断时保留。</summary>
     public bool HasStatusHint => IsStreaming || IsInterrupted;
 
+    /// <summary>条目已折叠进过程组：组内中间消息不再显示各自时间戳。</summary>
+    public bool IsInProcessGroup { get; private set; }
+
     public string RoleLabel => Role switch
     {
         MessageRole.User      => "你",
@@ -141,6 +158,30 @@ public sealed class MessageItemViewModel : ConversationItemViewModel
 
     public bool IsSystemMessage => Role == MessageRole.System;
 
+    /// <summary>过程组收纳条目时置位；最终回复留在组外，不受影响。</summary>
+    public void MarkInProcessGroup()
+    {
+        if (IsInProcessGroup) return;
+
+        IsInProcessGroup = true;
+        OnPropertyChanged(nameof(IsInProcessGroup));
+    }
+
+    /// <summary>消息移出过程组时恢复时间戳与正文消息中的思考行。</summary>
+    public void UnmarkInProcessGroup()
+    {
+        if (IsInProcessGroup)
+        {
+            IsInProcessGroup = false;
+            OnPropertyChanged(nameof(IsInProcessGroup));
+        }
+
+        if (_processReasoningProjection is null) return;
+
+        _processReasoningProjection = null;
+        IsReasoningProjected        = false;
+    }
+
     /// <summary>流式输出的临时助手气泡；提交的消息事件到达后会被替换。</summary>
     public static MessageItemViewModel CreateStreaming()
     {
@@ -151,6 +192,18 @@ public sealed class MessageItemViewModel : ConversationItemViewModel
     public void ProjectReasoning()
     {
         IsReasoningProjected = true;
+    }
+
+    /// <summary>
+    ///     供过程投影使用的稳定 reasoning-only 条目。正文消息仍保留独立展示，
+    ///     原消息隐藏重复 reasoning；缓存副本使段折叠在重建投影时保持身份稳定。
+    /// </summary>
+    public MessageItemViewModel? GetProcessReasoningProjection()
+    {
+        if (!HasReasoning) return null;
+
+        ProjectReasoning();
+        return _processReasoningProjection ??= new MessageItemViewModel(this);
     }
 
     public void AppendText(string text)

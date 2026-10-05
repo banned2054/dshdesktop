@@ -33,9 +33,11 @@
                 <TextBlock Grid.Column="3" Text="{Binding SummaryText}" Classes="tool-summary"
                            Classes.error="{Binding IsFailed}" />
                 <TextBlock Grid.Column="4" Text="{Binding StatusText}" Classes="caption"
-                           VerticalAlignment="Center" />
+                           VerticalAlignment="Center"
+                           IsVisible="{Binding !IsInProcessGroup}" />
                 <TextBlock Grid.Column="5" Text="{Binding CreatedAtText}"
-                           Classes="caption" VerticalAlignment="Center" />
+                           Classes="caption" VerticalAlignment="Center"
+                           IsVisible="{Binding !IsInProcessGroup}" />
             </Grid>
         </Button>
         <StackPanel Spacing="8" IsVisible="{Binding IsExpanded}">

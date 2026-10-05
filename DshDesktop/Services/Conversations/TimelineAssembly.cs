@@ -164,7 +164,7 @@ internal sealed class TimelineAssembly(
     ///     结算当前轮：最终回复是轮内最后一条助手消息且它有正文（思考不算正文）、
     ///     不含工具调用块。最终回复与流式气泡始终在过程组外完整显示；若最终回复带思考，
     ///     生成思考-only 投影入组，本体经 HasVisibleReasoning 停止重复展示。
-    ///     起点被窗口截断的轮次标记部分加载，但过程仍按可见窗口限制。
+    ///     起点被会话历史页截断的轮次标记部分加载，过程组展示该轮当前已加载的全部条目。
     /// </summary>
     private void CloseTurn(bool foldAllowed)
     {
@@ -175,7 +175,7 @@ internal sealed class TimelineAssembly(
             var answer = FindAnswer();
             if (answer is null)
             {
-                // 没有独立最终回复时，已加载过程继续交给窗口化过程组展示。
+                // 没有独立最终回复时，已加载过程继续交给过程组完整展示。
                 PromoteProvisionalAnswer();
                 if (_activeGroup is not null && !foldAllowed) _activeGroup.MarkPartialTurn();
                 return;

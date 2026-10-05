@@ -75,7 +75,9 @@
             <StackPanel Margin="0,10,0,16" Spacing="7"
                         IsVisible="{Binding Content, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
                 <md:MarkdownRenderer MarkdownBuilder="{Binding MarkdownBuilder}" />
-                <TextBlock Text="{Binding CreatedAtText}" Classes="caption" />
+                <!-- 过程组内的中间消息不显示时间戳；用户消息与最终回复保持原样。 -->
+                <TextBlock Text="{Binding CreatedAtText}" Classes="caption"
+                           IsVisible="{Binding !IsInProcessGroup}" />
             </StackPanel>
         </StackPanel>
         <Border Classes="message-bubble system-bubble"
