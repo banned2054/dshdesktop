@@ -50,8 +50,8 @@ public sealed class SimulatedSettingsServiceTests
 
         var exception =
             await Assert.ThrowsAsync<SettingsConflictException>(() => service.UpdateAsync("ui-theme",
-                                                                    Json("""{"fontSize":16}"""),
-                                                                    theme.Revision - 1));
+                                                                         Json("""{"fontSize":16}"""),
+                                                                         theme.Revision - 1));
         ClassicAssert.AreEqual("ui-theme", exception.Ns);
         ClassicAssert.AreEqual(theme.Revision - 1, exception.Expected);
         ClassicAssert.AreEqual(theme.Revision, exception.Actual);
@@ -129,7 +129,7 @@ public sealed class SimulatedSettingsServiceTests
         var service = new SimulatedSettingsService();
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => service.UpdateAsync("not-a-namespace",
-                                                                Json("""{"a":1}""")));
+                                                                     Json("""{"a":1}""")));
     }
 
     private static JsonElement Json(string text)
@@ -184,7 +184,7 @@ public sealed class SimulatedCredentialsServiceTests
         var service = new SimulatedCredentialsService();
 
         await Assert.ThrowsAsync<ArgumentException>(() => service.DescribeAsync(Enumerable.Range(0, 65)
-                                                                                   .Select(_ => "REF").ToArray()));
+                                                                                       .Select(_ => "REF").ToArray()));
         await Assert.ThrowsAsync<ArgumentException>(() => service.DescribeAsync(["BAD-NAME"]));
     }
 

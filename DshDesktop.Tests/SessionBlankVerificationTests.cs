@@ -121,7 +121,7 @@ public sealed class SessionBlankVerificationTests
                 "s-empty" => Task.FromResult<SessionProjectionsValue?>(ProjectionsWithoutMetadata()),
                 "s-bad"   => Task.FromResult<SessionProjectionsValue?>(ProjectionsWithMetadata(BadBlankMetadata)),
                 "s-fail" => Task.FromException<SessionProjectionsValue?>(new HarnessRpcException("gateway/internal",
-                                                                             "内部错误")),
+                                                                                  "内部错误")),
                 "s-timeout" => Task.FromException<SessionProjectionsValue?>(new OperationCanceledException()),
                 _           => Task.FromResult<SessionProjectionsValue?>(null)
             }
@@ -310,8 +310,8 @@ public sealed class SessionBlankVerificationTests
         {
             Responder = (_, _) =>
                 Task.FromResult<SessionProjectionsValue?>(ProjectionsWithMetadata(Interlocked.Increment(ref calls) == 1
-                                                              ? BlankTrueMetadata
-                                                              : BlankFalseMetadata))
+                                                                       ? BlankTrueMetadata
+                                                                       : BlankFalseMetadata))
         };
         using var verifier = setup.Build();
         var       rows     = new[] { Row("s-1") };
@@ -416,7 +416,7 @@ public sealed class SessionBlankVerificationTests
         {
             Responder = (_, _) =>
                 Task.FromException<SessionProjectionsValue?>(new HarnessRpcException("session/projections-unavailable",
-                                                                 "接口不可用"))
+                                                                      "接口不可用"))
         };
         using var verifier = setup.Build();
         var       rows     = new[] { Row("s-1"), Row("s-2") };
@@ -463,21 +463,21 @@ public sealed class SessionBlankVerificationTests
         var engaged = HarnessSessionService.ToSummary(new SessionSummaryWire("s-1", 1, false, true,
                                                                              Projections :
                                                                              new SessionProjectionHintsWire("sequenced",
-                                                                                 4,
-                                                                                 MetadataValues(BlankFalseMetadata))));
+                                                                                      4,
+                                                                                      MetadataValues(BlankFalseMetadata))));
         ClassicAssert.AreEqual(SessionBlankState.Engaged, engaged.BlankState);
 
         var blank = HarnessSessionService.ToSummary(new SessionSummaryWire("s-1", 1, false, false,
                                                                            Projections :
                                                                            new SessionProjectionHintsWire("cached", 4,
-                                                                               MetadataValues(BlankTrueMetadata))));
+                                                                                    MetadataValues(BlankTrueMetadata))));
         ClassicAssert.AreEqual(SessionBlankState.ConfirmedBlank, blank.BlankState);
 
         var malformed = HarnessSessionService.ToSummary(new SessionSummaryWire("s-1", 1, false, false,
                                                                                Projections :
                                                                                new SessionProjectionHintsWire("cached",
-                                                                                   4,
-                                                                                   MetadataValues(BadBlankMetadata))));
+                                                                                        4,
+                                                                                        MetadataValues(BadBlankMetadata))));
         ClassicAssert.AreEqual(SessionBlankState.Unknown, malformed.BlankState);
 
         var fallbackBlank =

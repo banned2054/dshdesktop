@@ -43,12 +43,12 @@ public sealed class SimulatedLlmCatalogServiceTests
         // 未知厂商且无端点 → DISCOVERY_FAILED 语义。
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
                                                                 service.DiscoverModelsAsync("llm-pi-ai",
-                                                                    new LlmDiscoveryRequest("unknown-provider")));
+                                                                         new LlmDiscoveryRequest("unknown-provider")));
 
         // provider 与 baseURL 均空 → INVALID_DISCOVERY 语义。
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
                                                                 service.DiscoverModelsAsync("llm-pi-ai",
-                                                                    new LlmDiscoveryRequest()));
+                                                                         new LlmDiscoveryRequest()));
 
         // 未知厂商带端点 → 占位模型。
         var relay = await service.DiscoverModelsAsync("llm-pi-ai",

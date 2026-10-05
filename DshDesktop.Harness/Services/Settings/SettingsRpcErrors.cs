@@ -24,12 +24,12 @@ internal static class SettingsRpcErrors
 
             case "settings/rejected" :
                 mapped = new SettingsRejectedException(exception.FindDetailString("ns") ?? string.Empty,
-                                                       exception.RawMessage ?? exception.Message);
+                                                       exception.RawMessage             ?? exception.Message);
                 return true;
 
             case "credential/rejected" :
                 mapped = new CredentialRejectedException(exception.FindDetailString("ref") ?? string.Empty,
-                                                         exception.RawMessage ?? exception.Message);
+                                                         exception.RawMessage              ?? exception.Message);
                 return true;
 
             default :

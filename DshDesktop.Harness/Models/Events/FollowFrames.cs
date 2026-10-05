@@ -78,7 +78,7 @@ public static class FollowFrameJson
                 string?       permission = null;
                 if (values.ValueKind != JsonValueKind.Object)
                     return new FollowFrame.Snapshot(header ?? new SessionWireHeader(0, string.Empty, 0, null, null,
-                                                        false, null, null), cursor, records, hasMore, title,
+                                                             false, null, null), cursor, records, hasMore, title,
                                                     ReadModelSelectionProjection(element), usage, stats,
                                                     projectionAsOfSeq, permission);
                 if (values.TryGetProperty(SessionControlFrameJson.UsageKey, out var usageElement))

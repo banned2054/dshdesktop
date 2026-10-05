@@ -40,7 +40,7 @@ public sealed class RealModelConversationTests
 
         var (provider, model) =
             RealBackendTestSupport.ParseModel(Environment.GetEnvironmentVariable(RealBackendTestSupport
-                                                 .ModelOverrideVariable) ?? "glm/glm-5.3-flash");
+                                                          .ModelOverrideVariable) ?? "glm/glm-5.3-flash");
         var credentialRef = Environment.GetEnvironmentVariable(RealBackendTestSupport.CredentialRefVariable)
                          ?? "GLM_API_KEY";
         var root    = Path.Combine(Path.GetTempPath(), $"dsh-glm-e2e-{Guid.NewGuid():N}");
@@ -94,8 +94,8 @@ public sealed class RealModelConversationTests
             var delta = await RealBackendTestSupport.WaitForAsync(() => collector.Snapshot()
                                                                      .OfType<SessionUpdate.StreamTextDelta>()
                                                                      .FirstOrDefault(update => update.AttemptId ==
-                                                                          started.AttemptId &&
-                                                                          update.Text.Length > 0),
+                                                                                   started.AttemptId &&
+                                                                                   update.Text.Length > 0),
                                                                   TimeSpan.FromSeconds(180), "未在超时前收到任何流式文本增量");
             var streamedLength = collector.Snapshot().OfType<SessionUpdate.StreamTextDelta>()
                                           .Where(update => update.AttemptId == started.AttemptId)
@@ -130,7 +130,7 @@ public sealed class RealModelConversationTests
                 await RealBackendTestSupport.WaitForAsync(() => collector.Snapshot()
                                                                          .OfType<SessionUpdate.StreamStarted>()
                                                                          .FirstOrDefault(update => update.AttemptId !=
-                                                                              started.AttemptId),
+                                                                                       started.AttemptId),
                                                           TimeSpan.FromSeconds(60), "第二轮流式开始帧未出现");
             TestContext.Out.WriteLine($"第二轮流式开始：{cancelStarted.AttemptId}");
 
@@ -162,7 +162,7 @@ public sealed class RealModelConversationTests
             var cancelled =
                 await RealBackendTestSupport.WaitForAsync(() => collector.Snapshot().OfType<SessionUpdate.StreamEnded>()
                                                                          .FirstOrDefault(update => update.AttemptId ==
-                                                                              cancelStarted.AttemptId),
+                                                                                       cancelStarted.AttemptId),
                                                           TimeSpan.FromSeconds(60), "取消后未收到流式结束帧");
             // 协议语义（参考实现 agent.ts）：用户取消总是落盘结算（committed）——
             // 有可见内容时结算为带 interrupted 标记的 assistant/message，否则为
@@ -179,10 +179,10 @@ public sealed class RealModelConversationTests
                     await RealBackendTestSupport.WaitForAsync(() => collector.Snapshot()
                                                                              .OfType<SessionUpdate.MessageAppended>()
                                                                              .FirstOrDefault(update =>
-                                                                                  update.Message.Role ==
-                                                                                  MessageRole.Assistant &&
-                                                                                  update.Message.Content
-                                                                                     .Contains("[已中断]")),
+                                                                                           update.Message.Role ==
+                                                                                           MessageRole.Assistant &&
+                                                                                           update.Message.Content
+                                                                                              .Contains("[已中断]")),
                                                               TimeSpan.FromSeconds(30), "取消后未收到带中断标注的助手消息");
                 TestContext.Out
                            .WriteLine($"中断消息（{interrupted.Message.Content.Length} 字符）：{interrupted.Message.Content}");

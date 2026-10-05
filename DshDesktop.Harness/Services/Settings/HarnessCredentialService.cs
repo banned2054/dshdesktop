@@ -19,7 +19,7 @@ public sealed class HarnessCredentialService : ICredentialsService
 
     public HarnessCredentialService(HarnessConnection connection)
     {
-        _connection = connection;
+        _connection                            =  connection;
         _connection.CredentialReferenceUpdated += OnCredentialReferenceUpdated;
     }
 
@@ -41,7 +41,7 @@ public sealed class HarnessCredentialService : ICredentialsService
                                new CredentialsSetRequest(reference, value),
                                HarnessJsonContext.Default.CredentialsSetRequest,
                                cancellationToken)
-            .ConfigureAwait(false);
+           .ConfigureAwait(false);
     }
 
     public async Task UnsetAsync(string reference, CancellationToken cancellationToken = default)
@@ -50,7 +50,7 @@ public sealed class HarnessCredentialService : ICredentialsService
                                new CredentialsUnsetRequest(reference),
                                HarnessJsonContext.Default.CredentialsUnsetRequest,
                                cancellationToken)
-            .ConfigureAwait(false);
+           .ConfigureAwait(false);
     }
 
     private async Task<Dictionary<string, CredentialInfoWire>> DescribeCoreAsync(
@@ -64,10 +64,10 @@ public sealed class HarnessCredentialService : ICredentialsService
                                 .ConfigureAwait(false);
     }
 
-    private async Task InvokeWriteAsync<TRequest>(string                    method,
-                                                  TRequest                  request,
-                                                  JsonTypeInfo<TRequest>    requestType,
-                                                  CancellationToken         cancellationToken)
+    private async Task InvokeWriteAsync<TRequest>(string                 method,
+                                                  TRequest               request,
+                                                  JsonTypeInfo<TRequest> requestType,
+                                                  CancellationToken      cancellationToken)
         where TRequest : notnull
     {
         try

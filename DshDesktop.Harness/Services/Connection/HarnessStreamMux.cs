@@ -191,11 +191,11 @@ public sealed class HarnessStreamMux : IAsyncDisposable
 
     private void Dispatch(JsonElement root)
     {
-        if (root.ValueKind != JsonValueKind.Object ||
-          !root.TryGetProperty("type", out var typeElement) ||
-          typeElement.ValueKind != JsonValueKind.String ||
-          !root.TryGetProperty("streamId", out var streamIdElement) ||
-          streamIdElement.ValueKind != JsonValueKind.String)
+        if (root.ValueKind != JsonValueKind.Object                    ||
+            !root.TryGetProperty("type", out var typeElement)         ||
+            typeElement.ValueKind != JsonValueKind.String             ||
+            !root.TryGetProperty("streamId", out var streamIdElement) ||
+            streamIdElement.ValueKind != JsonValueKind.String)
         {
             // 非法帧按协议应关闭连接。
             Terminate(new HarnessConnectionException("后端发送了无法识别的流帧。"));
@@ -209,7 +209,7 @@ public sealed class HarnessStreamMux : IAsyncDisposable
             case "item" :
             {
                 var value = root.TryGetProperty("value", out var valueElement) &&
-                          valueElement.ValueKind is not (JsonValueKind.Undefined or JsonValueKind.Null)
+                            valueElement.ValueKind is not (JsonValueKind.Undefined or JsonValueKind.Null)
                     ? (JsonElement?)valueElement.Clone()
                     : null;
                 frame = new MuxServerFrame(streamId, MuxFrameKind.Item, value, null, null);

@@ -43,7 +43,7 @@ public sealed class HarnessToolApprovalService : IToolApprovalService
         lock (_sync)
         {
             if (_pending.All(approval => approval.EventId != eventId) ||
-              !_responding.Add(eventId))
+                !_responding.Add(eventId))
                 return;
         }
 
