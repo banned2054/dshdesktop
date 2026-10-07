@@ -1,4 +1,5 @@
 using Avalonia;
+using Avalonia.Headless;
 using DshDesktop.Core.Models;
 using DshDesktop.Core.Services;
 using DshDesktop.Harness.Exceptions;
@@ -2233,7 +2234,9 @@ public sealed class MainWindowViewModelTests
             var originalContext = SynchronizationContext.Current;
             try
             {
-                AppBuilder.Configure<App>().UsePlatformDetect().SetupWithoutStarting();
+                AppBuilder.Configure<App>()
+                    .UseHeadless(new AvaloniaHeadlessPlatformOptions())
+                    .SetupWithoutStarting();
                 _avaloniaIsInitialized = true;
             }
             finally
