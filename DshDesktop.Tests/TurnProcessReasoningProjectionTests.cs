@@ -12,90 +12,79 @@ public sealed class TurnProcessReasoningProjectionTests
     private const           string         Content   = "回答原文\n\n**保留 Markdown 与换行**";
     private static readonly DateTimeOffset CreatedAt = DateTimeOffset.UnixEpoch;
 
-    [TestCase(20, 20, 0, 20, 0)]
-    [TestCase(21, 20, 1, 21, 0)]
-    [TestCase(40, 20, 20, 40, 0)]
-    [TestCase(41, 20, 21, 40, 1)]
-    public void ProcessWindowUsesTwentyItemsAndExpandsByTwentyWithoutState(
-        int totalCount,
-        int initialVisibleCount,
-        int initialHiddenCount,
-        int afterOneExpansionCount,
-        int afterOneExpansionHiddenCount)
+    [TestCase(20)]
+    [TestCase(21)]
+    [TestCase(40)]
+    [TestCase(41)]
+    public void ProcessShowsAllLoadedItemsAndAppendsWithObjectReuse(int totalCount)
     {
         var group = new TurnProcessGroupViewModel(1, 1);
         for (var seq = 1; seq <= totalCount; seq++) group.Add(new TestConversationItem(seq));
 
         Assert.That(group.Process, Has.Count.EqualTo(totalCount));
-        Assert.That(group.VisibleProcess, Has.Count.EqualTo(initialVisibleCount));
-        Assert.That(group.HiddenProcessCount, Is.EqualTo(initialHiddenCount));
-        Assert.That(group.HasEarlierProcess, Is.EqualTo(initialHiddenCount                          > 0));
-        Assert.That(group.ShowEarlierProcessCommand.CanExecute(null), Is.EqualTo(initialHiddenCount > 0));
-        Assert.That(group.VisibleProcess[0].Seq, Is.EqualTo(Math.Max(1, totalCount - 19)));
+        Assert.That(group.VisibleProcess, Has.Count.EqualTo(totalCount));
+        Assert.That(group.HiddenProcessCount, Is.Zero);
+        Assert.That(group.HasEarlierProcess, Is.False);
+        Assert.That(group.ShowEarlierProcessCommand.CanExecute(null), Is.False);
+        Assert.That(group.VisibleProcess[0].Seq, Is.EqualTo(1));
         Assert.That(group.VisibleProcess[^1].Seq, Is.EqualTo(totalCount));
-
-        group.ShowEarlierProcess();
-
-        Assert.That(group.Process, Has.Count.EqualTo(totalCount), "分页只改变可见投影，不得删除完整过程。");
-        Assert.That(group.VisibleProcess, Has.Count.EqualTo(afterOneExpansionCount));
-        Assert.That(group.HiddenProcessCount, Is.EqualTo(afterOneExpansionHiddenCount));
-        Assert.That(group.VisibleProcess.Select(item => item.Seq), Is.Ordered);
+        Assert.That(group.VisibleProcess.Select(item => item.Seq),
+                    Is.EqualTo(Enumerable.Range(1, totalCount).Select(seq => (long)seq)));
         Assert.That(group.VisibleProcess.All(item => group.Process.Any(process => ReferenceEquals(item, process))),
-                    Is.True, "可见窗口必须复用完整过程中的同一批条目对象。");
+                    Is.True, "可见投影必须复用完整过程中的同一批条目对象。");
 
-        if (totalCount == 41)
-        {
-            var earliestVisibleSeq = group.VisibleProcess[0].Seq;
-            group.Add(new TestConversationItem(42));
-            Assert.That(group.VisibleProcess[0].Seq, Is.EqualTo(earliestVisibleSeq),
-                        "没有外部状态对象时，追加也必须保留本组已保存的 Seq 锚点。");
-            Assert.That(group.VisibleProcess, Has.Count.EqualTo(41));
-            Assert.That(group.HiddenProcessCount, Is.EqualTo(1));
+        var appended = new TestConversationItem(totalCount + 1);
+        group.Add(appended);
 
-            group.ShowEarlierProcess();
-            Assert.That(group.Process, Has.Count.EqualTo(42));
-            Assert.That(group.VisibleProcess, Has.Count.EqualTo(42));
-            Assert.That(group.HiddenProcessCount, Is.Zero);
-            Assert.That(group.ShowEarlierProcessCommand.CanExecute(null), Is.False);
-        }
+        Assert.That(group.Process, Has.Count.EqualTo(totalCount + 1));
+        Assert.That(group.VisibleProcess, Has.Count.EqualTo(totalCount + 1), "追加条目必须立即全部可见。");
+        Assert.That(group.HiddenProcessCount, Is.Zero);
+        Assert.That(group.HasEarlierProcess, Is.False);
+        Assert.That(group.ShowEarlierProcessCommand.CanExecute(null), Is.False);
+        Assert.That(group.VisibleProcess.Select(item => item.Seq),
+                    Is.EqualTo(Enumerable.Range(1, totalCount + 1).Select(seq => (long)seq)));
+        Assert.That(group.VisibleProcess[^1], Is.SameAs(appended));
     }
 
     [Test]
-    public void ScrollingAwayPinsCurrentWindowAndReturningToBottomRestoresOnlyAutomaticTail()
+    public void ToggleCollapsesWithoutTrimmingAndAppendStaysVisible()
     {
         var state = new TurnProcessExpansionState();
         var group = new TurnProcessGroupViewModel(1, 1, state, true);
-        for (var seq = 1; seq <= 25; seq++) group.Add(new TestConversationItem(seq));
+        for (var seq = 1; seq <= 41; seq++) group.Add(new TestConversationItem(seq));
 
-        Assert.That(group.VisibleProcess, Has.Count.EqualTo(20));
-        Assert.That(group.VisibleProcess[0].Seq, Is.EqualTo(6));
-        group.PinVisibleWindow();
-        Assert.That(group.VisibleProcess, Has.Count.EqualTo(20), "滚动上翻不应自动多展开一批。");
-        Assert.That(state.EarliestVisibleSeq, Is.EqualTo(6));
-        Assert.That(state.IsFollowingLatest, Is.False);
+        Assert.That(group.IsExpanded, Is.True);
+        Assert.That(group.Process, Has.Count.EqualTo(41));
+        Assert.That(group.VisibleProcess, Has.Count.EqualTo(41));
+        Assert.That(group.HiddenProcessCount, Is.Zero);
 
-        group.Add(new TestConversationItem(26));
-        Assert.That(group.VisibleProcess[0].Seq, Is.EqualTo(6));
-        Assert.That(group.VisibleProcess, Has.Count.EqualTo(21), "追加事件不能淘汰正在阅读的首条步骤。");
+        group.ToggleCommand.Execute(null);
 
-        group.ResumeLatestWindow();
-        Assert.That(group.VisibleProcess, Has.Count.EqualTo(20));
-        Assert.That(group.VisibleProcess[0].Seq, Is.EqualTo(7));
-        Assert.That(group.VisibleProcess[^1].Seq, Is.EqualTo(26));
-        Assert.That(state.IsFollowingLatest, Is.True);
-
-        group.ShowEarlierProcess();
-        Assert.That(group.VisibleProcess[0].Seq, Is.EqualTo(1));
-        group.Add(new TestConversationItem(27));
-        group.ResumeLatestWindow();
-        Assert.That(group.VisibleProcess[0].Seq, Is.EqualTo(1),
-                    "回到底部不能收回用户主动展开的旧过程范围。");
-        Assert.That(group.VisibleProcess[^1].Seq, Is.EqualTo(27));
+        Assert.That(state.IsExpanded, Is.False);
+        Assert.That(state.HasRecordedExpansion, Is.True);
         Assert.That(state.HasUserSetExpansion, Is.True);
+        Assert.That(group.IsExpanded, Is.False);
+        Assert.That(group.Process, Has.Count.EqualTo(41), "折叠不得裁剪完整过程。");
+        Assert.That(group.VisibleProcess, Has.Count.EqualTo(41), "折叠不得裁剪可见过程。");
+
+        var appended = new TestConversationItem(42);
+        group.Add(appended);
+
+        Assert.That(group.Process, Has.Count.EqualTo(42));
+        Assert.That(group.VisibleProcess, Has.Count.EqualTo(42), "折叠中的追加必须同步可见。");
+        Assert.That(group.VisibleProcess[^1], Is.SameAs(appended));
+        Assert.That(group.HiddenProcessCount, Is.Zero);
+        Assert.That(group.HasEarlierProcess, Is.False);
+        Assert.That(group.ShowEarlierProcessCommand.CanExecute(null), Is.False);
+
+        group.ToggleCommand.Execute(null);
+
+        Assert.That(group.IsExpanded, Is.True);
+        Assert.That(group.VisibleProcess, Has.Count.EqualTo(42));
     }
 
     [Test]
-    public void ProcessWindowNotifiesDerivedPropertiesAndKeepsTurnExpansionStatesSeparate()
+    public void ExpansionStateNotifiesDerivedPropertiesAndKeepsTurnsSeparate()
     {
         var firstState         = new TurnProcessExpansionState();
         var secondState        = new TurnProcessExpansionState();
@@ -117,32 +106,43 @@ public sealed class TurnProcessReasoningProjectionTests
             secondTurn.Add(new TestConversationItem(seq));
         }
 
-        firstTurn.ShowEarlierProcess();
+        Assert.That(firstTurn.Process, Has.Count.EqualTo(41));
+        Assert.That(firstTurn.VisibleProcess, Has.Count.EqualTo(41));
+        Assert.That(firstTurn.HiddenProcessCount, Is.Zero);
+        Assert.That(firstTurn.HasEarlierProcess, Is.False);
+        Assert.That(firstTurn.ShowEarlierProcessCommand.CanExecute(null), Is.False);
+
+        firstTurn.ToggleCommand.Execute(null);
 
         Assert.That(firstNotifications, Does.Contain(nameof(TurnProcessGroupViewModel.HiddenProcessCount)));
         Assert.That(firstNotifications, Does.Contain(nameof(TurnProcessGroupViewModel.HasEarlierProcess)));
         Assert.That(firstNotifications, Does.Contain(nameof(TurnProcessGroupViewModel.HiddenProcessCountText)));
         Assert.That(firstNotifications, Does.Contain(nameof(TurnProcessGroupViewModel.IsExpanded)));
-        Assert.That(firstTurn.IsExpanded, Is.True);
-        Assert.That(firstState.IsExpanded, Is.True);
-        Assert.That(firstState.IsFollowingLatest, Is.False);
-        Assert.That(firstState.EarliestVisibleSeq, Is.EqualTo(2));
+        Assert.That(firstTurn.IsExpanded, Is.False);
+        Assert.That(firstState.IsExpanded, Is.False);
+        Assert.That(firstState.HasRecordedExpansion, Is.True);
         Assert.That(firstState.HasUserSetExpansion, Is.True);
 
-        Assert.That(secondTurn.IsExpanded, Is.False);
-        Assert.That(secondState.IsExpanded, Is.False);
-        Assert.That(secondState.IsFollowingLatest, Is.True);
-        Assert.That(secondState.EarliestVisibleSeq, Is.EqualTo(22));
-        Assert.That(secondTurn.VisibleProcess.Select(item => item.Seq),
-                    Is.EqualTo(Enumerable.Range(22, 20).Select(seq => (long)seq)));
+        secondTurn.ToggleCommand.Execute(null);
 
-        // 按时间顺序重建时，较早页可能先于旧锚点到达；在锚点 Seq 尚未出现前不能覆盖它。
-        firstState.IsRestorePending = true;
+        Assert.That(secondTurn.IsExpanded, Is.True);
+        Assert.That(secondState.IsExpanded, Is.True);
+        Assert.That(secondState.HasRecordedExpansion, Is.True);
+        Assert.That(secondState.HasUserSetExpansion, Is.True);
+
         var rebuiltFirstTurn = new TurnProcessGroupViewModel(1, 1, firstState);
         for (var seq = 1; seq <= 41; seq++) rebuiltFirstTurn.Add(new TestConversationItem(seq));
-        Assert.That(rebuiltFirstTurn.VisibleProcess[0].Seq, Is.EqualTo(2));
-        Assert.That(rebuiltFirstTurn.VisibleProcess, Has.Count.EqualTo(40));
-        Assert.That(rebuiltFirstTurn.HiddenProcessCount, Is.EqualTo(1));
+        var rebuiltSecondTurn = new TurnProcessGroupViewModel(1, 2, secondState);
+        for (var seq = 1; seq <= 41; seq++) rebuiltSecondTurn.Add(new TestConversationItem(seq));
+
+        Assert.That(rebuiltFirstTurn.IsExpanded, Is.False, "重建必须保留各 turn 的用户折叠选择。");
+        Assert.That(rebuiltFirstTurn.Process, Has.Count.EqualTo(41));
+        Assert.That(rebuiltFirstTurn.VisibleProcess, Has.Count.EqualTo(41));
+        Assert.That(rebuiltFirstTurn.HiddenProcessCount, Is.Zero);
+        Assert.That(rebuiltSecondTurn.IsExpanded, Is.True, "不同 turn 的展开状态必须独立重建。");
+        Assert.That(rebuiltSecondTurn.Process, Has.Count.EqualTo(41));
+        Assert.That(rebuiltSecondTurn.VisibleProcess, Has.Count.EqualTo(41));
+        Assert.That(rebuiltSecondTurn.HiddenProcessCount, Is.Zero);
     }
 
     [Test]
@@ -364,7 +364,7 @@ public sealed class TurnProcessReasoningProjectionTests
     }
 
     [Test]
-    public void LongTruncatedTurnKeepsFinalAnswerVisibleOutsideTheTwentyItemWindow()
+    public void LongTruncatedTurnShowsAllProcessesOutsideFinalAnswer()
     {
         var items    = new ObservableCollection<ConversationItemViewModel>();
         var assembly = new TimelineAssembly(items);
@@ -380,8 +380,14 @@ public sealed class TurnProcessReasoningProjectionTests
         var group  = items.OfType<TurnProcessGroupViewModel>().Single();
         var answer = items.OfType<MessageItemViewModel>().Single(message => message.Id == "final");
         Assert.That(group.Process, Has.Count.EqualTo(22));
-        Assert.That(group.VisibleProcess, Has.Count.EqualTo(20));
-        Assert.That(group.HiddenProcessCount, Is.EqualTo(2));
+        Assert.That(group.VisibleProcess, Has.Count.EqualTo(22), "截断轮的全部已加载过程都必须可见。");
+        Assert.That(group.HiddenProcessCount, Is.Zero);
+        Assert.That(group.HasEarlierProcess, Is.False);
+        Assert.That(group.ShowEarlierProcessCommand.CanExecute(null), Is.False);
+        Assert.That(group.VisibleProcess.Select(item => item.Seq),
+                    Is.EqualTo(Enumerable.Range(2, 22).Select(seq => (long)seq)));
+        Assert.That(group.VisibleProcess.All(item => group.Process.Any(process => ReferenceEquals(item, process))),
+                    Is.True, "可见投影必须复用完整过程中的同一批条目对象。");
         Assert.That(group.Process.OfType<MessageItemViewModel>()
                          .Any(message => message.Content == Content), Is.False,
                     "过程组可以保留同 Id 的思考投影，但不能收纳或替代最终正文。");

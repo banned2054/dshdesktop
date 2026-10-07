@@ -674,7 +674,7 @@ public sealed class MainWindowViewModelTests
     }
 
     [Test]
-    public async Task RunningLongTurnPagesProcessAndKeepsExpandedAnchorAcrossNewEvents()
+    public async Task RunningLongTurnShowsAllProcessAndTogglePreservesExpansionAcrossEnd()
     {
         var sessionService = new SimulatedSessionService();
         var backendService = new SimulatedBackendStatusService();
@@ -699,34 +699,35 @@ public sealed class MainWindowViewModelTests
         var group = viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>()
                              .Single(group => group.Process.Count == reasoningCount + 1);
 
+        Assert.That(group.IsExpanded, Is.True, "运行组在首次用户 Toggle 前必须已默认展开。");
         Assert.That(group.Process, Has.Count.EqualTo(45));
-        Assert.That(group.VisibleProcess, Has.Count.EqualTo(20));
-        Assert.That(group.HiddenProcessCount, Is.EqualTo(25));
-        Assert.That(group.HasEarlierProcess, Is.True);
+        Assert.That(group.VisibleProcess, Has.Count.EqualTo(45), "运行中的已加载过程必须初始全部可见。");
+        Assert.That(group.HiddenProcessCount, Is.Zero);
+        Assert.That(group.HasEarlierProcess, Is.False);
+        Assert.That(group.ShowEarlierProcessCommand.CanExecute(null), Is.False);
 
-        group.ShowEarlierProcess();
-        Assert.That(group.VisibleProcess, Has.Count.EqualTo(40));
-        Assert.That(group.HiddenProcessCount, Is.EqualTo(5));
-        var earliestVisibleSeq = group.VisibleProcess[0].Seq;
+        group.ToggleCommand.Execute(null);
+        Assert.That(group.IsExpanded, Is.False);
+        Assert.That(group.VisibleProcess, Has.Count.EqualTo(45), "用户折叠不得裁剪过程条目。");
+
+        group.ToggleCommand.Execute(null);
+        Assert.That(group.IsExpanded, Is.True);
+        Assert.That(group.HasUserSetExpansion, Is.True);
+
+        var originalToolCard = group.Process.OfType<ToolActivityItemViewModel>().Single();
 
         sessionService.SettleToolActivity(sessionId, pendingTool.CallId, "完整工具结果", false);
         sessionService.PushCommittedAssistantMessage(sessionId, string.Empty, 2, reasoning : "追加思考 A");
         sessionService.PushCommittedAssistantMessage(sessionId, string.Empty, 2, reasoning : "追加思考 B");
-        await WaitUntilAsync(() => group.Process.Count == 47 && group.VisibleProcess.Count == 42);
+        await WaitUntilAsync(() => group.Process.Count == 47 && group.VisibleProcess.Count == 47);
 
-        Assert.That(group.VisibleProcess[0].Seq, Is.EqualTo(earliestVisibleSeq),
-                    "新事件不能把已经展开到的最早过程条目挤出可见范围。");
-        Assert.That(group.HiddenProcessCount, Is.EqualTo(5));
+        Assert.That(group.HiddenProcessCount, Is.Zero);
+        Assert.That(group.HasEarlierProcess, Is.False);
         var toolCard = group.Process.OfType<ToolActivityItemViewModel>().Single();
+        Assert.That(toolCard, Is.SameAs(originalToolCard), "工具结果必须结算在原卡片对象上。");
         Assert.That(toolCard.CallId, Is.EqualTo(pendingTool.CallId));
         Assert.That(toolCard.IsSucceeded, Is.True);
         Assert.That(toolCard.ResultText, Is.EqualTo("完整工具结果"));
-
-        group.ShowEarlierProcess();
-        Assert.That(group.VisibleProcess, Has.Count.EqualTo(47));
-        Assert.That(group.HiddenProcessCount, Is.Zero);
-        Assert.That(group.VisibleProcess[0].Seq, Is.EqualTo(group.Process[0].Seq));
-        var fullyExpandedAnchorSeq = group.VisibleProcess[0].Seq;
         var reasoningItem = group.Process.OfType<MessageItemViewModel>()
                                  .Single(message => message.Reasoning == fullReasoning);
         Assert.That(reasoningItem.Reasoning, Is.EqualTo(fullReasoning),
@@ -759,8 +760,13 @@ public sealed class MainWindowViewModelTests
         Assert.That(answer.Content, Is.EqualTo(finalAnswer));
         Assert.That(finalizedGroup.IsExpanded, Is.True,
                     "用户展开旧过程后，turn/end 不应收回明确的阅读状态。");
-        Assert.That(finalizedGroup.VisibleProcess[0].Seq, Is.EqualTo(fullyExpandedAnchorSeq),
-                    "最终收束和思考投影不得改变用户已展开的 Seq 锚点。");
+        Assert.That(finalizedGroup.HasUserSetExpansion, Is.True);
+        Assert.That(finalizedGroup.VisibleProcess, Has.Count.EqualTo(finalizedGroup.Process.Count),
+                    "turn/end 后全部已加载过程仍必须可见。");
+        Assert.That(finalizedGroup.HiddenProcessCount, Is.Zero);
+        Assert.That(finalizedGroup.HasEarlierProcess, Is.False);
+        Assert.That(finalizedGroup.VisibleProcess, Does.Contain(toolCard),
+                    "工具结算必须保留在原过程位置并继续可见。");
         Assert.That(finalizedGroup.Process.OfType<MessageItemViewModel>()
                                   .Any(message => message.Content == finalAnswer), Is.False);
 
@@ -768,7 +774,7 @@ public sealed class MainWindowViewModelTests
     }
 
     [Test]
-    public async Task LoadingOlderPreservesExpandedProcessSeqBoundaryAndDoesNotLeakAcrossSessions()
+    public async Task LoadingOlderPreservesCollapsedStateAndSessionProcessDataIsIsolated()
     {
         var sessionService = new SimulatedSessionService();
         var backendService = new SimulatedBackendStatusService();
@@ -789,20 +795,36 @@ public sealed class MainWindowViewModelTests
                                             .Any(group => group.Process.Count == processCount), 10000);
         var expandedGroup = viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>()
                                      .Single(group => group.Process.Count == processCount);
-        expandedGroup.ShowEarlierProcess();
-        var earliestVisibleSeq = expandedGroup.VisibleProcess[0].Seq;
+        Assert.That(expandedGroup.IsExpanded, Is.True);
+        Assert.That(expandedGroup.VisibleProcess, Has.Count.EqualTo(processCount));
+        Assert.That(expandedGroup.HiddenProcessCount, Is.Zero);
+        Assert.That(expandedGroup.VisibleProcess.OfType<MessageItemViewModel>().Select(item => item.Reasoning),
+                    Does.Contain("历史重建过程 0"));
+
         var firstSeqBeforeLoad = viewModel.ConversationItems[0].Seq;
+
+        expandedGroup.ToggleCommand.Execute(null);
+        Assert.That(expandedGroup.IsExpanded, Is.False);
+        Assert.That(expandedGroup.HasUserSetExpansion, Is.True);
+        Assert.That(expandedGroup.VisibleProcess, Has.Count.EqualTo(processCount), "折叠不得裁剪历史重建过程。");
 
         viewModel.LoadOlderCommand.Execute(null);
         await WaitUntilAsync(() => viewModel.ConversationItems[0].Seq < firstSeqBeforeLoad &&
                                    !viewModel.IsLoadingOlder);
 
         var rebuiltGroup = viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>()
-                                    .Single(group => group.Process.Any(item => item.Seq == earliestVisibleSeq));
-        Assert.That(rebuiltGroup.VisibleProcess[0].Seq, Is.EqualTo(earliestVisibleSeq),
-                    "按 Seq 保存的展开边界在历史前插与时间线重建后必须仍然有效。");
-        Assert.That(rebuiltGroup.HiddenProcessCount, Is.EqualTo(5));
+                                    .Single(group => group.Process.OfType<MessageItemViewModel>()
+                                                                  .Any(item => item.Reasoning == "历史重建过程 0"));
+        Assert.That(rebuiltGroup, Is.Not.SameAs(expandedGroup), "历史前插必须实际重建时间线组对象。");
+        Assert.That(rebuiltGroup.IsExpanded, Is.False,
+                    "历史前插与时间线重建必须保留用户折叠选择。");
+        Assert.That(rebuiltGroup.HasUserSetExpansion, Is.True);
         Assert.That(rebuiltGroup.Process, Has.Count.EqualTo(processCount));
+        Assert.That(rebuiltGroup.VisibleProcess, Has.Count.EqualTo(processCount));
+        Assert.That(rebuiltGroup.HiddenProcessCount, Is.Zero);
+        Assert.That(rebuiltGroup.HasEarlierProcess, Is.False);
+        Assert.That(rebuiltGroup.Process.OfType<MessageItemViewModel>()
+                         .Any(item => item.Reasoning == "另一会话过程 0"), Is.False);
 
         var otherSession = viewModel.Sidebar.Sessions.First(session => session.Id == "session-welcome");
         viewModel.SelectedSession = otherSession;
@@ -816,10 +838,14 @@ public sealed class MainWindowViewModelTests
                                             .Any(group => group.Process.Count == processCount), 10000);
         var otherGroup = viewModel.ConversationItems.OfType<TurnProcessGroupViewModel>()
                                   .Single(group => group.Process.Count == processCount);
-        Assert.That(otherGroup.VisibleProcess, Has.Count.EqualTo(20));
-        Assert.That(otherGroup.HiddenProcessCount, Is.EqualTo(25));
-        Assert.That(otherGroup.VisibleProcess[0].Seq, Is.Not.EqualTo(earliestVisibleSeq),
-                    "另一会话必须使用自己的过程展开状态。");
+        Assert.That(otherGroup.IsExpanded, Is.True, "另一会话的新运行组必须使用自己的默认展开状态。");
+        Assert.That(otherGroup.VisibleProcess, Has.Count.EqualTo(processCount));
+        Assert.That(otherGroup.HiddenProcessCount, Is.Zero);
+        Assert.That(otherGroup.HasEarlierProcess, Is.False);
+        Assert.That(otherGroup.VisibleProcess.OfType<MessageItemViewModel>().Select(item => item.Reasoning),
+                    Does.Contain("另一会话过程 0"));
+        Assert.That(otherGroup.Process.OfType<MessageItemViewModel>()
+                         .Any(item => item.Reasoning == "历史重建过程 0"), Is.False);
 
         await viewModel.DisposeAsync();
     }
@@ -2195,7 +2221,7 @@ public sealed class MainWindowViewModelTests
         await viewModel.DisposeAsync();
     }
 
-    private static void EnsureAvaloniaPlatform()
+    internal static void EnsureAvaloniaPlatform()
     {
         if (_avaloniaIsInitialized) return;
 
@@ -2203,8 +2229,16 @@ public sealed class MainWindowViewModelTests
         {
             if (_avaloniaIsInitialized) return;
 
-            AppBuilder.Configure<App>().UsePlatformDetect().SetupWithoutStarting();
-            _avaloniaIsInitialized = true;
+            var originalContext = SynchronizationContext.Current;
+            try
+            {
+                AppBuilder.Configure<App>().UsePlatformDetect().SetupWithoutStarting();
+                _avaloniaIsInitialized = true;
+            }
+            finally
+            {
+                SynchronizationContext.SetSynchronizationContext(originalContext);
+            }
         }
     }
 
