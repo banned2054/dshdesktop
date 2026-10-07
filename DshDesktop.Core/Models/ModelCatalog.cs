@@ -1,6 +1,6 @@
 namespace DshDesktop.Core.Models;
 
-/// <summary>一次完整的模型选型（provider/model，可选推理档位）。</summary>
+/// <summary>会话模型选型；推理档位可省略。</summary>
 public sealed record ModelSelection(string Provider, string Model, string? ReasoningEffort = null);
 
 /// <summary>模型目录：默认选型、各提供方可选模型与装载失败项。</summary>
@@ -9,10 +9,10 @@ public sealed record ModelCatalog(
     IReadOnlyList<ModelProviderGroup>  Groups,
     IReadOnlyList<ModelCatalogFailure> Failures);
 
-/// <summary>一个提供方及其成功装载的模型清单。</summary>
+/// <summary>模型目录中一个提供方及其模型。</summary>
 public sealed record ModelProviderGroup(string Id, string Name, IReadOnlyList<ModelCatalogEntry> Models);
 
-/// <summary>目录中一个可被选中的模型。</summary>
+/// <summary>模型目录条目及可选推理元数据。</summary>
 public sealed record ModelCatalogEntry(string Id, string Name, ModelReasoningInfo? Reasoning = null)
 {
     /// <summary>解析跨模型切换携带的推理档位；模型无 reasoning 元数据时一律省略（null）。</summary>
@@ -22,7 +22,7 @@ public sealed record ModelCatalogEntry(string Id, string Name, ModelReasoningInf
     }
 }
 
-/// <summary>模型支持的推理档位元数据（session/modelCatalog 下发，adapter 声明的展示顺序）。</summary>
+/// <summary>后端下发的推理档位，按 adapter 声明顺序展示。</summary>
 public sealed record ModelReasoningInfo(IReadOnlyList<ReasoningEffortInfo> Efforts, string? DefaultEffort = null)
 {
     /// <summary>
@@ -44,8 +44,8 @@ public sealed record ModelReasoningInfo(IReadOnlyList<ReasoningEffortInfo> Effor
     }
 }
 
-/// <summary>一个推理档位：wire id（off/low/high/max 等模型自有取值）与展示名。</summary>
+/// <summary>模型推理档位的 wire id、展示名及可选说明。</summary>
 public sealed record ReasoningEffortInfo(string Id, string Name, string? Description = null);
 
-/// <summary>一个目录装载失败的提供方（如凭据不可用）；保留展示诊断用。</summary>
+/// <summary>提供方目录装载失败信息，用于展示诊断。</summary>
 public sealed record ModelCatalogFailure(string Id, string Name, string Message);

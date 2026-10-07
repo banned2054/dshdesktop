@@ -56,11 +56,9 @@ public class App : Application
                 backendService          = hostService;
                 toolApprovalService     = new HarnessToolApprovalService(connection);
                 permissionPresetService = new HarnessPermissionPresetService(connection);
-                // 设置域服务先行装配；设置界面落地时由 ViewModel 消费。
                 settingsService   = new HarnessSettingsService(connection);
                 credentialService = new HarnessCredentialService(connection);
                 llmCatalogService = new HarnessLlmCatalogService(connection);
-                // 文件改动域服务先行装配；改动卡片落地时由 ViewModel 消费。
                 changesService  = new HarnessWorkspaceChangesService(connection);
                 isSimulatedMode = false;
             }
@@ -100,9 +98,7 @@ public class App : Application
                                                                 ? ThemeVariant.Dark
                                                                 : null,
                                                     llmCatalogService,
-                                                    // 关于面板版本之后传入文件改动服务：改动卡片和右侧对比共用同一数据域。
-                                                    // 关于面板的 DSH 版本：真实模式读 runtime 目录
-                                                    // dsh 包版本，模拟模式如实标注。
+                                                    // DSH 版本取自真实后端的 runtime 包版本；模拟模式明确标注。
                                                     configuration is { UseRealBackend: true }
                                                         ? configuration.BackendVersion ?? "未知"
                                                         : "模拟后端",

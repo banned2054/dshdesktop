@@ -6,11 +6,6 @@ using DshDesktop.ViewModels;
 
 namespace DshDesktop.Presentation.Views;
 
-/// <summary>
-///     关于面板的界面行为：遮罩点击关闭、Esc 关闭、打开时聚焦面板根。
-///     开合与版本值均在 <see cref="MainWindowViewModel" />（IsAboutOpen / AppVersion / DshVersion），
-///     关闭统一走 CloseAboutCommand。
-/// </summary>
 public partial class AboutPanelView : UserControl
 {
     public AboutPanelView()

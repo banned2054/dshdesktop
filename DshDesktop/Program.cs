@@ -4,9 +4,7 @@ namespace DshDesktop;
 
 internal class Program
 {
-    // Initialization code. Don't use any Avalonia, third-party APIs or any
-    // SynchronizationContext-reliant code before AppMain is called: things aren't initialized
-    // yet and stuff might break.
+    // 初始化前避免调用依赖 Avalonia 状态或 SynchronizationContext 的代码。
     [STAThread]
     public static void Main(string[] args)
     {
@@ -14,7 +12,7 @@ internal class Program
            .StartWithClassicDesktopLifetime(args);
     }
 
-    // Avalonia configuration, don't remove; also used by visual designer.
+    // 设计器也使用此 Avalonia 配置入口。
     public static AppBuilder BuildAvaloniaApp()
         => AppBuilder.Configure<App>()
                      .UsePlatformDetect()

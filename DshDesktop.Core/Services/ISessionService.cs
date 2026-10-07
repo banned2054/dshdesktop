@@ -10,36 +10,28 @@ public interface ISessionService
     Task<IReadOnlyList<SessionSummary>> GetSessionsAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    ///     创建新会话，可指定所属工作区。携带 <paramref name="sessionId" /> 时走
-    ///     session/create 的收养语义（按身份复用已有会话，后端按 cwd/preset 校验冲突），
-    ///     不应用默认模型策略；不携带时创建全新会话。<paramref name="agentPreset" />
-    ///     是创建时绑定的模式 id（内置取值见 <see cref="AgentPresetModes" />，null 交由
-    ///     后端默认），随会话开始由后端锁定；收养路径必须携带与会话一致的取值。
-    ///     非幂等操作，结果不确定的失败不得携带新的意图自动重试。
+    ///     创建会话；提供 <paramref name="workspaceId" /> 时归属该工作区。
+    ///     有 <paramref name="sessionId" /> 时按身份收养已有会话，后端校验 cwd/preset，且不应用默认模型；
+    ///     否则新建会话。<paramref name="agentPreset" /> 在创建时绑定并由后端锁定，null 使用后端默认值；
+    ///     收养时须与已有会话一致。操作非幂等，结果不确定时不得自动重试新意图。
     /// </summary>
     Task<SessionSummary> CreateSessionAsync(
         string?           workspaceId       = null, string? sessionId = null, string? agentPreset = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    ///     分支会话（session/fork）：以源会话最近一个已完成 turn 的事件前缀为种子创建
-    ///     独立新会话，返回服务端新铸的子会话 id。不指定分支点，对齐参考客户端入口行为；
-    ///     源会话没有已完成 turn 时后端拒绝（session/fork-unavailable）。子会话继承源
-    ///     cwd 与预设，模型选型取后端当前默认；经 api-session/added 事件进入列表。
-    ///     非幂等操作，结果不确定的失败不得自动重试。
+    ///     以源会话最近一个已完成 turn 为种子创建分支并返回新会话 id；不指定分支点。
+    ///     源会话无已完成 turn 时后端拒绝。分支继承 cwd 与预设，模型使用后端当前默认值；
+    ///     非幂等，结果不确定时不得自动重试。
     /// </summary>
     Task<string> ForkSessionAsync(string sessionId, CancellationToken cancellationToken = default);
 
-    /// <summary>
-    ///     重命名会话（session/rename）：标题交后端规范化并作为持久事件落盘，
-    ///     返回接受后的标题。分支子会话的「尾部序号递增」改名复用本方法。
-    /// </summary>
+    /// <summary>重命名会话，返回后端规范化并持久化的标题。</summary>
     Task<string> RenameSessionAsync(string sessionId, string title, CancellationToken cancellationToken = default);
 
     /// <summary>
-    ///     记录"本端已参与对话"的过渡信号（发送被接受、观察到运行或已加载内容）。
-    ///     台账在进程内生效：已确认开始的会话不被迟到的空白摘要退回空白；
-    ///     不持久化，重连与重启后以后端重新验证的结果为准。
+    ///     标记本进程已观察到会话参与活动，避免迟到的空白摘要清除该状态；标记不持久化，
+    ///     重连或重启后以重新验证的后端状态为准。
     /// </summary>
     void MarkSessionEngaged(string sessionId);
 

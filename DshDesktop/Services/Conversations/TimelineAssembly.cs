@@ -61,7 +61,6 @@ internal sealed class TimelineAssembly(
     /// <summary>本轮起点是否在已加载窗口内；在本轮首个条目到达时快照 <see cref="_turnOpeningSeen" />。</summary>
     private bool _turnStartObserved;
 
-    /// <summary>todo/write 事件到达：更新后续 todo_write 折叠行的 diff 基线。</summary>
     public void SetTodoBaseline(IReadOnlyList<SessionTodoItem>? todos)
     {
         _todoBaseline = todos;

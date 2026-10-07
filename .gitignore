@@ -380,3 +380,4 @@ Thumbs.db
 .dsh/
 # Per-machine VS launch profiles (contain machine-specific backend paths)
 /DshDesktop/Properties/launchSettings.json
+/.zcode

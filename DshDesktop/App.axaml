@@ -2,10 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="DshDesktop.App"
              RequestedThemeVariant="Dark">
-    <!-- App 只负责应用级引导：主题、LiveMarkdown 依赖样式与 Presentation/Styles 的引入。
-         界面颜色与具体控件样式分别见 Presentation/Styles/ThemeResources.axaml 与同目录各样式文件。
-         当前选择的主题固定为 Dark；需要更换时只改上面的 RequestedThemeVariant
-         （Light，或 Default 跟随系统）。 -->
+    <!-- 应用主题由 RequestedThemeVariant 指定；界面样式与颜色定义在 Presentation/Styles。 -->
 
     <Application.Styles>
         <FluentTheme />
