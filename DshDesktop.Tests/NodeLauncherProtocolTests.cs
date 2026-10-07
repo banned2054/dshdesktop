@@ -54,6 +54,37 @@ public sealed class NodeLauncherProtocolTests
     }
 
     [Test]
+    [Platform("Win")]
+    public async Task ReadOnlySourceNodeDoesNotPreventRuntimeCleanup()
+    {
+        var source = StubEnvironment.TryCreate("source");
+        if (source is null) return;
+
+        using var _ = source;
+        var node = source.RuntimeNodePath;
+        var attributes = File.GetAttributes(node);
+        File.SetAttributes(node, attributes | FileAttributes.ReadOnly);
+        try
+        {
+            using (var environment = StubEnvironment.TryCreate("ready", node)!)
+            {
+                Assert.That(File.GetAttributes(environment.RuntimeNodePath) & FileAttributes.ReadOnly,
+                            Is.EqualTo((FileAttributes)0));
+                await using var launcher = NodeHostLauncher.Start(environment.Options);
+                await launcher.Ready.WaitAsync(TimeSpan.FromSeconds(15));
+                await launcher.StopAsync(TimeSpan.FromSeconds(10));
+            }
+
+            Assert.That(File.GetAttributes(node) & FileAttributes.ReadOnly, Is.EqualTo(FileAttributes.ReadOnly),
+                        "运行时清理不能修改共享 Node 的只读属性。");
+        }
+        finally
+        {
+            File.SetAttributes(node, attributes);
+        }
+    }
+
+    [Test]
     public async Task HostFatalIsSurfacedWithMessage()
     {
         var environment = StubEnvironment.TryCreate("fatal");
@@ -154,6 +185,9 @@ public sealed class NodeLauncherProtocolTests
 
         public NodeHostOptions Options { get; }
 
+        public string RuntimeNodePath => Path.Combine(Options.PrimaryRuntimeDir, "dependencies", "node", "bin",
+                                                     OperatingSystem.IsWindows() ? "node.exe" : "node");
+
         public async Task<Process> WaitForHostProcessAsync()
         {
             var pidFile = Path.Combine(Options.ProfileDir, "host.pid");
@@ -175,7 +209,7 @@ public sealed class NodeLauncherProtocolTests
             Directory.Delete(_root, true);
         }
 
-        public static StubEnvironment? TryCreate(string mode)
+        public static StubEnvironment? TryCreate(string mode, string? runtimeNodeSourcePath = null)
         {
             var node           = FindNodeExecutable();
             var launcherScript = Path.Combine(AppContext.BaseDirectory, "Assets", "Backend", "launcher.mjs");
@@ -193,6 +227,15 @@ public sealed class NodeLauncherProtocolTests
             Directory.CreateDirectory(profileDir);
             Directory.CreateDirectory(primaryRuntimeDir);
             Directory.CreateDirectory(dshHome);
+            var runtimeNode = Path.Combine(primaryRuntimeDir, "dependencies", "node", "bin",
+                                           OperatingSystem.IsWindows() ? "node.exe" : "node");
+            Directory.CreateDirectory(Path.GetDirectoryName(runtimeNode)!);
+            // 预置副本，避免 launcher 将共享 Node 的只读属性带入临时运行时。
+            var runtimeNodeSource = runtimeNodeSourcePath ?? node;
+            File.Copy(runtimeNodeSource, runtimeNode);
+            File.SetAttributes(runtimeNode, File.GetAttributes(runtimeNode) & ~FileAttributes.ReadOnly);
+            if (!OperatingSystem.IsWindows())
+                File.SetUnixFileMode(runtimeNode, File.GetUnixFileMode(runtimeNodeSource));
 
             var options = new NodeHostOptions
             {
