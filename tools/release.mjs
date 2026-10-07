@@ -133,10 +133,12 @@ export function stage(source, deployed, bundle, root = repository, rid = 'win-x6
   if (existsSync(runtime)) throw new Error('Runtime staging directory must be new')
   mkdirSync(runtime, { recursive: true })
   // Resolve pnpm links into ordinary files before archiving, including private Host.
-  cpSync(join(deployed, 'node_modules'), join(runtime, 'node_modules'), { recursive: true, dereference: true })
+  // An accept-all filter forces Node's JS traversal: the native recursive fast path
+  // can preserve POSIX symlinks despite dereference: true (reproduced on Node 24.15).
+  cpSync(join(deployed, 'node_modules'), join(runtime, 'node_modules'), { recursive: true, dereference: true, filter: () => true })
   const host = join(runtime, 'node_modules', '@deepseek-ai', 'dsh-desktop-host')
   mkdirSync(host, { recursive: true })
-  cpSync(join(deployed, 'lib'), join(host, 'lib'), { recursive: true, dereference: true })
+  cpSync(join(deployed, 'lib'), join(host, 'lib'), { recursive: true, dereference: true, filter: () => true })
   cpSync(join(deployed, 'package.json'), join(host, 'package.json'))
   writeFileSync(join(runtime, 'package.json'), JSON.stringify({ name: 'dsh-desktop-runtime', private: true, version: versions.version, type: 'module' }, null, 2) + '\n')
   cpSync(join(root, 'LICENSE'), join(resources, 'LICENSE'))

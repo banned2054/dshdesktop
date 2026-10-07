@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
-import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join, relative } from 'node:path'
 import { test } from 'node:test'
 import { readVersions, smoke, stage, verifyBundle, verifyTree } from './release.mjs'
 
@@ -15,6 +15,28 @@ function write(root, path, content) {
   const destination = join(root, path)
   mkdirSync(join(destination, '..'), { recursive: true })
   writeFileSync(destination, typeof content === 'string' ? content : JSON.stringify(content))
+}
+
+function directoryLink(target, path, relativeTarget = false) {
+  // Windows junctions do not exercise the POSIX symlink copy path.
+  const type = process.platform === 'win32' ? 'junction' : 'dir'
+  const linkTarget = relativeTarget && type !== 'junction' ? relative(dirname(path), target) : target
+  symlinkSync(linkTarget, path, type)
+  assert.equal(lstatSync(path).isSymbolicLink(), true)
+  assert.equal(lstatSync(path).isDirectory(), false)
+  assert.equal(realpathSync(path), realpathSync(target))
+  if (type === 'dir') assert.equal(readlinkSync(path), linkTarget)
+}
+
+function materializedDirectory(path) {
+  assert.equal(lstatSync(path).isSymbolicLink(), false)
+  assert.equal(lstatSync(path).isDirectory(), true)
+}
+
+function materializedFile(path, content) {
+  assert.equal(lstatSync(path).isSymbolicLink(), false)
+  assert.equal(lstatSync(path).isFile(), true)
+  assert.equal(readFileSync(path, 'utf8'), content)
 }
 
 function project(root) {
@@ -76,7 +98,22 @@ test('filesystem links cannot enter the final archive tree', t => {
   const root = fixture(t)
   const target = join(root, 'target')
   mkdirSync(target)
-  symlinkSync(target, join(root, 'link'), process.platform === 'win32' ? 'junction' : 'dir')
+  directoryLink(target, join(root, 'link'))
+  assert.throws(() => verifyTree(root), /filesystem link/)
+})
+
+test('filesystem file links and dangling links are rejected', { skip: process.platform === 'win32' }, t => {
+  const root = fixture(t)
+  write(root, 'target.txt', 'linked content')
+  const link = join(root, 'link.txt')
+  symlinkSync('target.txt', link, 'file')
+  assert.equal(lstatSync(link).isSymbolicLink(), true)
+  assert.equal(readlinkSync(link), 'target.txt')
+  assert.equal(readFileSync(link, 'utf8'), 'linked content')
+  assert.throws(() => verifyTree(root), /filesystem link/)
+  rmSync(join(root, 'target.txt'))
+  assert.equal(existsSync(link), false)
+  assert.equal(lstatSync(link).isSymbolicLink(), true)
   assert.throws(() => verifyTree(root), /filesystem link/)
 })
 
@@ -94,11 +131,40 @@ test('staging materializes linked dependencies beside a directly launchable app'
   const dsh = join(root, 'linked-dsh')
   write(dsh, 'package.json', { name: '@deepseek-ai/dsh', version: '0.2.0-rc.2' })
   write(dsh, 'lib/profile-boot.js', 'fixture boot')
+  const linkedAssets = join(root, 'linked-assets')
+  write(linkedAssets, 'data.txt', 'nested linked content')
+  directoryLink(linkedAssets, join(dsh, 'lib/assets'), true)
+  directoryLink(linkedAssets, join(deploy, 'lib/assets'), true)
+  if (process.platform !== 'win32') {
+    symlinkSync('profile-boot.js', join(dsh, 'lib/boot-alias.js'), 'file')
+    symlinkSync('index.js', join(deploy, 'lib/host-alias.js'), 'file')
+    assert.equal(lstatSync(join(dsh, 'lib/boot-alias.js')).isSymbolicLink(), true)
+    assert.equal(readlinkSync(join(dsh, 'lib/boot-alias.js')), 'profile-boot.js')
+    assert.equal(lstatSync(join(deploy, 'lib/host-alias.js')).isSymbolicLink(), true)
+    assert.equal(readlinkSync(join(deploy, 'lib/host-alias.js')), 'index.js')
+  }
   mkdirSync(join(deploy, 'node_modules/@deepseek-ai'), { recursive: true })
-  symlinkSync(dsh, join(deploy, 'node_modules/@deepseek-ai/dsh'), process.platform === 'win32' ? 'junction' : 'dir')
+  const dependency = join(deploy, 'node_modules/@deepseek-ai/dsh')
+  directoryLink(dsh, dependency)
+  assert.equal(readFileSync(join(dependency, 'lib/profile-boot.js'), 'utf8'), 'fixture boot')
   stage(source, deploy, output, repo)
   rmSync(dsh, { recursive: true })
+  rmSync(linkedAssets, { recursive: true })
+  rmSync(join(deploy, 'node_modules'), { recursive: true })
+  rmSync(join(deploy, 'lib'), { recursive: true })
   verifyBundle(output, readVersions(repo))
+  const packages = join(output, 'backend/runtime/node_modules/@deepseek-ai')
+  for (const name of ['dsh', 'dsh-desktop-host']) {
+    materializedDirectory(join(packages, name))
+    materializedDirectory(join(packages, name, 'lib/assets'))
+    materializedFile(join(packages, name, 'lib/assets/data.txt'), 'nested linked content')
+  }
+  materializedFile(join(packages, 'dsh/lib/profile-boot.js'), 'fixture boot')
+  materializedFile(join(packages, 'dsh-desktop-host/lib/index.js'), 'fixture host')
+  if (process.platform !== 'win32') {
+    materializedFile(join(packages, 'dsh/lib/boot-alias.js'), 'fixture boot')
+    materializedFile(join(packages, 'dsh-desktop-host/lib/host-alias.js'), 'fixture host')
+  }
   assert.equal(readFileSync(join(output, 'DshDesktop.exe'), 'utf8'), 'fixture')
   assert.equal(JSON.parse(readFileSync(join(output, 'BUILD-INFO.json'))).clientVersion, '0.1.0')
   assert.equal(existsSync(join(output, 'Run.cmd')), false)
@@ -122,10 +188,16 @@ test('staging creates a macOS app bundle and a direct Linux executable', t => {
     write(dsh, 'package.json', { name: '@deepseek-ai/dsh', version: '0.2.0-rc.2' })
     write(dsh, 'lib/profile-boot.js', 'fixture boot')
     mkdirSync(join(deploy, 'node_modules/@deepseek-ai'), { recursive: true })
-    symlinkSync(dsh, join(deploy, `node_modules/@deepseek-ai/dsh-${rid}`), process.platform === 'win32' ? 'junction' : 'dir')
-    rmSync(join(deploy, 'node_modules/@deepseek-ai/dsh-' + rid))
-    symlinkSync(dsh, join(deploy, 'node_modules/@deepseek-ai/dsh'), process.platform === 'win32' ? 'junction' : 'dir')
+    const dependency = join(deploy, 'node_modules/@deepseek-ai/dsh')
+    directoryLink(dsh, dependency, true)
+    assert.equal(readFileSync(join(dependency, 'lib/profile-boot.js'), 'utf8'), 'fixture boot')
     stage(source, deploy, output, repo, rid)
+    rmSync(dependency)
+    rmSync(dsh, { recursive: true })
+    verifyBundle(output, readVersions(repo), rid)
+    const packagedDependency = join(resources(output, rid), 'backend/runtime/node_modules/@deepseek-ai/dsh')
+    materializedDirectory(packagedDependency)
+    materializedFile(join(packagedDependency, 'lib/profile-boot.js'), 'fixture boot')
     assert.equal(existsSync(join(output, 'Run.command')), false)
     assert.equal(existsSync(join(output, 'Run.sh')), false)
     if (rid === 'osx-arm64') {
@@ -136,7 +208,6 @@ test('staging creates a macOS app bundle and a direct Linux executable', t => {
       assert.equal(existsSync(join(output, 'DshDesktop')), true)
     }
     assert.equal(JSON.parse(readFileSync(join(resources(output, rid), 'BUILD-INFO.json'))).platform, rid)
-    rmSync(join(deploy, 'node_modules/@deepseek-ai/dsh'))
   }
 })
 
