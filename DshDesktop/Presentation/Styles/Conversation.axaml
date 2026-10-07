@@ -249,15 +249,8 @@
         <Setter Property="Background" Value="{DynamicResource ChangesCardHoverBrush}" />
     </Style>
 
-    <!-- 持久化的交付文件声明：表面、文件行与折叠开关复用 changes-* 样式族（与改动卡
-         同一套 Codex 中性表面），这里只保留卡容器与行内状态文案。点击打开当前文件的
-         应用内视图，不呈现历史 diff。 -->
-    <Style Selector="Border.deliverables-card">
-        <Setter Property="Background" Value="{DynamicResource ChangesCardBackgroundBrush}" />
-        <Setter Property="CornerRadius" Value="10" />
-        <Setter Property="Padding" Value="8" />
-        <Setter Property="Margin" Value="0,0,0,16" />
-    </Style>
+    <!-- 交付声明复用 changes-* 卡片样式；仅保留声明文件可用性状态的文案样式。
+         点击仍打开当前文件的应用内视图，不呈现历史 diff。 -->
     <Style Selector="TextBlock.deliverables-state">
         <Setter Property="FontSize" Value="12" />
         <Setter Property="TextWrapping" Value="Wrap" />

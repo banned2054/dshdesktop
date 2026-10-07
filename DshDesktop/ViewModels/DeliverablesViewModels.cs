@@ -111,11 +111,9 @@ public sealed class DeliveredFileViewModel : ObservableObject
 
 /// <summary>
 ///     The explicit files delivered in one turn. Declarations are durable; file contents are not archived.
-///     Repeated declarations update a path in place and retain its first-seen display position.
-///     展示与改动卡同一套形态：单文件整卡可点（「已编辑 文件名」+ 右侧「查看变更」），多文件
-///     头部静态（「已编辑 N 个文件」+ 整轮增删合计）、超过 3 行折叠，仅文件行可点。增删计数来自
-///     同轮 workspace/changes 摘要（组装器提供该轮宣告的 seq），摘要不可用时静默降级为无计数；
-///     单击仍经既有解析链路打开右侧面板（完整差异 / 历史编辑片段 / 当前内容 / 不可用）。
+///     Repeated declarations update a path in place and retain its first-seen display position. The
+///     timeline projects this source together with workspace changes into one visual card while keeping
+///     delivery paths, status, and open behavior distinct from workspace diff data.
 /// </summary>
 public sealed class DeliverablesCardViewModel : ConversationItemViewModel
 {

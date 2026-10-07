@@ -46,6 +46,136 @@
                                 <!-- 运行中轮次的工具卡片：turn/end 后折叠进过程组。 -->
                                 <tooling:ToolActivityView />
                             </DataTemplate>
+                            <DataTemplate x:DataType="vm:EditedFilesCardViewModel">
+                                <Panel>
+                                    <Button Classes="changes-single" Command="{Binding SingleFile.OpenCommand}"
+                                            IsVisible="{Binding IsSingleFile}">
+                                        <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
+                                            <Border Grid.Column="0" Classes="changes-badge" VerticalAlignment="Center">
+                                                <Panel Classes="row-leading" Width="16" Height="16"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                    <Path Data="{StaticResource Icon.EditBodyFill}"
+                                                          Fill="{DynamicResource ToolRowLabelHoverBrush}" />
+                                                    <Path Data="{StaticResource Icon.EditPenStroke}"
+                                                          Stroke="{DynamicResource ToolRowLabelHoverBrush}"
+                                                          StrokeThickness="1" />
+                                                </Panel>
+                                            </Border>
+                                            <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+                                                <TextBlock Classes="changes-title" Text="{Binding SingleTitleText}"
+                                                           ToolTip.Tip="{Binding SingleFile.ToolTip}"
+                                                           TextTrimming="CharacterEllipsis" />
+                                                <StackPanel Orientation="Horizontal" Spacing="6"
+                                                            IsVisible="{Binding SingleHasLineCounts}">
+                                                    <TextBlock Classes="changes-added" Text="{Binding SingleFile.AddedText}" />
+                                                    <TextBlock Classes="changes-deleted" Text="{Binding SingleFile.DeletedText}" />
+                                                </StackPanel>
+                                                <TextBlock Classes="changes-count" Text="{Binding SingleFile.CountText}"
+                                                           IsVisible="{Binding SingleHasCountText}" />
+                                                <TextBlock Classes="deliverables-state" Text="{Binding SingleStatusText}"
+                                                           Classes.error="{Binding SingleHasError}"
+                                                           IsVisible="{Binding SingleHasError}" />
+                                            </StackPanel>
+                                            <Button Grid.Column="2" Classes="changes-action" Content="{Binding SingleActionText}"
+                                                    Command="{Binding SingleFile.OpenCommand}"
+                                                    VerticalAlignment="Center" />
+                                            <Button Grid.Column="3" Classes="changes-action" Content="查看文件"
+                                                    Command="{Binding SingleFile.DeliveryCommand}"
+                                                    IsVisible="{Binding SingleFile.HasDeliverable}"
+                                                    VerticalAlignment="Center" />
+                                        </Grid>
+                                    </Button>
+                                    <Border Classes="changes-card" IsVisible="{Binding !IsSingleFile}">
+                                        <StackPanel>
+                                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10" Margin="4,4,4,8">
+                                                <Border Grid.Column="0" Classes="changes-badge" VerticalAlignment="Center">
+                                                    <Panel Classes="row-leading" Width="16" Height="16"
+                                                           HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                        <Path Data="{StaticResource Icon.EditBodyFill}"
+                                                              Fill="{DynamicResource ToolRowLabelHoverBrush}" />
+                                                        <Path Data="{StaticResource Icon.EditPenStroke}"
+                                                              Stroke="{DynamicResource ToolRowLabelHoverBrush}"
+                                                              StrokeThickness="1" />
+                                                    </Panel>
+                                                </Border>
+                                                <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+                                                    <TextBlock Classes="changes-title" Text="{Binding TitleText}" />
+                                                    <StackPanel Orientation="Horizontal" Spacing="6"
+                                                                IsVisible="{Binding HasTotals}">
+                                                        <TextBlock Classes="changes-added" Text="{Binding HeaderAddedText}" />
+                                                        <TextBlock Classes="changes-deleted" Text="{Binding HeaderDeletedText}" />
+                                                    </StackPanel>
+                                                </StackPanel>
+                                            </Grid>
+                                            <TextBlock Classes="changes-state" Text="{Binding SummaryText}"
+                                                       IsVisible="{Binding HasError}" />
+                                            <TextBlock Classes="changes-state" Text="{Binding SummaryText}"
+                                                       IsVisible="{Binding IsUnavailable}" />
+                                            <ItemsControl ItemsSource="{Binding VisibleFiles}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate x:DataType="vm:EditedFileRowViewModel">
+                                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="4">
+                                                            <Button Grid.Column="0" Classes="changes-file"
+                                                                    Command="{Binding ChangeCommand}"
+                                                                    ToolTip.Tip="{Binding ToolTip}">
+                                                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                                                    <StackPanel Grid.Column="0" Spacing="2"
+                                                                                VerticalAlignment="Center">
+                                                                        <TextBlock Text="{Binding Path}"
+                                                                                   TextTrimming="CharacterEllipsis" />
+                                                                        <TextBlock Classes="deliverables-state"
+                                                                                   Text="{Binding StatusText}"
+                                                                                   Classes.error="{Binding HasError}"
+                                                                                   IsVisible="{Binding HasError}" />
+                                                                    </StackPanel>
+                                                                    <Grid Grid.Column="1" ColumnSpacing="8"
+                                                                          VerticalAlignment="Center">
+                                                                        <Grid.ColumnDefinitions>
+                                                                            <ColumnDefinition Width="Auto" />
+                                                                            <ColumnDefinition Width="Auto" />
+                                                                        </Grid.ColumnDefinitions>
+                                                                        <TextBlock Grid.Column="0" Grid.ColumnSpan="2"
+                                                                                   Classes="changes-count" Text="{Binding CountText}"
+                                                                                   IsVisible="{Binding HasCountText}" />
+                                                                        <TextBlock Grid.Column="0" Classes="changes-added"
+                                                                                   Text="{Binding AddedText}" MinWidth="34"
+                                                                                   TextAlignment="Right"
+                                                                                   IsVisible="{Binding HasLineCounts}" />
+                                                                        <TextBlock Grid.Column="1" Classes="changes-deleted"
+                                                                                   Text="{Binding DeletedText}" MinWidth="30"
+                                                                                   TextAlignment="Right"
+                                                                                   IsVisible="{Binding HasLineCounts}" />
+                                                                    </Grid>
+                                                                </Grid>
+                                                            </Button>
+                                                            <Button Grid.Column="1" Classes="changes-action" Content="文件"
+                                                                    Command="{Binding DeliveryCommand}"
+                                                                    IsVisible="{Binding HasDeliverable}"
+                                                                    VerticalAlignment="Center" />
+                                                        </Grid>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                            <Button Classes="changes-toggle" Command="{Binding ToggleCommand}"
+                                                    IsVisible="{Binding HasToggle}">
+                                                <StackPanel Orientation="Horizontal" Spacing="5">
+                                                    <TextBlock Text="{Binding ToggleText}" />
+                                                    <Panel Width="8" Height="8" VerticalAlignment="Center">
+                                                        <Path Data="{StaticResource Icon.ChevronDown}"
+                                                              Stroke="{DynamicResource TextMutedBrush}" StrokeThickness="1.5"
+                                                              IsVisible="{Binding !IsExpanded}" />
+                                                        <Path Data="{StaticResource Icon.ChevronDown}"
+                                                              Stroke="{DynamicResource TextMutedBrush}" StrokeThickness="1.5"
+                                                              RenderTransformOrigin="50%,50%"
+                                                              RenderTransform="rotate(180deg)"
+                                                              IsVisible="{Binding IsExpanded}" />
+                                                    </Panel>
+                                                </StackPanel>
+                                            </Button>
+                                        </StackPanel>
+                                    </Border>
+                                </Panel>
+                            </DataTemplate>
                             <DataTemplate x:DataType="vm:WorkspaceChangesCardViewModel">
                                 <Panel>
                                     <!-- 单文件：整卡可点打开右侧对比，右侧「查看变更」按钮执行同一命令。 -->
@@ -193,7 +323,9 @@
                                                     VerticalAlignment="Center">
                                                 <Panel Classes="row-leading" Width="16" Height="16"
                                                        HorizontalAlignment="Center" VerticalAlignment="Center">
-                                                    <Path Data="{StaticResource Icon.ChecklistOutlineRegular}"
+                                                    <Path Data="{StaticResource Icon.EditBodyFill}"
+                                                          Fill="{DynamicResource ToolRowLabelHoverBrush}" />
+                                                    <Path Data="{StaticResource Icon.EditPenStroke}"
                                                           Stroke="{DynamicResource ToolRowLabelHoverBrush}"
                                                           StrokeThickness="1" />
                                                 </Panel>
@@ -227,14 +359,16 @@
                                     </Button>
                                     <!-- 多文件：头部静态不响应点击，仅文件行可点；超过 3 行折叠；
                                          行左是相对根目录的声明路径，右是增删行数。 -->
-                                    <Border Classes="deliverables-card" IsVisible="{Binding !IsSingleFile}">
+                                    <Border Classes="changes-card" IsVisible="{Binding !IsSingleFile}">
                                         <StackPanel>
                                             <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10" Margin="4,4,4,8">
                                                 <Border Grid.Column="0" Classes="changes-badge"
                                                         VerticalAlignment="Center">
                                                     <Panel Classes="row-leading" Width="16" Height="16"
                                                            HorizontalAlignment="Center" VerticalAlignment="Center">
-                                                        <Path Data="{StaticResource Icon.ChecklistOutlineRegular}"
+                                                        <Path Data="{StaticResource Icon.EditBodyFill}"
+                                                              Fill="{DynamicResource ToolRowLabelHoverBrush}" />
+                                                        <Path Data="{StaticResource Icon.EditPenStroke}"
                                                               Stroke="{DynamicResource ToolRowLabelHoverBrush}"
                                                               StrokeThickness="1" />
                                                     </Panel>

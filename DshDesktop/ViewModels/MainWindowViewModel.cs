@@ -1342,7 +1342,8 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
                                              : new DeliverablesCardViewModel(sessionId, sessionCwd, announcement,
                                                  _workspaceChangesService, _postToUi, changesSeq,
                                                  file => OpenDeliverableView(sessionId, sessionCwd, file),
-                                                 id => SelectedSession?.Id == id));
+                                                 id => SelectedSession?.Id == id),
+                                         turn => sessionId is null ? null : new EditedFilesCardViewModel(turn, sessionCwd));
         // 翻页/重连重建组装器时恢复 todo diff 基线，实时调用的摘要不因重建丢失。
         assembly.SetTodoBaseline(_todoBaseline);
         return assembly;

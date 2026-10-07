@@ -16,18 +16,18 @@ internal sealed class TimelineAssembly(
     ObservableCollection<ConversationItemViewModel>      target,
     Func<long?, long, bool, TurnProcessExpansionState?>? processExpansionStateResolver = null,
     Func<WorkspaceChangesAnnouncement, WorkspaceChangesCardViewModel?>? changesCardFactory = null,
-    Func<DeliverablesPresentedAnnouncement, long?, DeliverablesCardViewModel?>? deliverablesCardFactory = null)
+    Func<DeliverablesPresentedAnnouncement, long?, DeliverablesCardViewModel?>? deliverablesCardFactory = null,
+    Func<long, EditedFilesCardViewModel?>? editedFilesCardFactory = null)
 {
     private readonly ObservableCollection<ConversationItemViewModel> _target = target;
 
     private readonly Dictionary<string, (ToolActivityItemViewModel Card, TurnProcessGroupViewModel? Group)>
         _toolsByCallId = new();
 
-    /// <summary>按轮次记录的改动卡片；同一轮后到的宣告取代先前卡片。</summary>
+    /// <summary>按来源保留独立投影，面向时间线只放一个组合卡片。</summary>
     private readonly Dictionary<long, WorkspaceChangesCardViewModel> _changesCardsByTurn = new();
-
-    /// <summary>原始交付事件按轮保留，轮末按官方 closing-message seq 规则投影。</summary>
     private readonly Dictionary<long, DeliverablesCardViewModel> _deliverablesCardsByTurn = new();
+    private readonly Dictionary<long, EditedFilesCardViewModel> _editedFilesCardsByTurn = new();
 
     private readonly Dictionary<long, List<DeliverablesPresentedAnnouncement>> _deliverablesByTurn = new();
     private readonly Dictionary<long, HashSet<long>> _deliverablesEventSeqsByTurn = new();
@@ -141,15 +141,12 @@ internal sealed class TimelineAssembly(
                     localCard.Seq < 0) return;
                 var changesCard = changesCardFactory(announcement);
                 if (changesCard is null) return;
-                if (_changesCardsByTurn.Remove(announcement.Turn, out var previousCard))
-                    _target.Remove(previousCard);
-
                 _changesCardsByTurn[announcement.Turn] = changesCard;
-                _target.Add(changesCard);
-                // 同轮交付卡已存在时补接计数来源：摘要宣告可以晚于轮收束到达。
                 if (_deliverablesCardsByTurn.TryGetValue(announcement.Turn, out var deliveredCard))
                     deliveredCard.SetChangesSource(changesCard.Seq);
-                MoveDeliverablesAfterChanges(announcement.Turn, changesCard);
+                var editedCard = GetEditedFilesCard(announcement.Turn);
+                editedCard?.SetChanges(changesCard);
+                PlaceEditedFilesCard(announcement.Turn);
                 return;
 
             case DeliverablesPresentedAnnouncement announcement :
@@ -172,28 +169,21 @@ internal sealed class TimelineAssembly(
         }
     }
 
-    private void PlaceDeliverablesCard(long turn)
+    private EditedFilesCardViewModel? GetEditedFilesCard(long turn)
     {
-        if (!_deliverablesCardsByTurn.TryGetValue(turn, out var card) || _target.Contains(card)) return;
+        if (_editedFilesCardsByTurn.TryGetValue(turn, out var existing)) return existing;
+        if (editedFilesCardFactory?.Invoke(turn) is not { } card) return null;
 
-        var changes = _target.OfType<WorkspaceChangesCardViewModel>()
-            .LastOrDefault(candidate => candidate.Turn == turn);
-        var anchor = changes ?? _closedTurnAnchors.GetValueOrDefault(turn);
-        var index = anchor is null ? -1 : _target.IndexOf(anchor);
-        _target.Insert(index < 0 ? _target.Count : index + 1, card);
+        _editedFilesCardsByTurn.Add(turn, card);
+        return card;
     }
 
-    private void MoveDeliverablesAfterChanges(long turn, WorkspaceChangesCardViewModel changes)
+    private void PlaceEditedFilesCard(long turn)
     {
-        if (!_deliverablesCardsByTurn.TryGetValue(turn, out var delivered)) return;
-
-        var changesIndex = _target.IndexOf(changes);
-        var deliveredIndex = _target.IndexOf(delivered);
-        if (changesIndex < 0 || deliveredIndex < 0 || deliveredIndex == changesIndex + 1) return;
-
-        _target.RemoveAt(deliveredIndex);
-        changesIndex = _target.IndexOf(changes);
-        _target.Insert(changesIndex + 1, delivered);
+        if (!_editedFilesCardsByTurn.TryGetValue(turn, out var card) || _target.Contains(card)) return;
+        var anchor = _closedTurnAnchors.GetValueOrDefault(turn);
+        var index = anchor is null ? -1 : _target.IndexOf(anchor);
+        _target.Insert(index < 0 ? _target.Count : index + 1, card);
     }
 
     private void CompleteDeliverablesTurn(long turn, long closingSeq)
@@ -216,16 +206,19 @@ internal sealed class TimelineAssembly(
         if (_deliverablesCardsByTurn.TryGetValue(turn, out var existing))
         {
             existing.ReplaceFiles(presented);
+            GetEditedFilesCard(turn)?.SetDeliverables(existing);
+            PlaceEditedFilesCard(turn);
             return;
         }
 
-        // 第二参数是该轮改动宣告的 seq（无则 null），交付卡用它异步取增删计数。
+        // 第二参数是该轮改动宣告的 seq（无则 null），交付投影用它异步匹配增删数。
         if (deliverablesCardFactory?.Invoke(
                 projection,
                 _changesCardsByTurn.TryGetValue(turn, out var changesCard) ? changesCard.Seq : null)
             is not { } card) return;
         _deliverablesCardsByTurn.Add(turn, card);
-        PlaceDeliverablesCard(turn);
+        GetEditedFilesCard(turn)?.SetDeliverables(card);
+        PlaceEditedFilesCard(turn);
     }
 
     /// <summary>完成快照/历史重建后再固定每个过程组的恢复锚点。</summary>

@@ -25,7 +25,7 @@ public sealed class DeliverablesTimelineTests
             new TurnBoundary(31, 1, CreatedAt)
         ]);
 
-        var card = items.OfType<DeliverablesCardViewModel>().Single();
+        var card = items.OfType<EditedFilesCardViewModel>().Single();
         Assert.That(items.IndexOf(card), Is.GreaterThan(items.ToList().FindIndex(item => item is MessageItemViewModel message && message.Seq == 30)));
         Assert.That(card.Files.Select(file => file.Name), Is.EqualTo(Enumerable.Range(0, 8).Select(index => $"file-{index}.txt")));
         Assert.That(card.TitleText, Is.EqualTo("已编辑 8 个文件"));
@@ -38,7 +38,7 @@ public sealed class DeliverablesTimelineTests
     }
 
     [Test]
-    public void ReplayedAndRepeatedDeclarationsDeduplicateByEventAndPathAndKeepWorkspaceCard()
+    public void ReplayedAndRepeatedDeclarationsDeduplicateByEventAndPathAndMergeWithWorkspaceChanges()
     {
         var first = new DeliverablesPresentedAnnouncement(20, 1, CreatedAt,
         [
@@ -50,6 +50,14 @@ public sealed class DeliverablesTimelineTests
             new("a.txt", "latest", 21, 0),
             new("c.txt", null, 21, 1)
         ]);
+        var changesSummary = new WorkspaceChangesSummary(1,
+        [
+            new WorkspaceChangedFileInfo("a.txt", "a.txt", 4, 1, false, false),
+            new WorkspaceChangedFileInfo("b.txt", "b.txt", 2, 0, false, false),
+            new WorkspaceChangedFileInfo("only-change.txt", "only-change.txt", 1, 0, false, false)
+        ], 3, 7, 1);
+        var openedChanges = new List<WorkspaceChangedFileViewModel>();
+        var openedDeliverables = new List<DeliveredFileViewModel>();
         var items = Build("session-a", [
             new ConversationMessage(1, "user", MessageRole.User, "Question", CreatedAt),
             first,
@@ -60,13 +68,24 @@ public sealed class DeliverablesTimelineTests
             new DeliverablesPresentedAnnouncement(40, 1, CreatedAt,
                 [new("d.txt", null, 40, 0), new("a.txt", "too late", 40, 1)]),
             new WorkspaceChangesAnnouncement(41, 1, CreatedAt)
-        ]);
+        ], changesSummary, openedChanges.Add, openedDeliverables.Add);
 
-        var card = items.OfType<DeliverablesCardViewModel>().Single();
-        Assert.That(card.Files.Select(file => file.Name), Is.EqualTo(new[] { "a.txt", "b.txt", "c.txt" }));
-        Assert.That(card.Files[0].Description, Is.EqualTo("latest"));
-        Assert.That(items.OfType<WorkspaceChangesCardViewModel>().Count(), Is.EqualTo(1));
-        Assert.That(items.IndexOf(items.OfType<WorkspaceChangesCardViewModel>().Single()), Is.LessThan(items.IndexOf(card)));
+        var card = items.OfType<EditedFilesCardViewModel>().Single();
+        Assert.That(card.Files.Select(file => file.Name), Is.EqualTo(new[] { "a.txt", "b.txt", "only-change.txt", "c.txt" }));
+        Assert.That(card.HasTotals, Is.False);
+        Assert.That(card.Files.Count(file => file.Name == "a.txt"), Is.EqualTo(1));
+        var samePath = card.Files.Single(file => file.Name == "a.txt");
+        Assert.That(samePath.HasLineCounts, Is.False);
+        Assert.That(samePath.AddedText, Is.Empty);
+        samePath.OpenCommand.Execute(null);
+        Assert.That(openedChanges, Has.Count.EqualTo(1));
+        Assert.That(openedDeliverables, Is.Empty);
+        var declaredOnly = card.Files.Single(file => file.Name == "c.txt");
+        declaredOnly.OpenCommand.Execute(null);
+        Assert.That(openedDeliverables, Has.Count.EqualTo(1));
+        Assert.That(openedDeliverables[0].Path, Is.EqualTo("c.txt"));
+        Assert.That(items.OfType<WorkspaceChangesCardViewModel>(), Is.Empty);
+        Assert.That(items.OfType<DeliverablesCardViewModel>(), Is.Empty);
 
         // A history rebuild uses a fresh projection state and still produces one card per turn.
         var rebuilt = Build("session-a", [
@@ -77,8 +96,8 @@ public sealed class DeliverablesTimelineTests
             new ConversationMessage(30, "answer", MessageRole.Assistant, "Done", CreatedAt, 1),
             new TurnBoundary(31, 1, CreatedAt)
         ]);
-        Assert.That(rebuilt.OfType<DeliverablesCardViewModel>().Count(), Is.EqualTo(1));
-        Assert.That(rebuilt.OfType<DeliverablesCardViewModel>().Single().Files, Has.Count.EqualTo(3));
+        Assert.That(rebuilt.OfType<EditedFilesCardViewModel>().Count(), Is.EqualTo(1));
+        Assert.That(rebuilt.OfType<EditedFilesCardViewModel>().Single().Files, Has.Count.EqualTo(3));
 
         // The same turn number in another session owns a separate projection.
         var otherSession = Build("session-b", [
@@ -87,8 +106,8 @@ public sealed class DeliverablesTimelineTests
             new ConversationMessage(30, "answer", MessageRole.Assistant, "Done", CreatedAt, 1),
             new TurnBoundary(31, 1, CreatedAt)
         ]);
-        Assert.That(otherSession.OfType<DeliverablesCardViewModel>().Single().Files.Single().Name, Is.EqualTo("other.txt"));
-        Assert.That(rebuilt.OfType<DeliverablesCardViewModel>().Single().SessionId, Is.EqualTo("session-a"));
+        Assert.That(otherSession.OfType<EditedFilesCardViewModel>().Single().Files.Single().Name, Is.EqualTo("other.txt"));
+        Assert.That(rebuilt.OfType<EditedFilesCardViewModel>().Single().Turn, Is.EqualTo(1));
     }
 
     [Test]
@@ -136,15 +155,19 @@ public sealed class DeliverablesTimelineTests
     }
 
     private static ObservableCollection<ConversationItemViewModel> Build(
-        string sessionId, IReadOnlyList<ConversationEntry> entries)
+        string sessionId, IReadOnlyList<ConversationEntry> entries, WorkspaceChangesSummary? changesSummary = null,
+        Action<WorkspaceChangedFileViewModel>? openChanges = null,
+        Action<DeliveredFileViewModel>? openDeliverable = null)
     {
         var items = new ObservableCollection<ConversationItemViewModel>();
         var assembly = new TimelineAssembly(items,
             changesCardFactory: announcement => new WorkspaceChangesCardViewModel(sessionId, announcement,
-                null, _ => { }, action => action()),
+                changesSummary is null ? null : new StubChangesService(changesSummary), openChanges ?? (_ => { }), action => action()),
             deliverablesCardFactory: (announcement, changesSeq) => new DeliverablesCardViewModel(sessionId,
-                Path.GetTempPath(), announcement, null, action => action(), changesSeq,
-                null, id => id == sessionId));
+                Path.GetTempPath(), announcement,
+                changesSummary is null ? null : new StubChangesService(changesSummary), action => action(), changesSeq,
+                openDeliverable, id => id == sessionId),
+            editedFilesCardFactory: turn => new EditedFilesCardViewModel(turn, Path.GetTempPath()));
         foreach (var entry in entries) assembly.Add(entry);
         assembly.CompleteRestoredProjection();
         return items;
@@ -160,6 +183,30 @@ public sealed class DeliverablesTimelineTests
         public Task<WorkspaceFileDiff?> GetDiffAsync(
             string sessionId, long seq, int index, CancellationToken cancellationToken = default)
             => Task.FromResult<WorkspaceFileDiff?>(null);
+    }
+
+    private sealed class DelayedChangesService : IWorkspaceChangesService
+    {
+        private readonly TaskCompletionSource<WorkspaceChangesSummary?> _completion =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<WorkspaceChangesSummary?> GetSummaryAsync(
+            string sessionId, long seq, CancellationToken cancellationToken = default)
+            => _completion.Task;
+
+        public Task<WorkspaceFileDiff?> GetDiffAsync(
+            string sessionId, long seq, int index, CancellationToken cancellationToken = default)
+            => Task.FromResult<WorkspaceFileDiff?>(null);
+
+        public void Complete(WorkspaceChangesSummary summary) => _completion.SetResult(summary);
+    }
+
+    private static async Task SpinWaitAsync(Func<bool> condition)
+    {
+        for (var attempt = 0; attempt < 100 && !condition(); attempt++)
+            await Task.Delay(10);
+
+        Assert.That(condition(), Is.True);
     }
 
     [Test]
@@ -205,7 +252,43 @@ public sealed class DeliverablesTimelineTests
     }
 
     [Test]
-    public void SingleFileCardExposesEditedTitleAndCounts()
+    public void SingleFileCardShowsEditedTitleWithoutLineCounts()
+    {
+        var card = new DeliverablesCardViewModel("session-a", null,
+            new DeliverablesPresentedAnnouncement(20, 1, CreatedAt,
+                [new("src/notes.txt", null, 20, 0)]),
+            null, action => action(), null, _ => { }, _ => true);
+
+        Assert.That(card.IsSingleFile, Is.True);
+        Assert.That(card.SingleTitleText, Is.EqualTo("已编辑 notes.txt"));
+        Assert.That(card.SingleHasLineCounts, Is.False);
+        Assert.That(card.SingleHasCountText, Is.False);
+        Assert.That(card.HasTotals, Is.False);
+    }
+
+    [Test]
+    public async Task SingleFileDeliverableDoesNotDisplayCountsFromChangeSummary()
+    {
+        var service = new DelayedChangesService();
+        var deliverables = new DeliverablesCardViewModel("session-a", Path.GetTempPath(),
+            new DeliverablesPresentedAnnouncement(20, 1, CreatedAt,
+                [new("notes.txt", null, 20, 0)]), service, action => action(), null, _ => { }, _ => true);
+        deliverables.SetChangesSource(41);
+        var card = new EditedFilesCardViewModel(1, Path.GetTempPath());
+        card.SetDeliverables(deliverables);
+
+        Assert.That(card.SingleHasLineCounts, Is.False);
+        service.Complete(new WorkspaceChangesSummary(1,
+            [new WorkspaceChangedFileInfo("notes.txt", "notes.txt", 7, 2, false, false)], 1, 7, 2));
+
+        await SpinWaitAsync(() => deliverables.Files.Single().HasLineCounts);
+        Assert.That(card.SingleHasLineCounts, Is.False);
+        Assert.That(card.SingleFile!.AddedText, Is.Empty);
+        Assert.That(card.SingleFile.DeletedText, Is.Empty);
+    }
+
+    [Test]
+    public void SingleFileWithoutMatchingChangeSummaryKeepsCountsHidden()
     {
         var card = new DeliverablesCardViewModel("session-a", null,
             new DeliverablesPresentedAnnouncement(20, 1, CreatedAt,

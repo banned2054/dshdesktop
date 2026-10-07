@@ -32,8 +32,10 @@ public sealed class DeliverableViewResolverTests
     }
 
     [Test]
-    public async Task FullDiffFromSameTurnChangesTakesPrecedenceOverFragments()
+    public async Task CurrentFileIsShownAsPlainTextEvenWhenSameTurnDiffAndEditsExist()
     {
+        Directory.CreateDirectory(Path.Combine(_root, "src"));
+        File.WriteAllText(Path.Combine(_root, "src", "a.txt"), "plain current line\nsecond line\n");
         var diff = TextDiff("src/a.txt");
         var changes = new StubChangesService();
         changes.SetSummary(100, Summary("src/a.txt"));
@@ -47,14 +49,36 @@ public sealed class DeliverableViewResolverTests
         var view = await DeliverableViewResolver.ResolveAsync(
             "session-a", 1, "src/a.txt", _root, entries, changes);
 
-        Assert.That(view.Kind, Is.EqualTo(DeliverableViewKind.FullDiff));
-        Assert.That(view.Diff, Is.SameAs(diff));
-        Assert.That(view.SourceText, Is.EqualTo("本轮文件差异"));
+        Assert.That(view.Kind, Is.EqualTo(DeliverableViewKind.CurrentText));
+        Assert.That(view.CurrentText, Is.EqualTo("plain current line\nsecond line\n"));
+        Assert.That(view.Diff, Is.Null);
+        Assert.That(view.Fragments, Is.Empty);
+        Assert.That(view.SourceText, Is.EqualTo("当前文件内容"));
     }
 
     [Test]
-    public async Task ChangesAnnouncementFromAnotherTurnDoesNotMatch()
+    public async Task CurrentFileIsShownAsPlainTextInsteadOfHistoricalEditFragments()
     {
+        Directory.CreateDirectory(Path.Combine(_root, "src"));
+        File.WriteAllText(Path.Combine(_root, "src", "a.txt"), "new current line\n");
+        var entries = new ConversationEntry[]
+        {
+            Edit(90, 1, Abs("src/a.txt"), "old line\n", "new line\n")
+        };
+
+        var view = await DeliverableViewResolver.ResolveAsync(
+            "session-a", 1, "src/a.txt", _root, entries, null);
+
+        Assert.That(view.Kind, Is.EqualTo(DeliverableViewKind.CurrentText));
+        Assert.That(view.CurrentText, Is.EqualTo("new current line\n"));
+        Assert.That(view.Fragments, Is.Empty);
+    }
+
+    [Test]
+    public async Task ChangesAnnouncementFromAnotherTurnDoesNotAffectCurrentContent()
+    {
+        Directory.CreateDirectory(Path.Combine(_root, "src"));
+        File.WriteAllText(Path.Combine(_root, "src", "a.txt"), "current");
         var changes = new StubChangesService();
         changes.SetSummary(100, Summary("src/a.txt"));
         var entries = new ConversationEntry[]
@@ -66,9 +90,9 @@ public sealed class DeliverableViewResolverTests
         var view = await DeliverableViewResolver.ResolveAsync(
             "session-a", 1, "src/a.txt", _root, entries, changes);
 
-        // 轮次不同 → 完整差异不可用，回落到本轮成功编辑的片段而不是错误差异。
-        Assert.That(view.Kind, Is.EqualTo(DeliverableViewKind.Fragments));
-        Assert.That(view.Fragments, Has.Count.EqualTo(1));
+        Assert.That(view.Kind, Is.EqualTo(DeliverableViewKind.CurrentText));
+        Assert.That(view.CurrentText, Is.EqualTo("current"));
+        Assert.That(view.Fragments, Is.Empty);
     }
 
     [Test]
@@ -91,7 +115,7 @@ public sealed class DeliverableViewResolverTests
     }
 
     [Test]
-    public async Task SuccessfulEditProducesFragmentFromArguments()
+    public async Task MissingFileCanStillShowVerifiedHistoricalEditFragment()
     {
         var entries = new ConversationEntry[]
         {

@@ -26,7 +26,7 @@ public sealed class WorkspaceDiffPanelViewModelTests
 
         // A 仍在读取中时选择 B（服务立即返回）；释放 A 后不得覆盖 B 的显示。
         service.SetSummary(200, Summary("b.txt", 1));
-        service.SetDiff(200, new WorkspaceFileDiff(WorkspaceDiffKind.Text, "b.txt", "b.txt", true, true,
+        service.SetDiff((200, 0), new WorkspaceFileDiff(WorkspaceDiffKind.Text, "b.txt", "b.txt", true, true,
             [new WorkspaceDiffHunk(1, 1, 1, 1, ["+b-body"])], false));
         var fileB = ChangedFile("b.txt", 200, 0);
         await panel.OpenAsync(fileB);
@@ -76,7 +76,42 @@ public sealed class WorkspaceDiffPanelViewModelTests
     }
 
     [Test]
-    public async Task DeliverableFragmentsReachPanelWithNotices()
+    public async Task ExistingDeliverableShowsCurrentContentAsPlainTextDespiteDiffAndFragments()
+    {
+        var service = new StubChangesService();
+        var panel = new WorkspaceDiffPanelViewModel(service, null, action => action());
+        var root = Path.Combine(Path.GetTempPath(), $"dsh-panel-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(root, "src"));
+            File.WriteAllText(Path.Combine(root, "src", "a.txt"), "plain line\nsecond line\n");
+            service.SetSummary(100, Summary(Path.Combine(root, "src", "a.txt"), 1));
+            service.SetDiff((100, 0), new WorkspaceFileDiff(WorkspaceDiffKind.Text, "a.txt", "a.txt", false, true,
+                [new WorkspaceDiffHunk(1, 0, 1, 2, ["+plain line", "+second line"])], false));
+            var edit = new ToolActivity(90, "call-90", "edit",
+                "{\"file_path\":\"" + Path.Combine(root, "src", "a.txt").Replace("\\", "\\\\") + "\"," +
+                "\"old_string\":\"old\",\"new_string\":\"new\"}",
+                ToolActivityStatus.Succeeded, "The file a.txt has been updated successfully.",
+                null, CreatedAt, CreatedAt, 1);
+
+            await panel.OpenDeliverableAsync(new DeliverableViewRequest("session-a", 1, "src/a.txt", root,
+                [new WorkspaceChangesAnnouncement(100, 1, CreatedAt), edit]));
+
+            Assert.That(panel.HasContent, Is.True);
+            Assert.That(panel.ContentText, Is.EqualTo("plain line\nsecond line\n"));
+            Assert.That(panel.HasDiff, Is.False);
+            Assert.That(panel.HasFragments, Is.False);
+            Assert.That(panel.SourceText, Is.EqualTo("当前文件内容"));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task DeliverableFragmentsRemainAvailableWhenFileIsMissing()
     {
         var panel = new WorkspaceDiffPanelViewModel(null, null, action => action());
         var root = TempRoot();
@@ -92,7 +127,7 @@ public sealed class WorkspaceDiffPanelViewModelTests
         Assert.That(panel.HasFragments, Is.True);
         Assert.That(panel.Fragments, Has.Count.EqualTo(1));
         Assert.That(panel.SourceText, Does.Contain("历史编辑片段"));
-        Assert.That(panel.NoticeText, Does.Contain("片段内行号"));
+        Assert.That(panel.NoticeText, Does.Contain("当前文件不可用"));
         Assert.That(panel.CanOpenExternally, Is.False);
     }
 
@@ -156,7 +191,7 @@ public sealed class WorkspaceDiffPanelViewModelTests
     {
         private readonly Dictionary<long, TaskCompletionSource<WorkspaceChangesSummary?>> _gates = [];
         private readonly Dictionary<long, WorkspaceChangesSummary> _summaries = [];
-        private readonly Dictionary<long, WorkspaceFileDiff> _diffs = [];
+        private readonly Dictionary<(long Seq, int Index), WorkspaceFileDiff> _diffs = [];
 
         /// <summary>让指定 seq 的摘要读取挂起，直到测试显式放行（迟到结果竞态用）。</summary>
         public TaskCompletionSource<WorkspaceChangesSummary?> GateSummary(long seq)
@@ -168,7 +203,7 @@ public sealed class WorkspaceDiffPanelViewModelTests
 
         public void SetSummary(long seq, WorkspaceChangesSummary summary) => _summaries[seq] = summary;
 
-        public void SetDiff(long seq, WorkspaceFileDiff diff) => _diffs[seq] = diff;
+        public void SetDiff((long Seq, int Index) key, WorkspaceFileDiff diff) => _diffs[key] = diff;
 
         public Task<WorkspaceChangesSummary?> GetSummaryAsync(string sessionId, long seq,
             CancellationToken cancellationToken = default)
@@ -180,7 +215,7 @@ public sealed class WorkspaceDiffPanelViewModelTests
         public Task<WorkspaceFileDiff?> GetDiffAsync(string sessionId, long seq, int index,
             CancellationToken cancellationToken = default)
         {
-            return Task.FromResult(_diffs.GetValueOrDefault(seq));
+            return Task.FromResult(_diffs.GetValueOrDefault((seq, index)));
         }
     }
 }

@@ -491,8 +491,8 @@ public sealed class WorkspaceDiffPanelViewModel : ObservableObject
     }
 
     /// <summary>
-    ///     打开交付文件的应用内视图：后台解析数据条件（完整差异 / 历史编辑片段 /
-    ///     当前内容 / 不可用），requestId 保证快速连点或切换时迟到的解析不覆盖当前显示。
+    ///     打开交付文件的应用内视图：显示当前磁盘文本，文件缺失时回退到已核实的历史编辑片段；
+    ///     requestId 保证快速连点或切换时迟到的解析不覆盖当前显示。
     /// </summary>
     public async Task OpenDeliverableAsync(DeliverableViewRequest request)
     {
