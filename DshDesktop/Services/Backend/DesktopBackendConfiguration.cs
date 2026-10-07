@@ -22,12 +22,18 @@ public sealed record DesktopBackendConfiguration
     /// <summary>请求真实后端但环境不满足时的说明；此时回退模拟模式。</summary>
     public string? ConfigurationError { get; init; }
 
-    public static DesktopBackendConfiguration FromEnvironment()
+    public static DesktopBackendConfiguration FromEnvironment() => FromEnvironment(AppContext.BaseDirectory);
+
+    internal static DesktopBackendConfiguration FromEnvironment(string applicationBaseDirectory)
     {
-        var mode       = Environment.GetEnvironmentVariable("DSH_DESKTOP_BACKEND_MODE");
-        var runtimeDir = Environment.GetEnvironmentVariable("DSH_DESKTOP_RUNTIME_DIR");
-        var useReal = string.Equals(mode, "real", StringComparison.OrdinalIgnoreCase) ||
-                      (string.IsNullOrEmpty(mode) && !string.IsNullOrWhiteSpace(runtimeDir));
+        var mode = Environment.GetEnvironmentVariable("DSH_DESKTOP_BACKEND_MODE");
+        var bundled = TryResolveBundledBackend(applicationBaseDirectory);
+        var runtimeOverride = Environment.GetEnvironmentVariable("DSH_DESKTOP_RUNTIME_DIR");
+        var runtimeDir = !string.IsNullOrWhiteSpace(runtimeOverride) ? runtimeOverride : bundled?.RuntimeDir;
+        var useReal = !string.Equals(mode, "simulated", StringComparison.OrdinalIgnoreCase) &&
+                      (string.Equals(mode, "real", StringComparison.OrdinalIgnoreCase) ||
+                       (string.IsNullOrEmpty(mode) &&
+                        (!string.IsNullOrWhiteSpace(runtimeDir) || bundled is not null)));
         if (!useReal) return new DesktopBackendConfiguration { UseRealBackend = false };
 
         if (string.IsNullOrWhiteSpace(runtimeDir))
@@ -36,10 +42,11 @@ public sealed record DesktopBackendConfiguration
         runtimeDir = Path.GetFullPath(runtimeDir);
         if (!Directory.Exists(runtimeDir)) return Misconfigured($"后端运行时目录不存在：{runtimeDir}，已回退到模拟模式。");
 
-        var node = ResolveNodeExecutable();
+        var node = ResolveNodeExecutable(bundled?.NodeExecutable);
         if (node is null) return Misconfigured("找不到 Node 可执行文件（可用 DSH_DESKTOP_NODE 指定），已回退到模拟模式。");
 
         var launcher = Environment.GetEnvironmentVariable("DSH_DESKTOP_LAUNCHER")
+                    ?? bundled?.LauncherPath
                     ?? Path.Combine(AppContext.BaseDirectory, "Assets", "Backend", "launcher.mjs");
         if (!File.Exists(launcher)) return Misconfigured($"找不到后端 launcher 脚本：{launcher}，已回退到模拟模式。");
 
@@ -54,6 +61,7 @@ public sealed record DesktopBackendConfiguration
             ProfileDir = FromEnvironmentOr("DSH_DESKTOP_PROFILE_DIR",
                                            Path.Combine(baseDataDir, "backend", "profile")),
             PrimaryRuntimeDir = FromEnvironmentOr("DSH_DESKTOP_PRIMARY_RUNTIME",
+                                                  bundled?.PrimaryRuntimeDir ??
                                                   Path.Combine(baseDataDir, "backend", "primary-runtime")),
             // 与正式安装的 dsh 共享 Harness home：会话、凭据与 llm 配置（DSH_HOME 或 ~/.dsh）。
             DshHome        = FromEnvironmentOr("DSH_DESKTOP_DSH_HOME", ResolveSharedDshHome()),
@@ -128,11 +136,45 @@ public sealed record DesktopBackendConfiguration
         return string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
     }
 
-    private static string? ResolveNodeExecutable()
+    private static (string RuntimeDir, string PrimaryRuntimeDir, string NodeExecutable, string LauncherPath)?
+        TryResolveBundledBackend(string applicationBaseDirectory)
+    {
+        var applicationDir = new DirectoryInfo(applicationBaseDirectory);
+        var candidates = new List<string> { applicationDir.FullName };
+        if (string.Equals(applicationDir.Name, "MacOS", StringComparison.Ordinal))
+        {
+            var contents = applicationDir.Parent;
+            var resources = contents is null ? null : Path.Combine(contents.FullName, "Resources");
+            if (resources is not null) candidates.Add(resources);
+        }
+        else if (string.Equals(applicationDir.Name, "Resources", StringComparison.Ordinal) &&
+                 string.Equals(applicationDir.Parent?.Name, "Contents", StringComparison.Ordinal))
+        {
+            candidates.Add(applicationDir.Parent!.FullName);
+        }
+
+        foreach (var directory in candidates)
+        {
+            var runtimeDir = Path.Combine(directory, "backend", "runtime");
+            var primaryRuntimeDir = Path.Combine(directory, "backend", "primary-runtime");
+            var node = Path.Combine(primaryRuntimeDir, "dependencies", "node", "bin",
+                                    OperatingSystem.IsWindows() ? "node.exe" : "node");
+            var launcher = Path.Combine(directory, "Assets", "Backend", "launcher.mjs");
+            if (Directory.Exists(runtimeDir) && Directory.Exists(primaryRuntimeDir) &&
+                File.Exists(node) && File.Exists(launcher))
+                return (runtimeDir, primaryRuntimeDir, node, launcher);
+        }
+
+        return null;
+    }
+
+    private static string? ResolveNodeExecutable(string? bundledNode)
     {
         var configured = Environment.GetEnvironmentVariable("DSH_DESKTOP_NODE");
         if (!string.IsNullOrWhiteSpace(configured))
             return File.Exists(configured) ? Path.GetFullPath(configured) : null;
+        if (!string.IsNullOrWhiteSpace(bundledNode) && File.Exists(bundledNode))
+            return Path.GetFullPath(bundledNode);
 
         var executableName = OperatingSystem.IsWindows() ? "node.exe" : "node";
         var pathVariable   = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
