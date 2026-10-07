@@ -9,6 +9,8 @@
 
     <Application.Styles>
         <FluentTheme />
+        <!-- 文件改动右侧对比面板使用的 DiffView 控件样式。 -->
+        <StyleInclude Source="avares://Banned.CodeDiff.Avalonia/Themes/Generic.axaml" />
         <StyleInclude Source="avares://DshDesktop/Presentation/Styles/ScrollBars.axaml" />
         <!-- LiveMarkdown.Avalonia 控件样式（代码块、行内代码、链接等）；须在 FluentTheme
              与应用自身的 Markdown 覆盖样式之间加载。 -->

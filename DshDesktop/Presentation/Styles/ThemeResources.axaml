@@ -91,6 +91,14 @@
             <SolidColorBrush x:Key="ComposerSendHoverBrush" Color="#78A8FF" />
             <!-- 行内代码（markdown `code`）chip 底色：会话底色上的中性灰。 -->
             <SolidColorBrush x:Key="InlineCodeBackgroundBrush" Color="#323232" />
+            <!-- 文件改动卡片（已编辑）：对齐 Codex 的中性圆角表面（底 #262626、
+                 悬停/选中 #2A2A2A）与增删行数红绿。 -->
+            <SolidColorBrush x:Key="ChangesCardBackgroundBrush" Color="#262626" />
+            <SolidColorBrush x:Key="ChangesCardHoverBrush" Color="#2A2A2A" />
+            <SolidColorBrush x:Key="ChangesCardPressedBrush" Color="#2E2E2E" />
+            <SolidColorBrush x:Key="ChangesCardBorderBrush" Color="#3F3F41" />
+            <SolidColorBrush x:Key="DiffAddedBrush" Color="#3FB950" />
+            <SolidColorBrush x:Key="DiffDeletedBrush" Color="#F85149" />
             <!-- 文本与状态 -->
             <SolidColorBrush x:Key="TextMutedBrush" Color="#8D96A6" />
             <SolidColorBrush x:Key="AccentTextBrush" Color="#AFC0FF" />
@@ -147,6 +155,13 @@
             <!-- 行内代码 chip 底色的浅色对应。
                  （当前应用固定 Dark 主题，浅色值仅保持语义资源完整性。） -->
             <SolidColorBrush x:Key="InlineCodeBackgroundBrush" Color="#E9EAEA" />
+            <!-- 文件改动卡片（已编辑）的浅色对应：底 #FFFEFF、悬停/选中 #FBFAFC。 -->
+            <SolidColorBrush x:Key="ChangesCardBackgroundBrush" Color="#FFFEFF" />
+            <SolidColorBrush x:Key="ChangesCardHoverBrush" Color="#FBFAFC" />
+            <SolidColorBrush x:Key="ChangesCardPressedBrush" Color="#F5F3F7" />
+            <SolidColorBrush x:Key="ChangesCardBorderBrush" Color="#E2E0E5" />
+            <SolidColorBrush x:Key="DiffAddedBrush" Color="#1A7F37" />
+            <SolidColorBrush x:Key="DiffDeletedBrush" Color="#CF222E" />
             <!-- 侧栏顶部「新建会话」按钮三态的浅色对应：实底中性灰同构。
                  （当前应用固定 Dark 主题，浅色值仅保持语义资源完整性。） -->
             <SolidColorBrush x:Key="NewSessionButtonBrush" Color="#E7EAEE" />

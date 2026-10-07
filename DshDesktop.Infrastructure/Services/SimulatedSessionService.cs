@@ -84,7 +84,15 @@ public sealed class SimulatedSessionService(Action<string, string>? onSessionCre
         ["session-todos"] =
             new SimulatedSession(new SessionSummary("session-todos", "任务面板演示", DateTimeOffset.Now.AddDays(-2),
                                                     false, SessionBlankState.Engaged),
-                                 BuildTodoDemoEntries(), null, SeedTodoItems())
+                                 BuildTodoDemoEntries(), null, SeedTodoItems()),
+        // 交付文件演示会话：deliverables/presented 声明四个文件，覆盖应用内查看的
+        // 数据条件——两次成功编辑（meta.diffs 与参数回退各一）、write 新建、
+        // 磁盘现有内容、以及缺失文件的不可用态；cwd 指向演示目录。
+        ["session-deliverables"] =
+            new SimulatedSession(new SessionSummary("session-deliverables", "交付文件演示",
+                                                    DateTimeOffset.Now.AddDays(-3), false,
+                                                    SessionBlankState.Engaged, BuildDeliverablesDemo().Cwd),
+                                 BuildDeliverablesDemo().Entries)
     };
 
     private readonly Lock _syncRoot = new();
@@ -447,6 +455,87 @@ public sealed class SimulatedSessionService(Action<string, string>? onSessionCre
             new SessionTodoItem("实现投影接入", SessionTodoStatus.InProgress),
             new SessionTodoItem("回归验证", SessionTodoStatus.Pending)
         ];
+    }
+
+    // 交付文件演示会话：构造演示目录（幂等），notes-today.md 落盘供「当前文件内容」
+    // 展示；其余交付声明不在磁盘上或仅有会话内编辑记录，分别命中片段与不可用态。
+    private static (string Cwd, List<ConversationEntry> Entries)? _deliverablesDemo;
+
+    private static (string Cwd, List<ConversationEntry> Entries) BuildDeliverablesDemo()
+    {
+        if (_deliverablesDemo is { } cached) return cached;
+
+        var cwd = Path.Combine(Path.GetTempPath(), "dsh-deliverables-demo");
+        try
+        {
+            Directory.CreateDirectory(cwd);
+            File.WriteAllText(Path.Combine(cwd, "notes-today.md"), "演示用当前文件内容。\n此文件没有会话内的编辑记录。");
+            // alpha/beta 落盘为编辑后的最终形态；点击仍优先展示历史编辑片段。
+            File.WriteAllText(Path.Combine(cwd, "notes-alpha.md"),
+                              "第一段保持不变。\n新的摘要文本：已更新。\n第三段保持不变。\n结论已补全：演示第二轮编辑。");
+            File.WriteAllText(Path.Combine(cwd, "notes-beta.md"), "notes-beta 演示内容。\n由 write 工具新建。");
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // 目录不可用时其余形态照常演示，当前内容路径自然降级为不可用。
+        }
+
+        var alphaPath = Path.Combine(cwd, "notes-alpha.md");
+        var betaPath  = Path.Combine(cwd, "notes-beta.md");
+        List<ConversationEntry> entries =
+        [
+            CreateMessage(1, "dlv-user", MessageRole.User, "帮我更新演示笔记并交付文件。", -180, 1),
+
+            // 第一次编辑：result meta.diffs 携带 Host 在编辑现场计算的带上下文差异。
+            new ToolActivity(2, "call-dlv-edit-1", "edit",
+                             "{\"file_path\":\"" + JsonPath(alphaPath) + "\"," +
+                             "\"old_string\":\"旧的摘要文本：待更新。\",\"new_string\":\"新的摘要文本：已更新。\"}",
+                             ToolActivityStatus.Succeeded,
+                             $"The file {alphaPath} has been updated successfully.", null,
+                             DateTimeOffset.Now.AddMinutes(-180).AddSeconds(5),
+                             DateTimeOffset.Now.AddMinutes(-180).AddSeconds(6), 1,
+                             [
+                                 new ToolFileDiff(alphaPath,
+                                                  "第一段保持不变。\n旧的摘要文本：待更新。\n第三段保持不变。",
+                                                  "第一段保持不变。\n新的摘要文本：已更新。\n第三段保持不变。")
+                             ]),
+            // 第二次编辑：无 meta，仅参数 old_string/new_string 可核实。
+            new ToolActivity(3, "call-dlv-edit-2", "edit",
+                             "{\"file_path\":\"" + JsonPath(alphaPath) + "\"," +
+                             "\"old_string\":\"待补充的结论。\",\"new_string\":\"结论已补全：演示第二轮编辑。\"}",
+                             ToolActivityStatus.Succeeded,
+                             $"The file {alphaPath} has been updated successfully.", null,
+                             DateTimeOffset.Now.AddMinutes(-180).AddSeconds(9),
+                             DateTimeOffset.Now.AddMinutes(-180).AddSeconds(10), 1),
+            // write 新建：meta.diffs 为空，结果文本标注 Created file。
+            new ToolActivity(4, "call-dlv-write-1", "write",
+                             "{\"file_path\":\"" + JsonPath(betaPath) + "\"," +
+                             "\"content\":\"notes-beta 演示内容。\\n由 write 工具新建。\"}",
+                             ToolActivityStatus.Succeeded,
+                             $"<path>{betaPath}</path>\n<type>file</type>\n<content>\nCreated file\n</content>", null,
+                             DateTimeOffset.Now.AddMinutes(-180).AddSeconds(12),
+                             DateTimeOffset.Now.AddMinutes(-180).AddSeconds(13), 1),
+            new DeliverablesPresentedAnnouncement(5, 1, DateTimeOffset.Now.AddMinutes(-180).AddSeconds(15),
+            [
+                new DeliveredFileDeclaration("notes-alpha.md", "两次定点编辑的笔记", 5, 0),
+                new DeliveredFileDeclaration("notes-beta.md", "write 新建的笔记", 5, 1),
+                new DeliveredFileDeclaration("notes-today.md", "磁盘上已存在的笔记", 5, 2),
+                new DeliveredFileDeclaration("notes-gone.md", "已丢失的旧笔记", 5, 3)
+            ]),
+            CreateMessage(6, "dlv-answer", MessageRole.Assistant, "已更新并交付 4 个演示文件，可在应用内逐个查看。", -179, 1),
+            CreateBoundary(7, 1, -179),
+            // 同轮改动宣告：交付卡经它取增删计数（seq 见 SimulatedWorkspaceChangesService）。
+            new WorkspaceChangesAnnouncement(SimulatedWorkspaceChangesService.DeliverablesDemoChangesSeq, 1,
+                DateTimeOffset.Now.AddMinutes(-180).AddSeconds(18))
+        ];
+        _deliverablesDemo = (cwd, entries);
+        return (cwd, entries);
+    }
+
+    /// <summary>路径进 JSON 字符串的转义（演示种子用，不引入反射序列化）。</summary>
+    private static string JsonPath(string path)
+    {
+        return path.Replace("\\", "\\\\").Replace("\"", "\\\"");
     }
 
     /// <summary>模拟发送后推送助手回复，验证流式 UI 路径；结算按一步计费。</summary>

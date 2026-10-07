@@ -100,11 +100,14 @@ public class App : Application
                                                                 ? ThemeVariant.Dark
                                                                 : null,
                                                     llmCatalogService,
+                                                    // 关于面板版本之后传入文件改动服务：改动卡片和右侧对比共用同一数据域。
                                                     // 关于面板的 DSH 版本：真实模式读 runtime 目录
                                                     // dsh 包版本，模拟模式如实标注。
                                                     configuration is { UseRealBackend: true }
                                                         ? configuration.BackendVersion ?? "未知"
-                                                        : "模拟后端");
+                                                        : "模拟后端",
+                                                    workspaceChangesService: changesService,
+                                                    workspaceFileOpener: new WorkspaceFileOpener());
             var mainWindow = new MainWindow(viewModel);
             if (configuration.ConfigurationError is { Length: > 0 } error) viewModel.ShowStartupNotice(error);
 

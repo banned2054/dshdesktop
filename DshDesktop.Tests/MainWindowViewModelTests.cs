@@ -1148,7 +1148,8 @@ public sealed class MainWindowViewModelTests
         {
             "header:工作区", "header:主工作区", "session:session-history", "session:session-native",
             "header:空工作区",
-            "header:未分组", "session:session-welcome", "session:session-design", "session:session-todos"
+            "header:未分组", "session:session-welcome", "session:session-design", "session:session-todos",
+            "session:session-deliverables"
         }, shape);
         // 模式切换不重建会话实例：选中与高亮保持。
         ClassicAssert.IsTrue(viewModel.SelectedSession!.IsCurrent);
@@ -1265,7 +1266,7 @@ public sealed class MainWindowViewModelTests
             "header:工作区",
             "header:后到的工作区", "session:session-welcome",
             "header:未分组", "session:session-history", "session:session-native",
-            "session:session-design", "session:session-todos"
+            "session:session-design", "session:session-todos", "session:session-deliverables"
         }, shape);
 
         await viewModel.DisposeAsync();

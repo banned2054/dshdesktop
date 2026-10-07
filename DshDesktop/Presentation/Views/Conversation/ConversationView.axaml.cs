@@ -2,6 +2,8 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
+using Banned.CodeDiff.Avalonia.Models;
+using Banned.CodeDiff.Avalonia.Views;
 using DshDesktop.ViewModels;
 using System.Collections.Specialized;
 using System.ComponentModel;
@@ -12,6 +14,11 @@ namespace DshDesktop.Presentation.Views.Conversation;
 public partial class ConversationView : UserControl
 {
     private const double AutoScrollBottomTolerance = 140;
+    private const double DiffPanelMinWidth          = 300;
+    private const double DiffPanelMaxWidth          = 960;
+    private const double DiffPanelDefaultWidth      = 480;
+    private const double ConversationMinWidth       = 560;
+    private const double DiffSplitModeMinWidth      = 720;
 
     private bool   _anchoringPrepend;
     private double _lastSettleExtent = double.NaN;
@@ -21,7 +28,9 @@ public partial class ConversationView : UserControl
     private double _prependAnchorOffset;
     private double _prependAnchorY;
     private bool   _restoringPrependAnchor;
+    private bool   _isDiffPanelOpen;
     private int    _stableSettlePasses;
+    private double _lastDiffPanelWidth = DiffPanelDefaultWidth;
 
     private ConversationItemViewModel? _prependAnchorItem;
     private MainWindowViewModel?       _viewModel;
@@ -30,6 +39,7 @@ public partial class ConversationView : UserControl
     {
         InitializeComponent();
         MessagesScroll.ScrollChanged += OnMessagesScrollChanged;
+        ConversationLayoutGrid.SizeChanged += OnConversationLayoutSizeChanged;
     }
 
     // DataContext 由窗口在 XAML 组合时继承注入；订阅跟随其生命周期增减。
@@ -40,12 +50,80 @@ public partial class ConversationView : UserControl
         {
             _viewModel.ConversationItems.CollectionChanged -= KeepScrolledToBottom;
             _viewModel.PropertyChanged                     -= OnViewModelPropertyChanged;
+            _viewModel.DiffPanel.PropertyChanged           -= OnDiffPanelPropertyChanged;
         }
 
         _viewModel = DataContext as MainWindowViewModel;
-        if (_viewModel is null) return;
+        if (_viewModel is null)
+        {
+            SetDiffPanelOpen(false);
+            return;
+        }
         _viewModel.ConversationItems.CollectionChanged += KeepScrolledToBottom;
         _viewModel.PropertyChanged                     += OnViewModelPropertyChanged;
+        _viewModel.DiffPanel.PropertyChanged           += OnDiffPanelPropertyChanged;
+        SetDiffPanelOpen(_viewModel.DiffPanel.IsOpen);
+    }
+
+    private ColumnDefinition DiffPanelColumn => ConversationLayoutGrid.ColumnDefinitions[2];
+
+    private void OnDiffPanelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(WorkspaceDiffPanelViewModel.IsOpen))
+            SetDiffPanelOpen(_viewModel?.DiffPanel.IsOpen == true);
+    }
+
+    private void SetDiffPanelOpen(bool isOpen)
+    {
+        var column = DiffPanelColumn;
+        if (isOpen)
+        {
+            _isDiffPanelOpen = true;
+            column.Width = new GridLength(_lastDiffPanelWidth, GridUnitType.Pixel);
+            DiffPanelSplitter.IsVisible = true;
+            ClampDiffPanelWidth();
+            return;
+        }
+
+        if (_isDiffPanelOpen && column.Width.IsAbsolute && column.Width.Value > 0)
+            _lastDiffPanelWidth = column.Width.Value;
+
+        _isDiffPanelOpen = false;
+        column.MinWidth = 0;
+        column.MaxWidth = double.PositiveInfinity;
+        column.Width = new GridLength(0);
+        DiffPanelSplitter.IsVisible = false;
+    }
+
+    private void OnConversationLayoutSizeChanged(object? sender, SizeChangedEventArgs e) =>
+        ClampDiffPanelWidth(e.NewSize.Width);
+
+    /// <summary>将右侧面板限制在会话区最小宽度之外，并记住最近一次可用宽度。</summary>
+    private void ClampDiffPanelWidth(double? availableWidth = null)
+    {
+        if (!_isDiffPanelOpen) return;
+
+        var available = availableWidth ?? ConversationLayoutGrid.Bounds.Width;
+        if (available <= 0) return;
+
+        var upper = Math.Max(0, Math.Min(DiffPanelMaxWidth, available - ConversationMinWidth));
+        var lower = Math.Min(DiffPanelMinWidth, upper);
+        var column = DiffPanelColumn;
+        var current = column.Width.IsAbsolute ? column.Width.Value : _lastDiffPanelWidth;
+
+        column.MinWidth = lower;
+        column.MaxWidth = upper;
+        column.Width = new GridLength(Math.Clamp(current, lower, upper), GridUnitType.Pixel);
+        _lastDiffPanelWidth = column.Width.Value;
+    }
+
+    /// <summary>每个差异控件按自身布局宽度选择双栏或统一视图。</summary>
+    private void OnDiffViewSizeChanged(object? sender, SizeChangedEventArgs e)
+    {
+        if (sender is not DiffView diffView || e.NewSize.Width <= 0) return;
+
+        var mode = e.NewSize.Width >= DiffSplitModeMinWidth ? DiffViewMode.Split : DiffViewMode.Unified;
+        if (diffView.ViewMode != mode) diffView.ViewMode = mode;
     }
 
     /// <summary>加载完成后解除前插锚定；延后到布局落地，覆盖插入后一次 extent 增高。</summary>

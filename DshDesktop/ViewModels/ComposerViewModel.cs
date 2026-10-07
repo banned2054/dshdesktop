@@ -24,6 +24,8 @@ public sealed class ComposerViewModel : ObservableObject
     // 错误仍由 MainWindow 级共享 ErrorText 呈现：null 表示清除当前错误。
     private readonly Action<string?> _reportError;
     private readonly ISessionService _sessionService;
+    private readonly Func<string, string, Task>? _onBeforePrompt;
+    private readonly Action<string?, string?>? _onPromptBaselineDiscard;
 
     private ModelSelection? _currentModel;
 
@@ -53,12 +55,16 @@ public sealed class ComposerViewModel : ObservableObject
 
     public ComposerViewModel(ISessionService         sessionService, Action<string?> reportError,
                              Action?                 onPromptAccepted    = null,
-                             Action<ModelSelection>? onDraftModelChanged = null)
+                             Action<ModelSelection>? onDraftModelChanged = null,
+                             Func<string, string, Task>? onBeforePrompt = null,
+                             Action<string?, string?>?   onPromptBaselineDiscard = null)
     {
         _sessionService      = sessionService;
         _reportError         = reportError;
         _onPromptAccepted    = onPromptAccepted;
         _onDraftModelChanged = onDraftModelChanged;
+        _onBeforePrompt      = onBeforePrompt;
+        _onPromptBaselineDiscard = onPromptBaselineDiscard;
         SendMessageCommand   = new AsyncRelayCommand(SendMessageAsync, CanSendMessage);
         CancelCommand        = new AsyncRelayCommand(CancelGenerationAsync, CanCancelGeneration);
         // 可用性只由 XAML 的 IsEnabled 绑定（IsModelPickerEnabled）承担：自研 RelayCommand
@@ -630,6 +636,7 @@ public sealed class ComposerViewModel : ObservableObject
     {
         if (SessionId is null || string.IsNullOrWhiteSpace(DraftMessage)) return;
 
+        var sentSessionId = SessionId;
         var draftAtSend = DraftMessage;
         var content     = draftAtSend.Trim();
         var requestId   = Guid.NewGuid().ToString();
@@ -637,7 +644,12 @@ public sealed class ComposerViewModel : ObservableObject
         _reportError(null);
         try
         {
-            await _sessionService.SendPromptAsync(SessionId, requestId, content);
+            // 普通会话与新会话首轮相同：基线采样完成后才把 prompt 发给 Host。
+            if (_onBeforePrompt is { } beforePrompt) await beforePrompt(sentSessionId, requestId);
+            // 等待采样期间用户可能切走：旧消息不能落入新会话，保留草稿交给用户决定。
+            if (!string.Equals(SessionId, sentSessionId, StringComparison.Ordinal)) return;
+
+            await _sessionService.SendPromptAsync(sentSessionId, requestId, content);
             // 对齐参考实现：发送被接受即本地清除空白（不等后端帧回流），会话在列表
             // 过滤与空白流程界面中立即按"已开始"处理；被拒绝的发送保持空白资格。
             _onPromptAccepted?.Invoke();
@@ -646,6 +658,7 @@ public sealed class ComposerViewModel : ObservableObject
         }
         catch (Exception exception)
         {
+            _onPromptBaselineDiscard?.Invoke(sentSessionId, requestId);
             _reportError(exception.Message);
         }
         finally

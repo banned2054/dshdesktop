@@ -25,8 +25,27 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
 
     // follow 代际门闩：随 BeginFollow 递增；旧订阅循环在锁内校验代际后才应用更新，
     // 防止被抢占的旧循环把上一会话的迟到更新写进新会话的状态。
-    private readonly Lock                _followGate = new();
-    private readonly ILlmCatalogService? _llmCatalogService;
+    private readonly Lock                      _followGate = new();
+    private readonly ILlmCatalogService?       _llmCatalogService;
+    private readonly IWorkspaceChangesService? _workspaceChangesService;
+    private readonly LocalWorkspaceChangesService _localWorkspaceChanges;
+    private sealed record WorkspaceBaseline(SessionItemViewModel Session, long Turn, long StartSeq,
+        int Epoch, CancellationToken CancellationToken, Task<LocalWorkspaceChangesService.Snapshot?> Before);
+
+    private WorkspaceBaseline? _workspaceBaseline;
+    private long _workspaceCursor;
+    // 仅本端首发送拥有的轮首内容可穿过初次 follow 的 replay；一般 attach 不建立此状态。
+    private sealed record PreparedWorkspaceTurn(string SessionId, string Cwd,
+        Task<LocalWorkspaceChangesService.Snapshot?> Before);
+    private PreparedWorkspaceTurn? _preparedWorkspaceTurn;
+    private PreparedWorkspaceTurn? _workspaceFirstTurn;
+    private bool _workspaceSnapshotSeen;
+    private sealed record PreparedSessionPrompt(string SessionId, string RequestId, string Cwd,
+        int Epoch, int ContextVersion, long SeqFloor, Task<LocalWorkspaceChangesService.Snapshot?> Before);
+    private readonly List<PreparedSessionPrompt> _preparedSessionPrompts = [];
+    private int _workspaceContextVersion;
+    private CancellationTokenSource? _draftWorkspaceCaptureCancellation;
+    private CancellationTokenSource? _workspaceSnapshotCancellation;
 
     private readonly IPermissionPresetService _permissionPresetService;
     private readonly Action<Action>           _postToUi;
@@ -39,6 +58,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     private readonly ISettingsService     _settingsService;
     private readonly IToolApprovalService _toolApprovalService;
     private readonly IWorkspaceService    _workspaceService;
+    private readonly IWorkspaceFileOpener? _workspaceFileOpener;
 
     private List<WorkspaceOptionViewModel> _allWorkspaceMenuOptions = [];
 
@@ -87,8 +107,8 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     private bool _isHelpMenuOpen;
     private bool _isInitialized;
     private bool _isLoadingOlder;
+
     private bool _isPresetMenuOpen;
-    private bool _isRebuildingTimeline;
 
     // SelectedSession 切换时程序化装载草稿文本的同步守卫：装载属于同一份草稿的恢复，
     // 不让 DraftMessage 的 PropertyChanged 误增草稿版本。
@@ -153,7 +173,9 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         ICredentialsService?      credentialService       = null,
         Action<string?>?          applyThemePreference    = null,
         ILlmCatalogService?       llmCatalogService       = null,
-        string?                   backendVersion          = null)
+        string?                   backendVersion          = null,
+        IWorkspaceChangesService? workspaceChangesService = null,
+        IWorkspaceFileOpener?     workspaceFileOpener     = null)
     {
         _sessionService          = sessionService;
         _backendHostService      = backendHostService;
@@ -163,15 +185,21 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         _settingsService         = settingsService         ?? EmptySettingsService.Instance;
         _credentialsService      = credentialService       ?? EmptyCredentialsService.Instance;
         _llmCatalogService       = llmCatalogService;
+        _localWorkspaceChanges   = new LocalWorkspaceChangesService(workspaceChangesService);
+        _workspaceChangesService = _localWorkspaceChanges;
+        _workspaceFileOpener     = workspaceFileOpener;
         IsSimulationMode         = isSimulatedMode;
         // 关于面板的 DSH 后端版本（宿主组装层读取 runtime 目录注入）；缺失如实显示未知。
         DshVersion = backendVersion ?? "未知";
         _postToUi  = postToUi       ?? (action => action());
+        // 文件改动右侧面板随窗口生命周期存在；卡片工厂仅在事件到达时创建列表。
+        DiffPanel = new WorkspaceDiffPanelViewModel(_workspaceChangesService, _workspaceFileOpener, _postToUi);
         // 草稿/发送/取消与模型选择已迁入 Composer；失败仍走窗口级 ErrorText（null 表示清除）。
         // 发送被接受时 root 立即把会话标记为已开始（不等后端帧回流）。草稿页的本地预选
         // 模型经回调记入草稿（不发 RPC），首发送创建会话后再应用。
         Composer = new ComposerViewModel(sessionService, text => ErrorText = text ?? string.Empty, HandlePromptAccepted,
-                                         OnDraftModelChanged);
+                                         OnDraftModelChanged, PrepareSessionPromptBaselineAsync,
+                                         DiscardSessionPromptBaseline);
         // 执行权限选择器：目录与切换经独立服务，投影权威值由 root 转发（ApplySessionUpdate），
         // 会话与连接上下文随选中变化推送；草稿页做本地预选（回调记入草稿，首发送后应用）。
         // 审批（ApprovalPanel）与本选择器互不干涉。
@@ -234,6 +262,9 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     }
 
     public ObservableCollection<ConversationItemViewModel> ConversationItems { get; } = [];
+
+    /// <summary>当前选中的改动文件对比面板；未打开时仅隐藏右侧区域。</summary>
+    public WorkspaceDiffPanelViewModel DiffPanel { get; }
 
     /// <summary>当前选中会话的待决审批（审批横幅）；随审批增删与会话切换重建。</summary>
     public ObservableCollection<PendingApprovalViewModel> SessionPendingApprovals { get; } = [];
@@ -416,6 +447,8 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
             if (!SetProperty(ref _selectedSession, value)) return;
             // 用户导航递增代际：创建/连接流程的迟到结果据此让位，不抢回界面。
             Interlocked.Increment(ref _navigationGeneration);
+            ResetPreparedSessionPrompts();
+            _draftWorkspaceCaptureCancellation?.Cancel();
 
             if (previous is not null) previous.PropertyChanged -= OnSelectedSessionPropertyChanged;
 
@@ -565,6 +598,18 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        lock (_followGate)
+        {
+            _followEpoch++;
+            _workspaceContextVersion++;
+            _preparedSessionPrompts.Clear();
+            _workspaceBaseline = null;
+            _workspaceFirstTurn = null;
+            _preparedWorkspaceTurn = null;
+        }
+        _draftWorkspaceCaptureCancellation?.Cancel();
+        _workspaceSnapshotCancellation?.Cancel();
+        DiffPanel.Close();
         var cancellation = Interlocked.Exchange(ref _followCancellation, null);
         if (cancellation is not null)
         {
@@ -739,12 +784,19 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
 
     private async Task FollowSelectedSessionAsync(SessionItemViewModel? session)
     {
+        var prepared = _preparedWorkspaceTurn;
+        _preparedWorkspaceTurn = null;
         _processExpansionSessionId = session?.Id;
+        DiffPanel.Close();
         var cancellation = BeginFollow();
         int epoch;
         lock (_followGate)
         {
             epoch = _followEpoch;
+            _workspaceContextVersion++;
+            _preparedSessionPrompts.Clear();
+            if (session is not null && prepared?.SessionId == session.Id)
+                _workspaceFirstTurn = prepared;
         }
 
         if (session is null)
@@ -780,6 +832,15 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         }
         finally
         {
+            lock (_followGate)
+                if (epoch == _followEpoch)
+                {
+                    _workspaceContextVersion++;
+                    _preparedSessionPrompts.Clear();
+                    _workspaceBaseline = null;
+                    _workspaceFirstTurn = null;
+                    _workspaceSnapshotCancellation?.Cancel();
+                }
             CompleteFollow(cancellation);
         }
     }
@@ -789,6 +850,18 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         switch (update)
         {
             case SessionUpdate.Snapshot snapshot :
+                _workspaceBaseline = null;
+                _workspaceContextVersion++;
+                _preparedSessionPrompts.Clear();
+                // 只有首次 follow 可消费首发预捕获；重连不补建历史基线。
+                if (_workspaceSnapshotSeen) _workspaceFirstTurn = null;
+                _workspaceSnapshotSeen = true;
+                _workspaceCursor = snapshot.Cursor;
+                SelectedSession?.AdoptCwd(snapshot.Cwd);
+                _workspaceSnapshotCancellation?.Cancel();
+                _workspaceSnapshotCancellation?.Dispose();
+                _workspaceSnapshotCancellation = _followCancellation is { } snapshotFollow
+                    ? CancellationTokenSource.CreateLinkedTokenSource(snapshotFollow.Token) : null;
                 ResetStreamingMessage();
                 // 快照整体替换本地状态：任务面板先清空（防上一会话残留），
                 // 窗口内重放的 todo/write 随后按记录顺序填回最终态。
@@ -822,11 +895,45 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
                 var boundary = new TurnBoundary(ended.Seq, ended.Turn, DateTimeOffset.Now, ended.Reason);
                 _timelineEntries.Add(boundary);
                 _assembly.Add(boundary);
+                CompleteWorkspaceTurn(ended);
+                break;
+
+            case SessionUpdate.WorkspaceChanged changed :
+                // producer 是可选项；真实宣告才启用正 seq 的 Host fallback。
+                _timelineEntries.RemoveAll(entry => entry is WorkspaceChangesAnnouncement announcement &&
+                    announcement.Seq >= 0 && announcement.Turn == changed.Turn && announcement.Seq <= changed.Seq);
+                _timelineEntries.Add(new WorkspaceChangesAnnouncement(changed.Seq, changed.Turn, DateTimeOffset.Now));
+                RebuildTimeline();
+                break;
+
+            case SessionUpdate.DeliverablesPresented presented :
+                if (_timelineEntries.OfType<DeliverablesPresentedAnnouncement>()
+                    .Any(existing => existing.Seq == presented.Announcement.Seq))
+                    break;
+
+                _timelineEntries.Add(presented.Announcement);
+                _assembly.Add(presented.Announcement);
                 break;
 
             // 新一轮开始：清空任务面板显示（diff 基线保留，对齐官方投影语义）。
-            case SessionUpdate.TurnStarted :
+            case SessionUpdate.TurnStarted started :
                 ClearTodoPanel();
+                if (TryStartPreparedWorkspaceTurn(started)) break;
+                if (TryStartPreparedSessionPromptTurn(started)) break;
+                if (!IsSimulationMode && !started.IsReplay && started.Seq > _workspaceCursor)
+                {
+                    _workspaceCursor = started.Seq;
+                    _workspaceBaseline = null;
+                    if (started.Turn is { } turn && SelectedSession is { } current &&
+                        _followCancellation is { } follow)
+                    {
+                        var token = _workspaceSnapshotCancellation?.Token ?? follow.Token;
+                        var cwd = current.Cwd;
+                        // live start 到达即排队采样，不等待 end，也不在 follow 锁内扫描。
+                        var before = Task.Run(() => CaptureWorkspaceSnapshot(cwd, token));
+                        _workspaceBaseline = new(current, turn, started.Seq, _followEpoch, token, before);
+                    }
+                }
                 break;
 
             // 任务清单整表替换：更新面板显示并记账 diff 基线（转交当前组装器）。
@@ -892,13 +999,217 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         }
     }
 
+    private bool TryStartPreparedWorkspaceTurn(SessionUpdate.TurnStarted started)
+    {
+        var prepared = _workspaceFirstTurn;
+        if (prepared is null) return false;
+        // 上游 agent-loop/index.ts 的 lastTurn 初值为 0，agent.ts 开轮 +1；
+        // session/invariant.ts 同时要求 nextTurn 从 1 开始。仅全新 session 可绑定此预捕获。
+        _workspaceFirstTurn = null;
+        if (started.Turn != 1 || SelectedSession is not { } session || session.Id != prepared.SessionId ||
+            _followCancellation is not { } follow || follow.IsCancellationRequested) return false;
+        // 目录必须与创建时确认的工作区一致，不能把预捕获归入其他 cwd。
+        if (!LocalWorkspaceChangesService.SameRoot(session.Cwd, prepared.Cwd)) return false;
+        _workspaceBaseline = new(session, 1, started.Seq, _followEpoch,
+            _workspaceSnapshotCancellation?.Token ?? follow.Token, prepared.Before);
+        _workspaceCursor = Math.Max(_workspaceCursor, started.Seq);
+        var boundary = _timelineEntries.OfType<TurnBoundary>().FirstOrDefault(item =>
+            item.Turn == 1 && item.Seq > started.Seq);
+        if (boundary is not null)
+            CompleteWorkspaceTurn(new SessionUpdate.TurnEnded(boundary.Turn, boundary.Seq, boundary.Reason));
+        return true;
+    }
+
+    private void CompleteWorkspaceTurn(SessionUpdate.TurnEnded ended)
+    {
+        var baseline = _workspaceBaseline;
+        if (baseline is null || baseline.Epoch != _followEpoch ||
+            !ReferenceEquals(baseline.Session, SelectedSession) || baseline.Turn != ended.Turn ||
+            ended.Seq <= baseline.StartSeq || baseline.CancellationToken.IsCancellationRequested) return;
+        _workspaceBaseline = null;
+        // 即使 Before 已完成，也保证 after 扫描和 Complete（包括 LCS）只在后台执行。
+        _ = Task.Run(() => CompleteWorkspaceTurnAsync(baseline, ended));
+    }
+
+    private void ResetPreparedSessionPrompts()
+    {
+        lock (_followGate)
+        {
+            _workspaceContextVersion++;
+            _preparedSessionPrompts.Clear();
+        }
+    }
+
+    /// <summary>
+    ///     普通已选会话发送：prompt 前等待后台基线；只有同一发送上下文之后的 live
+    ///     turn/start 可按发送顺序消费，避免快速开始工具抢在快照前，也避免 replay 误报。
+    /// </summary>
+    private async Task PrepareSessionPromptBaselineAsync(string? sessionId, string? requestId)
+    {
+        int epoch, contextVersion;
+        long seqFloor;
+        CancellationTokenSource? follow;
+        SessionItemViewModel? session = null;
+        lock (_followGate)
+        {
+            var selected = SelectedSession as SessionItemViewModel;
+            follow = _followCancellation;
+            if (IsSimulationMode || sessionId is null || requestId is null ||
+                selected is null || selected.Id != sessionId ||
+                string.IsNullOrWhiteSpace(selected.Cwd) || follow is null ||
+                follow.IsCancellationRequested ||
+                !ReferenceEquals(SelectedSession, selected))
+                return;
+            session = selected;
+            epoch = _followEpoch;
+            contextVersion = _workspaceContextVersion;
+            seqFloor = ResolveWorkspaceSequenceFloor();
+        }
+
+        var cwd = session!.Cwd;
+        var before = Task.Run(() => CaptureWorkspaceSnapshot(cwd, follow!.Token));
+        await before;
+        lock (_followGate)
+        {
+            if (_followCancellation is not { } active || active.IsCancellationRequested ||
+                !ReferenceEquals(SelectedSession, session) || session.Id != sessionId ||
+                epoch != _followEpoch || contextVersion != _workspaceContextVersion ||
+                !LocalWorkspaceChangesService.SameRoot(session.Cwd, cwd))
+                return;
+
+            _preparedSessionPrompts.Add(new(sessionId, requestId, cwd, epoch, contextVersion,
+                seqFloor, before));
+            if (_preparedSessionPrompts.Count > 8) _preparedSessionPrompts.RemoveAt(0);
+        }
+    }
+
+    private void DiscardSessionPromptBaseline(string? sessionId, string? requestId)
+    {
+        if (sessionId is null || requestId is null) return;
+        lock (_followGate)
+            _preparedSessionPrompts.RemoveAll(prompt =>
+                prompt.SessionId == sessionId && prompt.RequestId == requestId);
+    }
+
+    private long ResolveWorkspaceSequenceFloor()
+    {
+        var floor = _workspaceCursor;
+        foreach (var entry in _timelineEntries)
+            if (entry.Seq > floor) floor = entry.Seq;
+
+        return floor;
+    }
+
+    private bool TryStartPreparedSessionPromptTurn(SessionUpdate.TurnStarted started)
+    {
+        if (started.IsReplay || started.Turn is not { } turn || started.Seq <= _workspaceCursor ||
+            _preparedSessionPrompts.Count == 0 ||
+            SelectedSession is not { } session ||
+            _followCancellation is not { } follow || follow.IsCancellationRequested)
+            return false;
+
+        var prepared = _preparedSessionPrompts[0];
+        if (prepared.SessionId != session.Id || prepared.Epoch != _followEpoch ||
+            prepared.ContextVersion != _workspaceContextVersion ||
+            !LocalWorkspaceChangesService.SameRoot(session.Cwd, prepared.Cwd) ||
+            started.Seq <= prepared.SeqFloor)
+            return false;
+
+        _preparedSessionPrompts.RemoveAt(0);
+        _workspaceBaseline = new(session, turn, started.Seq, _followEpoch,
+            _workspaceSnapshotCancellation?.Token ?? follow.Token, prepared.Before);
+        _workspaceCursor = Math.Max(_workspaceCursor, started.Seq);
+        return true;
+    }
+
+    private static LocalWorkspaceChangesService.Snapshot? CaptureWorkspaceSnapshot(
+        string? cwd, CancellationToken cancellationToken)
+    {
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return LocalWorkspaceChangesService.Capture(cwd, cancellationToken);
+        }
+        catch (OperationCanceledException) { return null; }
+        catch (Exception exception)
+        {
+            // baseline 可因快照/切换被丢弃；任务自行观察异常，不能留下未观察 fault。
+            System.Diagnostics.Debug.WriteLine(exception);
+            return null;
+        }
+    }
+
+    private async Task CompleteWorkspaceTurnAsync(WorkspaceBaseline baseline, SessionUpdate.TurnEnded ended)
+    {
+        try
+        {
+            var before = await baseline.Before.ConfigureAwait(false);
+            baseline.CancellationToken.ThrowIfCancellationRequested();
+            if (before is null) return;
+            var after = LocalWorkspaceChangesService.Capture(before.Root, baseline.CancellationToken);
+            if (after is null) return;
+            var announcement = _localWorkspaceChanges.Complete(baseline.Session.Id, baseline.Turn, ended.Seq,
+                before, after, baseline.CancellationToken);
+            if (announcement is null) return;
+            _postToUi(() =>
+            {
+                lock (_followGate)
+                {
+                    if (baseline.CancellationToken.IsCancellationRequested || baseline.Epoch != _followEpoch ||
+                        !ReferenceEquals(baseline.Session, SelectedSession) ||
+                        _processExpansionSessionId != baseline.Session.Id ||
+                        !_timelineEntries.OfType<TurnBoundary>().Any(boundary =>
+                            boundary.Turn == baseline.Turn && boundary.Seq == ended.Seq) ||
+                        _timelineEntries.OfType<WorkspaceChangesAnnouncement>().Any(item =>
+                            item.Seq < 0 && item.Turn == baseline.Turn)) return;
+                    // 后续更新可能已到达；按缓存中的轮末位置重建，不能直接追加到尾部。
+                    RebuildTimeline();
+                }
+            });
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception exception)
+        {
+            System.Diagnostics.Debug.WriteLine(exception);
+        }
+    }
+
     private void ApplyToolSettled(ToolActivity settled)
     {
+        // 已加载条目同步补上结果状态与 meta 差异（增量结果不带参数，合并回发起条目），
+        // 交付文件面板等按窗口内真实记录解析数据来源。
+        var index = _timelineEntries.FindLastIndex(entry =>
+            entry is ToolActivity activity && activity.CallId == settled.CallId && activity.Seq < settled.Seq);
+        if (index >= 0)
+        {
+            var running = (ToolActivity)_timelineEntries[index];
+            _timelineEntries[index] = running with
+            {
+                Status = settled.Status,
+                ResultText = settled.ResultText,
+                ErrorReason = settled.ErrorReason,
+                CompletedAt = settled.CompletedAt,
+                MetaDiffs = settled.MetaDiffs ?? running.MetaDiffs
+            };
+        }
+
         if (_assembly.SettleTool(settled)) return;
 
         // 窗口起点落在调用中间（或恢复期repair合成）：没有发起事件也展示结果卡片。
         _timelineEntries.Add(settled);
         _assembly.Add(settled);
+    }
+
+    /// <summary>
+    ///     交付文件单击：在应用内右侧面板查看。条目快照在 UI 线程取好交给后台解析，
+    ///     面板内部用 requestId 丢弃迟到的解析结果。
+    /// </summary>
+    private void OpenDeliverableView(string sessionId, string? cwd, DeliveredFileViewModel file)
+    {
+        if (SelectedSession?.Id != sessionId) return;
+
+        _ = DiffPanel.OpenDeliverableAsync(new DeliverableViewRequest(
+            sessionId, file.Turn, file.Path, cwd, [.. _timelineEntries]));
     }
 
     /// <summary>
@@ -969,26 +1280,69 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
     /// <summary>从全量条目重建时间线；折叠资格逐轮判定（窗口内完整覆盖的轮次折叠）。</summary>
     private void RebuildTimeline()
     {
-        _isRebuildingTimeline = true;
-        try
-        {
-            ConversationItems.Clear();
-            _assembly = CreateAssembly();
-            foreach (var entry in _timelineEntries) _assembly.Add(entry);
-            _assembly.CompleteRestoredProjection();
+        RestoreLocalChanges();
+        ConversationItems.Clear();
+        _assembly = CreateAssembly();
+        foreach (var entry in _timelineEntries) _assembly.Add(entry);
+        _assembly.CompleteRestoredProjection();
 
-            // 重建会丢掉流式气泡；生成中重新挂回尾部，等待正式消息事件替换。
-            if (_streamingMessage is not null) ConversationItems.Add(_streamingMessage);
-        }
-        finally
+        // 重建会丢掉流式气泡；生成中重新挂回尾部，等待正式消息事件替换。
+        if (_streamingMessage is not null) ConversationItems.Add(_streamingMessage);
+    }
+
+    private void RestoreLocalChanges()
+    {
+        // 以 host turn/end 的正 seq 定位插入位置；本地负 seq 仅作内容键，不用于排序。
+        var announcements = _timelineEntries.OfType<WorkspaceChangesAnnouncement>().Where(item => item.Seq >= 0)
+            .GroupBy(item => item.Turn).Select(group => group.MaxBy(item => item.Seq)!)
+            .ToDictionary(item => item.Turn);
+        _timelineEntries.RemoveAll(entry => entry is WorkspaceChangesAnnouncement);
+        if (_processExpansionSessionId is not { } sessionId) return;
+        var positiveEntries = _timelineEntries.Where(entry => entry.Seq >= 0).ToArray();
+        if (positiveEntries.Length == 0) return;
+        foreach (var (endSeq, announcement) in _localWorkspaceChanges.Announcements(sessionId,
+                     positiveEntries.Min(entry => entry.Seq), positiveEntries.Max(entry => entry.Seq)))
         {
-            _isRebuildingTimeline = false;
+            if (_timelineEntries.OfType<TurnBoundary>().Any(boundary =>
+                    boundary.Seq == endSeq && boundary.Turn == announcement.Turn))
+                announcements[announcement.Turn] = announcement;
+        }
+        foreach (var announcement in announcements.Values)
+        {
+            var index = _timelineEntries.FindLastIndex(entry => entry is TurnBoundary boundary &&
+                boundary.Turn == announcement.Turn);
+            if (index >= 0) _timelineEntries.Insert(index + 1, announcement);
+            else if (announcement.Seq >= 0)
+            {
+                index = _timelineEntries.FindIndex(entry => entry.Seq >= announcement.Seq);
+                _timelineEntries.Insert(index < 0 ? _timelineEntries.Count : index, announcement);
+            }
         }
     }
 
     private TimelineAssembly CreateAssembly()
     {
-        var assembly = new TimelineAssembly(ConversationItems, ResolveProcessExpansionState);
+        var sessionId = _processExpansionSessionId;
+        var sessionCwd = SelectedSession?.Cwd;
+        var assembly = new TimelineAssembly(ConversationItems, ResolveProcessExpansionState, announcement =>
+                                            sessionId is null ||
+                                            (announcement.Seq < 0
+                                                ? !_localWorkspaceChanges.Contains(sessionId, announcement.Seq)
+                                                : !_localWorkspaceChanges.HasFallback ||
+                                                  _localWorkspaceChanges.HasTurn(sessionId, announcement.Turn))
+                                                ? null
+                                                : new WorkspaceChangesCardViewModel(sessionId, announcement,
+                                                    _workspaceChangesService, file =>
+                                                    {
+                                                        if (SelectedSession?.Id == file.SessionId)
+                                                            _ = DiffPanel.OpenAsync(file);
+                                                    }, _postToUi),
+                                         (announcement, changesSeq) => sessionId is null
+                                             ? null
+                                             : new DeliverablesCardViewModel(sessionId, sessionCwd, announcement,
+                                                 _workspaceChangesService, _postToUi, changesSeq,
+                                                 file => OpenDeliverableView(sessionId, sessionCwd, file),
+                                                 id => SelectedSession?.Id == id));
         // 翻页/重连重建组装器时恢复 todo diff 基线，实时调用的摘要不因重建丢失。
         assembly.SetTodoBaseline(_todoBaseline);
         return assembly;
@@ -1086,6 +1440,13 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         lock (_followGate)
         {
             _followEpoch++;
+            _workspaceBaseline = null;
+            _workspaceCursor = 0;
+            _workspaceFirstTurn = null;
+            _workspaceSnapshotSeen = false;
+            _workspaceSnapshotCancellation?.Cancel();
+            _workspaceSnapshotCancellation?.Dispose();
+            _workspaceSnapshotCancellation = null;
         }
 
         return cancellation;
@@ -1455,6 +1816,11 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         var presetAtSend          = _draftAgentPreset;
         var preselectedModel      = _draftModelSelection;
         var preselectedPermission = _draftPermissionPreset;
+        var captureCancellation = new CancellationTokenSource();
+        _draftWorkspaceCaptureCancellation = captureCancellation;
+        Task<LocalWorkspaceChangesService.Snapshot?>? firstTurnBefore = null;
+        PreparedWorkspaceTurn? firstTurn = null;
+        string? cwdAtSend = null;
         _isDraftSendInFlight = true;
         BeginConnecting();
         try
@@ -1482,11 +1848,20 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
                 if (workspaceId is not null)
                 {
                     var workspaces = await _workspaceService.GetWorkspacesAsync();
-                    if (workspaces.All(workspace => workspace.Id != workspaceId))
+                    var workspace = workspaces.FirstOrDefault(workspace => workspace.Id == workspaceId);
+                    if (workspace is null)
                         throw new InvalidOperationException($"工作区不可用或已移除：{workspaceId}");
+                    cwdAtSend = workspace.Path;
+                    if (!IsSimulationMode)
+                    {
+                        var token = captureCancellation.Token;
+                        firstTurnBefore = Task.Run(() => CaptureWorkspaceSnapshot(workspace.Path, token));
+                    }
                 }
 
                 sessionId = (await _sessionService.CreateSessionAsync(workspaceId, null, presetAtSend)).Id;
+                if (firstTurnBefore is not null && cwdAtSend is not null)
+                    firstTurn = new(sessionId, cwdAtSend, firstTurnBefore);
                 // 草稿目标在创建期间被改选时，这个迟到会话不记为待复用（其 cwd 已固定），
                 // 重试按新目标创建；确认空白会话按既有规则在目录中隐藏。
                 if (IsDraftTarget(workspaceId, withoutWorkspace))
@@ -1503,6 +1878,8 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
                 // （matched=false）时不阻塞发送——会话实际生效值由投影回流展示。
                 await _permissionPresetService.SwitchPresetAsync(sessionId, preselectedPreset);
 
+            // 后台轮首采样必须先完成，首个工具执行才不会抢在基线之前；失败不阻塞发送。
+            if (firstTurnBefore is not null) await firstTurnBefore;
             await _sessionService.SendPromptAsync(sessionId, Guid.NewGuid().ToString(), content);
 
             // 后端已接受首条消息：核对发送上下文（未导航、草稿版本未变）并收束快照。
@@ -1511,7 +1888,7 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
             ConsumeNewConversationDraft(versionAtSend);
             _sessionService.MarkSessionEngaged(sessionId);
             var row = Sidebar.AddSessionRow(new SessionSummary(sessionId, null, DateTimeOffset.Now, false,
-                                                               SessionBlankState.Engaged));
+                                                               SessionBlankState.Engaged, cwdAtSend));
             // 新会话的工作区记账可能晚于行插入到达：重读工作区投影，让行落入正确分组；
             // 刷新失败不阻塞发送完成，后续 WorkspacesChanged 仍会触发重组。
             try
@@ -1525,7 +1902,11 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
 
             // 用户仍停留在这条发送的上下文（未导航、未改写草稿）：进入普通会话；
             // 否则只让行照常出现，不抢回界面。
-            if (sameContext) SelectedSession = row;
+            if (sameContext && Volatile.Read(ref _navigationGeneration) == generationAtStart)
+            {
+                if (!captureCancellation.IsCancellationRequested) _preparedWorkspaceTurn = firstTurn;
+                SelectedSession = row;
+            }
         }
         catch (HarnessRpcException exception) when (exception.Code == "session/workspace-attach-failed" &&
                                                     exception.FindDetailString("sessionId") is { } attachedId)
@@ -1541,6 +1922,10 @@ public sealed class MainWindowViewModel : ObservableObject, IAsyncDisposable
         }
         finally
         {
+            captureCancellation.Cancel();
+            if (ReferenceEquals(_draftWorkspaceCaptureCancellation, captureCancellation))
+                _draftWorkspaceCaptureCancellation = null;
+            captureCancellation.Dispose();
             _isDraftSendInFlight = false;
             EndConnecting();
         }

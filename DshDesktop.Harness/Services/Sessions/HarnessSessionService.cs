@@ -363,7 +363,7 @@ public sealed class HarnessSessionService : ISessionService
 
     /// <summary>
     ///     follow 帧到会话更新的映射；快照统计随快照作为独立更新紧随其后，
-    ///     快照窗口内的 workspace/changes 事件同样按记录顺序透出。
+    ///     快照窗口内的 workspace/changes 与 deliverables/presented 事件同样按记录顺序透出。
     /// </summary>
     internal static IEnumerable<SessionUpdate> MapFollowFrame(FollowFrame frame)
     {
@@ -372,7 +372,7 @@ public sealed class HarnessSessionService : ISessionService
             case FollowFrame.Snapshot snapshot :
                 yield return new SessionUpdate.Snapshot(MapEntries(snapshot.Records), snapshot.Cursor,
                                                         WindowStartSeqOf(snapshot.Records), snapshot.HasMore,
-                                                        snapshot.Title, snapshot.CurrentModel);
+                                                        snapshot.Title, snapshot.CurrentModel, snapshot.Header.Cwd);
                 if (snapshot.Usage is { } usage)
                     yield return new SessionUpdate.UsageUpdated(usage, snapshot.ProjectionAsOfSeq);
 
@@ -387,13 +387,20 @@ public sealed class HarnessSessionService : ISessionService
                     if (WireEventJson.TryGetWorkspaceChanges(wireEvent, out var snapshotChangedTurn))
                         yield return new SessionUpdate.WorkspaceChanged(snapshotChangedTurn, wireEvent.Seq);
 
-                // 任务清单与轮次边界按记录顺序随重放透出：turn/start 清空面板显示，
-                // todo/write 填入清单，重放结束后与官方投影 checkpoint 的最终态一致。
+                // 任务清单、轮次边界与交付文件声明按记录顺序随重放透出：turn/start
+                // 清空面板显示，todo/write 填入清单，重放结束后与官方投影的最终态一致。
                 foreach (var wireEvent in snapshot.Records)
                     if (wireEvent.Type == "turn/start")
-                        yield return new SessionUpdate.TurnStarted(wireEvent.Seq);
+                        yield return new SessionUpdate.TurnStarted(wireEvent.Seq,
+                            WireEventJson.TryGetTurnStart(wireEvent, out var replayTurn) ? replayTurn : null,
+                            IsReplay: true);
                     else if (WireEventJson.TryGetTodos(wireEvent, out var snapshotTodos))
                         yield return new SessionUpdate.TodoListUpdated(snapshotTodos, wireEvent.Seq);
+                    else if (WireEventJson.TryGetPresentedFiles(wireEvent, out var replayPresentedTurn,
+                                                                 out var replayPresentedFiles))
+                        yield return new SessionUpdate.DeliverablesPresented(
+                            new DeliverablesPresentedAnnouncement(wireEvent.Seq, replayPresentedTurn,
+                                DateTimeOffset.FromUnixTimeMilliseconds(wireEvent.Time), replayPresentedFiles));
 
                 break;
 
@@ -441,9 +448,17 @@ public sealed class HarnessSessionService : ISessionService
                 {
                     yield return new SessionUpdate.WorkspaceChanged(changedTurn, wireEvent.Seq);
                 }
+                else if (WireEventJson.TryGetPresentedFiles(wireEvent, out var presentedTurn, out var presentedFiles))
+                {
+                    yield return new SessionUpdate.DeliverablesPresented(
+                        new DeliverablesPresentedAnnouncement(wireEvent.Seq, presentedTurn,
+                            DateTimeOffset.FromUnixTimeMilliseconds(wireEvent.Time), presentedFiles));
+                }
                 else if (wireEvent.Type == "turn/start")
                 {
-                    yield return new SessionUpdate.TurnStarted(wireEvent.Seq);
+                    long? startedTurn = WireEventJson.TryGetTurnStart(wireEvent, out var turnNumber)
+                        ? turnNumber : null;
+                    yield return new SessionUpdate.TurnStarted(wireEvent.Seq, startedTurn);
                 }
                 else if (WireEventJson.TryGetTodos(wireEvent, out var todos))
                 {
@@ -570,6 +585,18 @@ public sealed class HarnessSessionService : ISessionService
 
                     break;
 
+                case "workspace/changes" :
+                    if (WireEventJson.TryGetWorkspaceChanges(wireEvent, out var changedTurn))
+                        entries.Add(new WorkspaceChangesAnnouncement(wireEvent.Seq, changedTurn,
+                            DateTimeOffset.FromUnixTimeMilliseconds(wireEvent.Time)));
+                    break;
+
+                case "deliverables/presented" :
+                    if (WireEventJson.TryGetPresentedFiles(wireEvent, out var deliveredTurn, out var deliveredFiles))
+                        entries.Add(new DeliverablesPresentedAnnouncement(wireEvent.Seq, deliveredTurn,
+                            DateTimeOffset.FromUnixTimeMilliseconds(wireEvent.Time), deliveredFiles));
+                    break;
+
                 case "tool/call" :
                     if (WireEventJson.TryGetToolCall(wireEvent) is { } call)
                     {
@@ -592,13 +619,14 @@ public sealed class HarnessSessionService : ISessionService
                         if (toolIndexByCallId.TryGetValue(result.CallId!, out var entryIndex))
                         {
                             var running = (ToolActivity)entries[entryIndex];
-                            // 保留发起时刻的时间线位置与参数，仅补上结果。
+                            // 保留发起时刻的时间线位置与参数，仅补上结果与编辑现场差异。
                             entries[entryIndex] = running with
                             {
                                 Status = settled.Status,
                                 ResultText = settled.ResultText,
                                 ErrorReason = settled.ErrorReason,
-                                CompletedAt = settled.CompletedAt
+                                CompletedAt = settled.CompletedAt,
+                                MetaDiffs = settled.MetaDiffs
                             };
                         }
                         else
@@ -626,7 +654,16 @@ public sealed class HarnessSessionService : ISessionService
         long? turn        = WireEventJson.TryGetTurnStep(wireEvent, out var parsedTurn, out _) ? parsedTurn : null;
         return new ToolActivity(wireEvent.Seq, result.CallId ?? string.Empty, string.Empty, null, status,
                                 result.ContentText, errorReason,
-                                DateTimeOffset.FromUnixTimeMilliseconds(wireEvent.Time), completedAt, turn);
+                                DateTimeOffset.FromUnixTimeMilliseconds(wireEvent.Time), completedAt, turn,
+                                ToMetaDiffs(result.MetaDiffs));
+    }
+
+    /// <summary>wire 差异块到应用模型的映射；缺省为 null 保持「无 meta」语义。</summary>
+    private static IReadOnlyList<ToolFileDiff>? ToMetaDiffs(IReadOnlyList<ToolFileDiffWire>? metaDiffs)
+    {
+        return metaDiffs is null
+            ? null
+            : metaDiffs.Select(diff => new ToolFileDiff(diff.Path, diff.OldText, diff.NewText)).ToArray();
     }
 
     /// <summary>

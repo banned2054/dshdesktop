@@ -15,11 +15,24 @@ public sealed class SimulatedWorkspaceChangesService : IWorkspaceChangesService
             new WorkspaceChangedFileInfo("assets/logo.bin", "assets/logo.bin", 0, 0, true, false)
         ], 2, 24, 6);
 
+    /// <summary>交付演示会话（session-deliverables）中同轮 changes 宣告的 seq，
+    ///     演示摘要与其对应；SimulatedSessionService 的演示条目引用此常量。</summary>
+    public const long DeliverablesDemoChangesSeq = 8;
+
+    /// <summary>交付演示轮的摘要：alpha/beta 与声明路径吻合提供计数，today/gone 不在
+    ///     快照里，演示「有计数 / 无计数 / 缺失文件」三种行形态。</summary>
+    private static readonly WorkspaceChangesSummary DeliverablesDemoSummary =
+        new(1, [
+            new WorkspaceChangedFileInfo("notes-alpha.md", "notes-alpha.md", 4, 2, false, false),
+            new WorkspaceChangedFileInfo("notes-beta.md", "notes-beta.md", 2, 0, false, false)
+        ], 2, 6, 2);
+
     public Task<WorkspaceChangesSummary?> GetSummaryAsync(
         string sessionId, long seq, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult<WorkspaceChangesSummary?>(SeedSummary);
+        return Task.FromResult<WorkspaceChangesSummary?>(
+            seq == DeliverablesDemoChangesSeq ? DeliverablesDemoSummary : SeedSummary);
     }
 
     public Task<WorkspaceFileDiff?> GetDiffAsync(

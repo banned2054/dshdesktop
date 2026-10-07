@@ -239,6 +239,152 @@ public sealed class HarnessProtocolJsonTests
     }
 
     [Test]
+    public void ToolResultMetaDiffsFoldIntoToolActivity()
+    {
+        var page = JsonSerializer.Deserialize("""
+                                              {
+                                                "records": [
+                                                  {"type": "event", "event": {"type": "tool/call", "seq": 7, "time": 1700000007000,
+                                                    "data": {"turn": 1, "step": 2, "callId": "call-e", "name": "edit",
+                                                             "arguments": "{\"file_path\":\"a.cs\",\"old_string\":\"o\",\"new_string\":\"n\"}"}}},
+                                                  {"type": "event", "event": {"type": "tool/result", "seq": 9, "time": 1700000009000,
+                                                    "data": {"turn": 1, "step": 2,
+                                                             "message": {"id": "m9", "role": "user", "source": {"kind": "tool", "callId": "call-e"},
+                                                                         "content": [{"type": "text", "text": "The file a.cs has been updated successfully."}], "isError": false}},
+                                                             "meta": {"diffs": [{"path": "a.cs", "oldText": null, "newText": "inserted"},
+                                                                                {"path": "a.cs", "oldText": "ctx\nold", "newText": "ctx\nnew"}]}}}
+                                                ],
+                                                "hasMore": false
+                                              }
+                                              """,
+                                              HarnessJsonContext.Default.SessionPageValue);
+
+        ClassicAssert.IsNotNull(page);
+        var entries = HarnessSessionService.MapEntries(FollowFrameJson.ParseHistoryRecords(page.Records));
+        var tool = entries.OfType<ToolActivity>().Single();
+
+        ClassicAssert.AreEqual(ToolActivityStatus.Succeeded, tool.Status);
+        ClassicAssert.IsNotNull(tool.MetaDiffs);
+        ClassicAssert.AreEqual(2, tool.MetaDiffs!.Count);
+        // oldText 为 null 的纯插入保留 null 语义，不当作空文本伪造删除侧。
+        ClassicAssert.IsNull(tool.MetaDiffs[0].OldText);
+        ClassicAssert.AreEqual("inserted", tool.MetaDiffs[0].NewText);
+        ClassicAssert.AreEqual("ctx\nold", tool.MetaDiffs[1].OldText);
+    }
+
+    [Test]
+    public void ToolResultWithoutMetaKeepsNullMetaDiffs()
+    {
+        var page = JsonSerializer.Deserialize("""
+                                              {
+                                                "records": [
+                                                  {"type": "event", "event": {"type": "tool/result", "seq": 4, "time": 1700000004000,
+                                                    "data": {"turn": 1, "step": 1,
+                                                             "message": {"id": "m4", "role": "user", "source": {"kind": "tool", "callId": "call-b"},
+                                                                         "content": [{"type": "text", "text": "done"}], "isError": false}}}}
+                                                ],
+                                                "hasMore": false
+                                              }
+                                              """,
+                                              HarnessJsonContext.Default.SessionPageValue);
+
+        ClassicAssert.IsNotNull(page);
+        var entries = HarnessSessionService.MapEntries(FollowFrameJson.ParseHistoryRecords(page.Records));
+        var tool = entries.OfType<ToolActivity>().Single();
+        // 无 meta 字段的历史事件保持 null（区别于 meta.diffs 为空数组的 write 新建）。
+        ClassicAssert.IsNull(tool.MetaDiffs);
+    }
+
+    [Test]
+    public void ToolResultDataLevelMetaAlsoParsed()
+    {
+        // 官方当前源码把 meta 放进事件体（agent-loop appendToolResult）；实测历史日志
+        // 在记录信封层。两个位置都必须消费。
+        var page = JsonSerializer.Deserialize("""
+                                              {
+                                                "records": [
+                                                  {"type": "event", "event": {"type": "tool/result", "seq": 4, "time": 1700000004000,
+                                                    "data": {"turn": 1, "step": 1,
+                                                             "message": {"id": "m4", "role": "user", "source": {"kind": "tool", "callId": "call-c"},
+                                                                         "content": [{"type": "text", "text": "The file a.cs has been updated successfully."}], "isError": false},
+                                                             "meta": {"diffs": [{"path": "a.cs", "oldText": "o", "newText": "n"}]}}}}
+                                                ],
+                                                "hasMore": false
+                                              }
+                                              """,
+                                              HarnessJsonContext.Default.SessionPageValue);
+
+        ClassicAssert.IsNotNull(page);
+        var entries = HarnessSessionService.MapEntries(FollowFrameJson.ParseHistoryRecords(page.Records));
+        var tool = entries.OfType<ToolActivity>().Single();
+        ClassicAssert.IsNotNull(tool.MetaDiffs);
+        ClassicAssert.AreEqual(1, tool.MetaDiffs!.Count);
+        ClassicAssert.AreEqual("n", tool.MetaDiffs[0].NewText);
+    }
+
+    [Test]
+    public void ToolResultInvalidOldTextEntriesAreSkipped()
+    {
+        var page = JsonSerializer.Deserialize("""
+                                              {
+                                                "records": [
+                                                  {"type": "event", "event": {"type": "tool/result", "seq": 4, "time": 1700000004000,
+                                                    "data": {"turn": 1, "step": 1,
+                                                             "message": {"id": "m4", "role": "user", "source": {"kind": "tool", "callId": "call-invalid-old"},
+                                                                         "content": [{"type": "text", "text": "done"}], "isError": false},
+                                                             "meta": {"diffs": [
+                                                               {"path": "a.cs", "newText": "missing oldText"},
+                                                               {"path": "a.cs", "oldText": 1, "newText": "number"},
+                                                               {"path": "a.cs", "oldText": false, "newText": "boolean"},
+                                                               {"path": "a.cs", "oldText": {}, "newText": "object"},
+                                                               {"path": "a.cs", "oldText": [], "newText": "array"},
+                                                               {"path": "a.cs", "oldText": null, "newText": "valid insertion"}
+                                                             ]}}}}
+                                                ],
+                                                "hasMore": false
+                                              }
+                                              """,
+                                              HarnessJsonContext.Default.SessionPageValue);
+
+        ClassicAssert.IsNotNull(page);
+        var entries = HarnessSessionService.MapEntries(FollowFrameJson.ParseHistoryRecords(page.Records));
+        var tool = entries.OfType<ToolActivity>().Single();
+
+        ClassicAssert.IsNotNull(tool.MetaDiffs);
+        ClassicAssert.AreEqual(1, tool.MetaDiffs!.Count);
+        ClassicAssert.IsNull(tool.MetaDiffs[0].OldText);
+        ClassicAssert.AreEqual("valid insertion", tool.MetaDiffs[0].NewText);
+    }
+
+    [Test]
+    public void ToolResultFallsBackToDataMetaWhenEnvelopeMetaHasNoDiffs()
+    {
+        var page = JsonSerializer.Deserialize("""
+                                              {
+                                                "records": [
+                                                  {"type": "event", "event": {"type": "tool/result", "seq": 4, "time": 1700000004000,
+                                                    "data": {"turn": 1, "step": 1,
+                                                             "message": {"id": "m4", "role": "user", "source": {"kind": "tool", "callId": "call-meta-fallback"},
+                                                                         "content": [{"type": "text", "text": "done"}], "isError": false},
+                                                             "meta": {"diffs": [{"path": "a.cs", "oldText": "data old", "newText": "data new"}]}},
+                                                    "meta": {"source": "envelope without diffs"}}}
+                                                ],
+                                                "hasMore": false
+                                              }
+                                              """,
+                                              HarnessJsonContext.Default.SessionPageValue);
+
+        ClassicAssert.IsNotNull(page);
+        var entries = HarnessSessionService.MapEntries(FollowFrameJson.ParseHistoryRecords(page.Records));
+        var tool = entries.OfType<ToolActivity>().Single();
+
+        ClassicAssert.IsNotNull(tool.MetaDiffs);
+        ClassicAssert.AreEqual(1, tool.MetaDiffs!.Count);
+        ClassicAssert.AreEqual("data old", tool.MetaDiffs[0].OldText);
+        ClassicAssert.AreEqual("data new", tool.MetaDiffs[0].NewText);
+    }
+
+    [Test]
     public void FailedToolResultMapsErrorIdentityAndReason()
     {
         var records = ParseRecords("""

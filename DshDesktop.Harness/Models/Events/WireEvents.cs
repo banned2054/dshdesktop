@@ -5,8 +5,13 @@ using System.Text.Json;
 
 namespace DshDesktop.Harness.Models.Events;
 
-/// <summary>会话事件日志的一条事件（线上形态）。data 为开放结构，按 type 解释。</summary>
-public sealed record SessionWireEvent(string Type, long Seq, long Time, JsonElement Data);
+/// <summary>
+///     会话事件日志的一条事件（线上形态）。data 为开放结构，按 type 解释。
+///     Meta 是事件信封层的 meta 字段（实测历史日志把 edit/write 的 presentation
+///     meta 持久化在记录顶层、与 data 平级；官方当前源码则放入事件体内，
+///     TryGetToolResult 两处都读）。
+/// </summary>
+public sealed record SessionWireEvent(string Type, long Seq, long Time, JsonElement Data, JsonElement? Meta = null);
 
 /// <summary>会话头部（线上形态）。</summary>
 public sealed record SessionWireHeader(
@@ -30,14 +35,19 @@ public sealed record ToolCallWire(string CallId, string Name, string? Arguments)
 /// <summary>
 ///     tool/result 事件数据。ContentText 是结果内容块的文本拼接；
 ///     Error* 来自事件 error 字段（工具内部失败身份与用户可读原因，不进入模型内容）。
+///     MetaDiffs 是 meta.diffs 的直读投影（edit/write 编辑现场差异；缺省或非数组为 null）。
 /// </summary>
 public sealed record ToolResultWire(
-    string? CallId,
-    bool    IsError,
-    string? ContentText,
-    string? ErrorName,
-    string? ErrorCode,
-    string? ErrorReason);
+    string?                      CallId,
+    bool                         IsError,
+    string?                      ContentText,
+    string?                      ErrorName,
+    string?                      ErrorCode,
+    string?                      ErrorReason,
+    IReadOnlyList<ToolFileDiffWire>? MetaDiffs = null);
+
+/// <summary>tool/result meta.diffs 的一条差异块；oldText 为 null 表示纯插入。</summary>
+public sealed record ToolFileDiffWire(string Path, string? OldText, string NewText);
 
 /// <summary>session 历史记录的事件条目解析。</summary>
 public static class WireEventJson
@@ -54,7 +64,12 @@ public static class WireEventJson
                    dataElement.ValueKind is JsonValueKind.Object or JsonValueKind.Array
             ? dataElement.Clone()
             : default;
-        return new SessionWireEvent(type, seq, time, data);
+        // 信封层 meta（实测历史日志形态）随事件携带；官方当前源码写 data.meta，两处都消费。
+        JsonElement? meta = null;
+        if (element.TryGetProperty("meta", out var metaElement) &&
+            metaElement.ValueKind == JsonValueKind.Object)
+            meta = metaElement.Clone();
+        return new SessionWireEvent(type, seq, time, data, meta);
     }
 
     /// <summary>从事件 data 提取消息；仅处理 user/message 与 assistant/message。</summary>
@@ -100,11 +115,65 @@ public static class WireEventJson
                TryGetNumber(wireEvent.Data, "turn", out turn);
     }
 
+    /// <summary>
+    ///     deliverables/presented 事件：一轮显式交付文件的声明。结构校验对齐官方
+    ///     isPresentedData（turn 为 ≥1 的安全整数、callId 非空字符串、files 为数组），
+    ///     文件逐项按 isPresentedFile 校验（path 非空白、description 缺省或字符串），
+    ///     无效文件跳过且 Index 保留原始数组位置；结构无效或无有效文件返回假
+    ///     （官方视为不改变状态），坏载荷不影响会话加载。
+    /// </summary>
+    public static bool TryGetPresentedFiles(
+        SessionWireEvent                       wireEvent,
+        out long                               turn,
+        out IReadOnlyList<DeliveredFileDeclaration> files)
+    {
+        turn  = 0;
+        files = [];
+        if (wireEvent.Type           != "deliverables/presented" ||
+            wireEvent.Data.ValueKind != JsonValueKind.Object     ||
+            !TryGetSafeInteger(wireEvent.Data, "turn", out turn) ||
+            !TryGetString(wireEvent.Data, "callId", out var callId) ||
+            callId.Length == 0                                    ||
+            !wireEvent.Data.TryGetProperty("files", out var filesElement) ||
+            filesElement.ValueKind != JsonValueKind.Array)
+            return false;
+
+        var declared = new List<DeliveredFileDeclaration>();
+        var index    = 0;
+        foreach (var element in filesElement.EnumerateArray())
+        {
+            var position = index++;
+            if (element.ValueKind != JsonValueKind.Object    ||
+                !TryGetString(element, "path", out var path) ||
+                path.Trim().Length == 0                      ||
+                (element.TryGetProperty("description", out var description) &&
+                 description.ValueKind != JsonValueKind.String))
+                continue;
+
+            var descriptionText = description.ValueKind == JsonValueKind.String
+                ? description.GetString()
+                : null;
+            declared.Add(new DeliveredFileDeclaration(path, descriptionText, wireEvent.Seq, position));
+        }
+
+        if (declared.Count == 0) return false;
+        files = declared;
+        return true;
+    }
+
     /// <summary>turn/end 边界事件的轮次序号。</summary>
     public static bool TryGetTurnEnd(SessionWireEvent wireEvent, out long turn)
     {
         turn = 0;
         return wireEvent is { Type: "turn/end", Data.ValueKind: JsonValueKind.Object } &&
+               TryGetNumber(wireEvent.Data, "turn", out turn);
+    }
+
+    /// <summary>turn/start 与 turn/end 使用相同的数值轮次身份。</summary>
+    public static bool TryGetTurnStart(SessionWireEvent wireEvent, out long turn)
+    {
+        turn = 0;
+        return wireEvent is { Type: "turn/start", Data.ValueKind: JsonValueKind.Object } &&
                TryGetNumber(wireEvent.Data, "turn", out turn);
     }
 
@@ -300,16 +369,62 @@ public static class WireEventJson
 
         if (callId is null) return null;
 
+        // meta 位置兼容：实测历史日志在记录信封层（与 data 平级，Meta 即 meta 对象），
+        // 官方当前源码在事件体内（data.meta）。
+        var metaDiffs = (wireEvent.Meta is { } envelopeMeta
+                ? TryGetMetaDiffList(envelopeMeta)
+                : null)
+            ?? TryGetMetaDiffs(wireEvent.Data);
+
         string? errorName   = null;
         string? errorCode   = null;
         string? errorReason = null;
         if (!wireEvent.Data.TryGetProperty("error", out var error) || error.ValueKind != JsonValueKind.Object)
-            return new ToolResultWire(callId, isError, contentText, errorName, errorCode, errorReason);
+            return new ToolResultWire(callId, isError, contentText, errorName, errorCode, errorReason, metaDiffs);
         TryGetString(error, "name", out errorName);
         TryGetString(error, "code", out errorCode);
         TryGetString(error, "reason", out errorReason);
 
-        return new ToolResultWire(callId, isError, contentText, errorName, errorCode, errorReason);
+        return new ToolResultWire(callId, isError, contentText, errorName, errorCode, errorReason, metaDiffs);
+    }
+
+    /// <summary>
+    ///     从事件体读 meta.diffs（官方当前源码形态）；meta 缺失或 diffs 非数组返回 null。
+    /// </summary>
+    private static IReadOnlyList<ToolFileDiffWire>? TryGetMetaDiffs(JsonElement data)
+    {
+        if (!data.TryGetProperty("meta", out var meta) || meta.ValueKind != JsonValueKind.Object)
+            return null;
+
+        return TryGetMetaDiffList(meta);
+    }
+
+    /// <summary>
+    ///     从 meta 对象直读 diffs（信封层形态）；diffs 非数组返回 null，
+    ///     合法空数组（如 write 新建）返回空表；形状不合法的条目跳过，不猜测语义。
+    /// </summary>
+    private static IReadOnlyList<ToolFileDiffWire>? TryGetMetaDiffList(JsonElement meta)
+    {
+        if (!meta.TryGetProperty("diffs", out var diffs) || diffs.ValueKind != JsonValueKind.Array)
+            return null;
+
+        var list = new List<ToolFileDiffWire>();
+        foreach (var item in diffs.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object) continue;
+
+            // oldText 允许 null（纯插入）；newText 必须是字符串，缺失即整条跳过。
+            if (!TryGetString(item, "path", out var path)   ||
+                !TryGetString(item, "newText", out var newText) ||
+                !item.TryGetProperty("oldText", out var oldElement) ||
+                (oldElement.ValueKind != JsonValueKind.Null && oldElement.ValueKind != JsonValueKind.String))
+                continue;
+
+            var oldText = oldElement.ValueKind == JsonValueKind.Null ? null : oldElement.GetString();
+            list.Add(new ToolFileDiffWire(path, oldText, newText));
+        }
+
+        return list;
     }
 
     /// <summary>拼接消息的全部文本分块；非文本分块阶段 2 不展示。</summary>
@@ -380,6 +495,24 @@ public static class WireEventJson
             property.ValueKind == JsonValueKind.Number     &&
             property.TryGetInt64(out value))
             return true;
+
+        value = 0;
+        return false;
+    }
+
+    private static bool TryGetSafeInteger(JsonElement element, string name, out long value)
+    {
+        if (element.TryGetProperty(name, out var property) &&
+            property.ValueKind == JsonValueKind.Number &&
+            property.TryGetDouble(out var number) &&
+            double.IsFinite(number) &&
+            number >= 1 &&
+            number <= 9_007_199_254_740_991d &&
+            number == Math.Truncate(number))
+        {
+            value = (long)number;
+            return true;
+        }
 
         value = 0;
         return false;

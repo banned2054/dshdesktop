@@ -31,7 +31,8 @@ public abstract record SessionUpdate
         long                             WindowStartSeq,
         bool                             HasMore,
         string?                          Title,
-        ModelSelection?                  CurrentModel = null) : SessionUpdate;
+        ModelSelection?                  CurrentModel = null,
+        string?                          Cwd = null) : SessionUpdate;
 
     public sealed record MessageAppended(ConversationMessage Message) : SessionUpdate;
 
@@ -66,7 +67,7 @@ public abstract record SessionUpdate
     public sealed record TurnEnded(long Turn, long Seq, string? Reason = null) : SessionUpdate;
 
     /// <summary>一轮对话开始（turn/start）：界面据此清空上一轮的任务面板显示。</summary>
-    public sealed record TurnStarted(long Seq) : SessionUpdate;
+    public sealed record TurnStarted(long Seq, long? Turn = null, bool IsReplay = false) : SessionUpdate;
 
     /// <summary>
     ///     任务清单被整体替换（todo/write 事件，快照重放同样到达）。Todos 是最新全量
@@ -80,6 +81,13 @@ public abstract record SessionUpdate
     ///     内容本身不随事件携带，经 IWorkspaceChangesService 按 Seq 拉取。
     /// </summary>
     public sealed record WorkspaceChanged(long Turn, long Seq) : SessionUpdate;
+
+    /// <summary>
+    ///     一轮交付文件声明（deliverables/presented 持久事件，快照重放与实时增量同形）。
+    ///     同一轮的多次事件是追加而非整体替换；快照条目与重放更新可能重复送达同一条
+    ///     声明，按 (Seq, Index) 去重。与 <see cref="WorkspaceChanged" /> 相互独立。
+    /// </summary>
+    public sealed record DeliverablesPresented(DeliverablesPresentedAnnouncement Announcement) : SessionUpdate;
 
     public sealed record StreamStarted(string AttemptId) : SessionUpdate;
 

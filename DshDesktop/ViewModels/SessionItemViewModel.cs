@@ -15,6 +15,9 @@ public sealed class SessionItemViewModel(SessionSummary summary) : ObservableObj
 
     public string Id { get; } = summary.Id;
 
+    /// <summary>后端目录中该会话所属工作目录，供本地轮次快照使用。</summary>
+    public string? Cwd { get; private set; } = summary.Cwd;
+
     /// <summary>会话最近更新时间（摘要投影）；置顶分类内同类行按它降序。</summary>
     public DateTimeOffset UpdatedAt
     {
@@ -82,6 +85,7 @@ public sealed class SessionItemViewModel(SessionSummary summary) : ObservableObj
 
     public void UpdateSummary(SessionSummary summary)
     {
+        AdoptCwd(summary.Cwd);
         // 列表摘要可能尚未携带标题投影；不用空值覆盖本地已采纳的标题。
         if (!string.IsNullOrWhiteSpace(summary.Title)) Title = summary.Title;
 
@@ -101,6 +105,12 @@ public sealed class SessionItemViewModel(SessionSummary summary) : ObservableObj
     public void AdoptTitle(string? title)
     {
         if (string.IsNullOrWhiteSpace(Title) && !string.IsNullOrWhiteSpace(title)) Title = title;
+    }
+
+    /// <summary>follow header 与目录摘要均来自该会话；缺失字段不清空已知目录。</summary>
+    public void AdoptCwd(string? cwd)
+    {
+        if (!string.IsNullOrWhiteSpace(cwd)) Cwd = cwd;
     }
 
     /// <summary>

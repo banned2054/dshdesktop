@@ -1,6 +1,6 @@
 namespace DshDesktop.Core.Models;
 
-/// <summary>会话时间线中的一个可显示条目；Seq 与后端事件日志序号对齐，决定时间线顺序。</summary>
+/// <summary>会话时间线条目；后端条目使用正 Seq，本地文件摘要使用负 Seq 并按轮末位置插入。</summary>
 public abstract record ConversationEntry(long Seq, DateTimeOffset CreatedAt);
 
 /// <summary>工具调用的当前状态。</summary>
@@ -17,21 +17,30 @@ public enum ToolActivityStatus
 }
 
 /// <summary>
+///     edit/write 工具 result meta 中由 Host 在编辑现场计算的带上下文差异块
+///     （official FsDiffMeta.diffs）：每个 hunk 一条，含 3 行上下文，无原文件行号。
+///     oldText 为 null 表示纯插入。Path 是工具使用的路径（可能被桥接层相对化）。
+/// </summary>
+public sealed record ToolFileDiff(string Path, string? OldText, string NewText);
+
+/// <summary>
 ///     一次工具调用（tool/call 与其 tool/result 的折叠视图）。
 ///     ArgumentsJson 是模型产出的原始参数 JSON 文本；ResultText 是结果内容块的文本拼接，
-///     截断策略由显示层决定。Turn 是后端标注的轮次序号。
+///     截断策略由显示层决定。Turn 是后端标注的轮次序号。MetaDiffs 是 result 事件
+///     meta.diffs 携带的编辑现场差异（仅 edit/write 成功结果存在）。
 /// </summary>
 public sealed record ToolActivity(
-    long               Seq,
-    string             CallId,
-    string             Name,
-    string?            ArgumentsJson,
-    ToolActivityStatus Status,
-    string?            ResultText,
-    string?            ErrorReason,
-    DateTimeOffset     CreatedAt,
-    DateTimeOffset?    CompletedAt = null,
-    long?              Turn        = null) : ConversationEntry(Seq, CreatedAt)
+    long                      Seq,
+    string                    CallId,
+    string                    Name,
+    string?                   ArgumentsJson,
+    ToolActivityStatus        Status,
+    string?                   ResultText,
+    string?                   ErrorReason,
+    DateTimeOffset            CreatedAt,
+    DateTimeOffset?           CompletedAt = null,
+    long?                     Turn        = null,
+    IReadOnlyList<ToolFileDiff>? MetaDiffs = null) : ConversationEntry(Seq, CreatedAt)
 {
     public ToolActivity Settle(
         ToolActivityStatus status, string? resultText, string? errorReason, DateTimeOffset completedAt)
@@ -58,3 +67,12 @@ public sealed record TurnBoundary(
     long           Turn,
     DateTimeOffset CreatedAt,
     string?        Reason = null) : ConversationEntry(Seq, CreatedAt);
+
+/// <summary>
+///     一轮文件改动的宣告。本地摘要使用负 Seq，与 Host 正序号隔离；
+///     摘要和逐文件对比由 <c>IWorkspaceChangesService</c> 按会话和 Seq 读取。
+/// </summary>
+public sealed record WorkspaceChangesAnnouncement(
+    long           Seq,
+    long           Turn,
+    DateTimeOffset CreatedAt) : ConversationEntry(Seq, CreatedAt);

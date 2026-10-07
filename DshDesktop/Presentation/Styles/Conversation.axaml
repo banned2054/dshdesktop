@@ -140,4 +140,189 @@
     <Style Selector="Button.workspace-picker:pointerover">
         <Setter Property="Background" Value="{DynamicResource SessionHoverBrush}" />
     </Style>
+
+    <!-- 文件改动卡片（已编辑）：对齐 Codex 的中性圆角表面——深色底 #262626、悬停/选中
+         #2A2A2A，浅色底 #FFFEFF、悬停/选中 #FBFAFC（见 ThemeResources）。单文件时整卡
+         是一个可点按钮；多文件容器头部静态，仅文件行可点，超过 3 行折叠。 -->
+    <Style Selector="Border.changes-card">
+        <Setter Property="Background" Value="{DynamicResource ChangesCardBackgroundBrush}" />
+        <Setter Property="CornerRadius" Value="10" />
+        <Setter Property="Padding" Value="8" />
+        <Setter Property="Margin" Value="0,0,0,16" />
+    </Style>
+    <Style Selector="Button.changes-single">
+        <Setter Property="Background" Value="{DynamicResource ChangesCardBackgroundBrush}" />
+        <Setter Property="CornerRadius" Value="10" />
+        <Setter Property="Padding" Value="12,10" />
+        <Setter Property="Margin" Value="0,0,0,16" />
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="Foreground" Value="{DynamicResource ToolRowLabelHoverBrush}" />
+        <Setter Property="Focusable" Value="False" />
+    </Style>
+    <!-- Fluent 按钮主题会在模板层给 pointerover/pressed 上底色，须显式钉回卡片色系
+         （同 reason-row 的处理）。 -->
+    <Style Selector="Button.changes-single:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource ChangesCardHoverBrush}" />
+    </Style>
+    <Style Selector="Button.changes-single:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource ChangesCardPressedBrush}" />
+    </Style>
+    <!-- 标题行左侧的编辑徽标底：取悬停色一档，压住图标又不与卡片脱节。 -->
+    <Style Selector="Border.changes-badge">
+        <Setter Property="Width" Value="28" />
+        <Setter Property="Height" Value="28" />
+        <Setter Property="CornerRadius" Value="7" />
+        <Setter Property="Background" Value="{DynamicResource ChangesCardHoverBrush}" />
+    </Style>
+    <Style Selector="TextBlock.changes-title">
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Foreground" Value="{DynamicResource ToolRowLabelHoverBrush}" />
+    </Style>
+    <Style Selector="TextBlock.changes-count">
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}" />
+    </Style>
+    <!-- 增删行数：绿/红独立着色（DiffAdded/DiffDeleted），头部合计与文件行共用。 -->
+    <Style Selector="TextBlock.changes-added">
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Foreground" Value="{DynamicResource DiffAddedBrush}" />
+    </Style>
+    <Style Selector="TextBlock.changes-deleted">
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Foreground" Value="{DynamicResource DiffDeletedBrush}" />
+    </Style>
+    <Style Selector="TextBlock.changes-state">
+        <Setter Property="Margin" Value="12,4,8,4" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+        <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}" />
+    </Style>
+    <!-- 单文件卡右侧的「查看变更」：细描边小按钮，与整卡同命令。 -->
+    <Style Selector="Button.changes-action">
+        <Setter Property="Padding" Value="12,5" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="{DynamicResource ChangesCardBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Foreground" Value="{DynamicResource ToolRowLabelHoverBrush}" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="Focusable" Value="False" />
+    </Style>
+    <Style Selector="Button.changes-action:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource ChangesCardHoverBrush}" />
+    </Style>
+    <Style Selector="Button.changes-action:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource ChangesCardPressedBrush}" />
+    </Style>
+    <!-- 多文件容器中的文件行：透明底、悬停/选中卡片悬停色；增删列跨行共享宽度对齐。 -->
+    <Style Selector="Button.changes-file">
+        <Setter Property="Padding" Value="8,6" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="Foreground" Value="{DynamicResource ToolRowLabelBrush}" />
+        <Setter Property="Focusable" Value="False" />
+    </Style>
+    <Style Selector="Button.changes-file:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource ChangesCardHoverBrush}" />
+    </Style>
+    <Style Selector="Button.changes-file:selected /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource ChangesCardHoverBrush}" />
+    </Style>
+    <Style Selector="Button.changes-toggle">
+        <Setter Property="HorizontalAlignment" Value="Left" />
+        <Setter Property="Padding" Value="8,6" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}" />
+        <Setter Property="Focusable" Value="False" />
+    </Style>
+    <Style Selector="Button.changes-toggle:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource ChangesCardHoverBrush}" />
+    </Style>
+
+    <!-- 持久化的交付文件声明：表面、文件行与折叠开关复用 changes-* 样式族（与改动卡
+         同一套 Codex 中性表面），这里只保留卡容器与行内状态文案。点击打开当前文件的
+         应用内视图，不呈现历史 diff。 -->
+    <Style Selector="Border.deliverables-card">
+        <Setter Property="Background" Value="{DynamicResource ChangesCardBackgroundBrush}" />
+        <Setter Property="CornerRadius" Value="10" />
+        <Setter Property="Padding" Value="8" />
+        <Setter Property="Margin" Value="0,0,0,16" />
+    </Style>
+    <Style Selector="TextBlock.deliverables-state">
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+        <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}" />
+    </Style>
+    <Style Selector="TextBlock.deliverables-state.error">
+        <Setter Property="Foreground" Value="{DynamicResource StatusErrorBrush}" />
+    </Style>
+
+    <!-- Session 右侧单文件 diff 面板。 -->
+    <Style Selector="Border.diff-panel">
+        <Setter Property="Background" Value="{DynamicResource ChatBackgroundBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource SubtleBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1,0,0,0" />
+    </Style>
+    <Style Selector="Button.diff-close">
+        <Setter Property="Padding" Value="10,4" />
+        <Setter Property="CornerRadius" Value="7" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Background" Value="{DynamicResource PanelBackgroundBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource SubtleBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}" />
+    </Style>
+    <Style Selector="Button.diff-close:pointerover">
+        <Setter Property="Background" Value="{DynamicResource SessionHoverBrush}" />
+    </Style>
+    <Style Selector="TextBlock.diff-status">
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+        <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}" />
+    </Style>
+    <!-- 数据来源标注（本轮差异 / 历史片段 / 当前内容 / 不可用）：比普通状态行更醒目。 -->
+    <Style Selector="TextBlock.diff-source">
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <!-- 历史编辑片段块的头部行与容器边框。 -->
+    <Style Selector="TextBlock.diff-fragment-header">
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}" />
+    </Style>
+    <Style Selector="Border.diff-fragment-box">
+        <Setter Property="BorderBrush" Value="{DynamicResource SubtleBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="6" />
+        <Setter Property="Padding" Value="6" />
+    </Style>
+    <!-- 当前文件内容的只读展示：等宽、无边框融入面板背景。 -->
+    <Style Selector="TextBox.diff-content">
+        <Setter Property="FontFamily" Value="Consolas, 'Courier New', monospace" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Background" Value="{DynamicResource ChatBackgroundBrush}" />
+        <Setter Property="BorderThickness" Value="0" />
+    </Style>
+    <Style Selector="Button.diff-open-external">
+        <Setter Property="Padding" Value="10,4" />
+        <Setter Property="CornerRadius" Value="7" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Background" Value="{DynamicResource PanelBackgroundBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource SubtleBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}" />
+    </Style>
+    <Style Selector="Button.diff-open-external:pointerover">
+        <Setter Property="Background" Value="{DynamicResource SessionHoverBrush}" />
+    </Style>
 </Styles>

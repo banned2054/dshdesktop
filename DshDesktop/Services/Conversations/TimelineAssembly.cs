@@ -14,12 +14,27 @@ namespace DshDesktop.Services.Conversations;
 /// </summary>
 internal sealed class TimelineAssembly(
     ObservableCollection<ConversationItemViewModel>      target,
-    Func<long?, long, bool, TurnProcessExpansionState?>? processExpansionStateResolver = null)
+    Func<long?, long, bool, TurnProcessExpansionState?>? processExpansionStateResolver = null,
+    Func<WorkspaceChangesAnnouncement, WorkspaceChangesCardViewModel?>? changesCardFactory = null,
+    Func<DeliverablesPresentedAnnouncement, long?, DeliverablesCardViewModel?>? deliverablesCardFactory = null)
 {
     private readonly ObservableCollection<ConversationItemViewModel> _target = target;
 
     private readonly Dictionary<string, (ToolActivityItemViewModel Card, TurnProcessGroupViewModel? Group)>
         _toolsByCallId = new();
+
+    /// <summary>按轮次记录的改动卡片；同一轮后到的宣告取代先前卡片。</summary>
+    private readonly Dictionary<long, WorkspaceChangesCardViewModel> _changesCardsByTurn = new();
+
+    /// <summary>原始交付事件按轮保留，轮末按官方 closing-message seq 规则投影。</summary>
+    private readonly Dictionary<long, DeliverablesCardViewModel> _deliverablesCardsByTurn = new();
+
+    private readonly Dictionary<long, List<DeliverablesPresentedAnnouncement>> _deliverablesByTurn = new();
+    private readonly Dictionary<long, HashSet<long>> _deliverablesEventSeqsByTurn = new();
+
+    /// <summary>已收束轮次的最终助手 seq 与尾部锚点；迟到声明仍按官方规则投影。</summary>
+    private readonly Dictionary<long, long> _closingMessageSeqByTurn = new();
+    private readonly Dictionary<long, ConversationItemViewModel?> _closedTurnAnchors = new();
 
     /// <summary>当前轮的条目顺序；用于结算最终回复（最后一个无工具调用的有正文消息）。</summary>
     private readonly List<ConversationEntry> _turnEntries = [];
@@ -64,7 +79,9 @@ internal sealed class TimelineAssembly(
                     if (_turn is not null && _turn != boundary.Turn) return;
 
                     var endedNormally = boundary.Reason is null or "completed";
-                    CloseTurn(_turnStartObserved && endedNormally);
+                    var boundaryClose = CloseTurn(_turnStartObserved && endedNormally);
+                    if (boundaryClose.ClosingSeq is { } boundaryClosingSeq)
+                        CompleteDeliverablesTurn(boundaryClose.Turn ?? boundary.Turn, boundaryClosingSeq);
                 }
 
                 // 边界收束上一轮，其后是新一轮的起点。
@@ -74,7 +91,10 @@ internal sealed class TimelineAssembly(
             case ConversationMessage { Role: MessageRole.User } message :
                 // 用户消息开新一轮：上一轮未见 turn/end 时保守收尾，不折叠。
                 // 用户气泡不属于任何轮的过程条目，不进入轮内跟踪。
-                CloseTurn(false);
+                var userMessageClose = CloseTurn(false);
+                if (userMessageClose.Turn is { } previousTurn &&
+                    userMessageClose.ClosingSeq is { } previousClosingSeq)
+                    CompleteDeliverablesTurn(previousTurn, previousClosingSeq);
                 _turnOpeningSeen = true;
                 _target.Add(new MessageItemViewModel(message));
                 return;
@@ -115,9 +135,98 @@ internal sealed class TimelineAssembly(
                 _turnOpeningSeen = false;
                 return;
 
+            case WorkspaceChangesAnnouncement announcement :
+                if (changesCardFactory is null) return;
+                // 本地捕获不依赖 producer；同轮 Host 宣告不得覆盖它。
+                if (announcement.Seq >= 0 && _changesCardsByTurn.TryGetValue(announcement.Turn, out var localCard) &&
+                    localCard.Seq < 0) return;
+                var changesCard = changesCardFactory(announcement);
+                if (changesCard is null) return;
+                if (_changesCardsByTurn.Remove(announcement.Turn, out var previousCard))
+                    _target.Remove(previousCard);
+
+                _changesCardsByTurn[announcement.Turn] = changesCard;
+                _target.Add(changesCard);
+                // 同轮交付卡已存在时补接计数来源：摘要宣告可以晚于轮收束到达。
+                if (_deliverablesCardsByTurn.TryGetValue(announcement.Turn, out var deliveredCard))
+                    deliveredCard.SetChangesSource(changesCard.Seq);
+                MoveDeliverablesAfterChanges(announcement.Turn, changesCard);
+                return;
+
+            case DeliverablesPresentedAnnouncement announcement :
+                if (!_deliverablesByTurn.TryGetValue(announcement.Turn, out var turnAnnouncements))
+                {
+                    turnAnnouncements = [];
+                    _deliverablesByTurn.Add(announcement.Turn, turnAnnouncements);
+                    _deliverablesEventSeqsByTurn.Add(announcement.Turn, []);
+                }
+
+                if (_deliverablesEventSeqsByTurn[announcement.Turn].Add(announcement.Seq))
+                    turnAnnouncements.Add(announcement);
+
+                if (_closingMessageSeqByTurn.TryGetValue(announcement.Turn, out var closingSeq))
+                    RefreshDeliverablesCard(announcement.Turn, closingSeq);
+                return;
+
             default :
                 throw new NotSupportedException($"未支持的会话条目类型：{entry.GetType().Name}");
         }
+    }
+
+    private void PlaceDeliverablesCard(long turn)
+    {
+        if (!_deliverablesCardsByTurn.TryGetValue(turn, out var card) || _target.Contains(card)) return;
+
+        var changes = _target.OfType<WorkspaceChangesCardViewModel>()
+            .LastOrDefault(candidate => candidate.Turn == turn);
+        var anchor = changes ?? _closedTurnAnchors.GetValueOrDefault(turn);
+        var index = anchor is null ? -1 : _target.IndexOf(anchor);
+        _target.Insert(index < 0 ? _target.Count : index + 1, card);
+    }
+
+    private void MoveDeliverablesAfterChanges(long turn, WorkspaceChangesCardViewModel changes)
+    {
+        if (!_deliverablesCardsByTurn.TryGetValue(turn, out var delivered)) return;
+
+        var changesIndex = _target.IndexOf(changes);
+        var deliveredIndex = _target.IndexOf(delivered);
+        if (changesIndex < 0 || deliveredIndex < 0 || deliveredIndex == changesIndex + 1) return;
+
+        _target.RemoveAt(deliveredIndex);
+        changesIndex = _target.IndexOf(changes);
+        _target.Insert(changesIndex + 1, delivered);
+    }
+
+    private void CompleteDeliverablesTurn(long turn, long closingSeq)
+    {
+        _closingMessageSeqByTurn.TryAdd(turn, closingSeq);
+        _closedTurnAnchors.TryAdd(turn, _target.LastOrDefault());
+        RefreshDeliverablesCard(turn, _closingMessageSeqByTurn[turn]);
+    }
+
+    private void RefreshDeliverablesCard(long turn, long closingSeq)
+    {
+        if (!_deliverablesByTurn.TryGetValue(turn, out var announcements)) return;
+
+        var declarations = announcements.SelectMany(announcement => announcement.Files).ToArray();
+        var presented = TurnDeliverables.ForClosing(declarations, closingSeq);
+        if (presented.Count == 0) return;
+
+        var first = announcements.MinBy(announcement => announcement.Seq)!;
+        var projection = new DeliverablesPresentedAnnouncement(first.Seq, turn, first.CreatedAt, presented);
+        if (_deliverablesCardsByTurn.TryGetValue(turn, out var existing))
+        {
+            existing.ReplaceFiles(presented);
+            return;
+        }
+
+        // 第二参数是该轮改动宣告的 seq（无则 null），交付卡用它异步取增删计数。
+        if (deliverablesCardFactory?.Invoke(
+                projection,
+                _changesCardsByTurn.TryGetValue(turn, out var changesCard) ? changesCard.Seq : null)
+            is not { } card) return;
+        _deliverablesCardsByTurn.Add(turn, card);
+        PlaceDeliverablesCard(turn);
     }
 
     /// <summary>完成快照/历史重建后再固定每个过程组的恢复锚点。</summary>
@@ -153,7 +262,9 @@ internal sealed class TimelineAssembly(
             // 未知身份仍沿用当前轮；不同的已知身份不能混进同一过程组。
             if (turn is null || turn == _turn) return;
 
-            CloseTurn(false);
+            var closed = CloseTurn(false);
+            if (closed.Turn is { } closedTurn && closed.ClosingSeq is { } closingSeq)
+                CompleteDeliverablesTurn(closedTurn, closingSeq);
         }
 
         _turn              = turn;
@@ -166,11 +277,12 @@ internal sealed class TimelineAssembly(
     ///     生成思考-only 投影入组，本体经 HasVisibleReasoning 停止重复展示。
     ///     起点被会话历史页截断的轮次标记部分加载，过程组展示该轮当前已加载的全部条目。
     /// </summary>
-    private void CloseTurn(bool foldAllowed)
+    private (long? Turn, long? ClosingSeq) CloseTurn(bool foldAllowed)
     {
+        var turn = _turn;
         try
         {
-            if (_turnItems.Count == 0) return;
+            if (_turnItems.Count == 0) return (turn, null);
 
             var answer = FindAnswer();
             if (answer is null)
@@ -178,10 +290,11 @@ internal sealed class TimelineAssembly(
                 // 没有独立最终回复时，已加载过程继续交给过程组完整展示。
                 PromoteProvisionalAnswer();
                 if (_activeGroup is not null && !foldAllowed) _activeGroup.MarkPartialTurn();
-                return;
+                return (turn, null);
             }
 
             var settledAnswer = answer.Value;
+            turn ??= settledAnswer.Message.Turn;
             _activeGroup?.Remove(settledAnswer.Item);
             if (_provisionalAnswer is not null &&
                 !ReferenceEquals(_provisionalAnswer, settledAnswer.Item))
@@ -222,9 +335,10 @@ internal sealed class TimelineAssembly(
             if (_activeGroup is not null && _activeGroup.Process.Count == 0)
                 _target.Remove(_activeGroup);
 
-            if (_activeGroup is null) return;
+            if (_activeGroup is null) return (turn, settledAnswer.Message.Seq);
             if (foldAllowed && !_activeGroup.HasUserSetExpansion) _activeGroup.IsExpanded = false;
             else _activeGroup.MarkPartialTurn();
+            return (turn, settledAnswer.Message.Seq);
         }
         finally
         {
