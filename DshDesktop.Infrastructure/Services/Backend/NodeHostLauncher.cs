@@ -37,7 +37,7 @@ public sealed class NodeHostLauncher : IAsyncDisposable
     /// <summary>就绪后完成，携带领启动令牌的认证 URL；失败或超时则出错。</summary>
     public Task<Uri> Ready => _ready.Task;
 
-    /// <summary>launcher 进程退出后完成。</summary>
+    /// <summary>Host exited 控制消息或 launcher 退出时完成；不保证 launcher 已实际终止。</summary>
     public Task<NodeHostExited> Exited => _exited.Task;
 
     public async ValueTask DisposeAsync()
@@ -49,17 +49,21 @@ public sealed class NodeHostLauncher : IAsyncDisposable
 
         try
         {
-            await _exited.Task.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+            // The "exited" control message describes the Host, not the launcher.
+            // Kill is asynchronous; wait for the OS process before releasing its
+            // handles or allowing the owner to remove runtime files on Windows.
+            await _process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
         }
-        catch (TimeoutException)
+        finally
         {
+            // Even a failed exit wait must close the Job Object, but its failure
+            // must propagate rather than reporting successful disposal.
+            _process.OutputDataReceived -= OnControlLine;
+            _process.ErrorDataReceived  -= OnStderrLine;
+            _process.Exited             -= OnProcessExited;
+            _treeGuard?.Dispose();
+            _process.Dispose();
         }
-
-        _process.OutputDataReceived -= OnControlLine;
-        _process.ErrorDataReceived  -= OnStderrLine;
-        _process.Exited             -= OnProcessExited;
-        _process.Dispose();
-        _treeGuard?.Dispose();
     }
 
     /// <summary>就绪之后发生的意外失败（Host 崩溃或 IPC 报 fatal），参数为可读原因。</summary>

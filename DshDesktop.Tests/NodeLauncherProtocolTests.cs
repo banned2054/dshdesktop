@@ -3,6 +3,7 @@ using DshDesktop.Infrastructure.Exceptions;
 using DshDesktop.Infrastructure.Services.Backend;
 using NUnit.Framework;
 using NUnit.Framework.Legacy;
+using System.Diagnostics;
 
 namespace DshDesktop.Tests;
 
@@ -14,6 +15,7 @@ public sealed class NodeLauncherProtocolTests
 {
     private const string StubHostScript = """
         const path = require('node:path')
+        require('node:fs').writeFileSync(path.join(process.argv[3], 'host.pid'), String(process.pid))
         const mode = path.basename(process.argv[4] || '')
         const send = (message) => { if (process.connected) process.send(message) }
         if (mode.includes('fatal')) {
@@ -40,16 +42,15 @@ public sealed class NodeLauncherProtocolTests
         var environment = StubEnvironment.TryCreate("ready");
         if (environment is null) return;
 
-        using var _        = environment;
-        var       launcher = NodeHostLauncher.Start(environment.Options);
-        var       readyUrl = await launcher.Ready.WaitAsync(TimeSpan.FromSeconds(15));
+        using var       _        = environment;
+        await using var launcher = NodeHostLauncher.Start(environment.Options);
+        var             readyUrl = await launcher.Ready.WaitAsync(TimeSpan.FromSeconds(15));
 
         ClassicAssert.AreEqual("http://127.0.0.1:19999/?token=stub-token", readyUrl.ToString());
 
         await launcher.StopAsync(TimeSpan.FromSeconds(10));
         var exited = await launcher.Exited.WaitAsync(TimeSpan.FromSeconds(10));
         ClassicAssert.IsTrue(exited.Clean);
-        await launcher.DisposeAsync();
     }
 
     [Test]
@@ -58,13 +59,12 @@ public sealed class NodeLauncherProtocolTests
         var environment = StubEnvironment.TryCreate("fatal");
         if (environment is null) return;
 
-        using var _        = environment;
-        var       launcher = NodeHostLauncher.Start(environment.Options);
+        using var       _        = environment;
+        await using var launcher = NodeHostLauncher.Start(environment.Options);
         var exception =
             await Assert.ThrowsAsync<BackendProcessException>(() => launcher.Ready.WaitAsync(TimeSpan.FromSeconds(15)));
 
-        Assert.That(exception.Message, Does.Contain("boom-from-stub"));
-        await launcher.DisposeAsync();
+        Assert.That(exception!.Message, Does.Contain("boom-from-stub"));
     }
 
     [Test]
@@ -74,13 +74,20 @@ public sealed class NodeLauncherProtocolTests
         if (environment is null) return;
 
         using var _         = environment;
-        var       launcher  = NodeHostLauncher.Start(environment.Options);
         var       startTime = DateTimeOffset.UtcNow;
 
-        // 不等待就绪，直接释放：必须终止进程树而不是挂起。
-        await launcher.DisposeAsync();
-        await launcher.Exited.WaitAsync(TimeSpan.FromSeconds(15));
+        Process host;
+        // 不等待就绪；确认 Host 子进程已创建，避免只测到尚未 spawn 的 launcher。
+        await using (var launcher = NodeHostLauncher.Start(environment.Options))
+        {
+            host = await environment.WaitForHostProcessAsync();
+            Assert.That(host.HasExited, Is.False);
+        }
 
+        using (host)
+        {
+            Assert.That(host.HasExited, Is.True, "释放 launcher 后不能遗留 Host 子进程。");
+        }
         ClassicAssert.IsTrue(DateTimeOffset.UtcNow - startTime < TimeSpan.FromSeconds(15));
     }
 
@@ -101,6 +108,40 @@ public sealed class NodeLauncherProtocolTests
         ClassicAssert.AreEqual(BackendStatus.Offline, host.Status);
     }
 
+    [Test]
+    [Repeat(20)]
+    public async Task DisposeWaitsForLauncherExitAfterHostExitMessage()
+    {
+        var environment = StubEnvironment.TryCreate("ready");
+        if (environment is null) return;
+
+        using var _ = environment;
+        var script = Path.Combine(environment.Options.ProfileDir, "early-exit.mjs");
+        File.WriteAllText(script, """
+            import { createInterface } from 'node:readline'
+            process.stdout.write(JSON.stringify({ type: 'ready', url: `http://127.0.0.1:19999/?pid=${process.pid}` }) + '\n')
+            createInterface({ input: process.stdin }).on('line', () => {
+              process.stdout.write(JSON.stringify({ type: 'exited', code: 0, clean: true }) + '\n')
+            })
+            setInterval(() => {}, 60000)
+            """);
+
+        Process process;
+        await using (var launcher = NodeHostLauncher.Start(environment.Options with { LauncherScriptPath = script }))
+        {
+            var ready = await launcher.Ready.WaitAsync(TimeSpan.FromSeconds(15));
+            process = Process.GetProcessById(int.Parse(ready.Query["?pid=".Length..]));
+            await launcher.StopAsync(TimeSpan.FromSeconds(10));
+            Assert.That((await launcher.Exited).Clean, Is.True);
+            Assert.That(process.HasExited, Is.False, "Host exited 控制消息不代表 launcher 已退出。");
+        }
+
+        using (process)
+        {
+            Assert.That(process.HasExited, Is.True, "Dispose 必须等待实际进程退出，不能只等待控制消息。");
+        }
+    }
+
     private sealed class StubEnvironment : IDisposable
     {
         private readonly string _root;
@@ -113,16 +154,25 @@ public sealed class NodeLauncherProtocolTests
 
         public NodeHostOptions Options { get; }
 
+        public async Task<Process> WaitForHostProcessAsync()
+        {
+            var pidFile = Path.Combine(Options.ProfileDir, "host.pid");
+            var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(10);
+            while (DateTimeOffset.UtcNow < deadline)
+            {
+                if (File.Exists(pidFile) && int.TryParse(await File.ReadAllTextAsync(pidFile), out var pid))
+                    return Process.GetProcessById(pid);
+
+                await Task.Delay(20);
+            }
+
+            throw new TimeoutException("Stub Host 未记录进程 ID。");
+        }
+
         public void Dispose()
         {
-            try
-            {
-                Directory.Delete(_root, true);
-            }
-            catch (IOException)
-            {
-                // 临时目录清理失败不影响测试结论。
-            }
+            // 清理失败必须暴露；不能把仍在使用运行时文件的进程泄漏当成测试通过。
+            Directory.Delete(_root, true);
         }
 
         public static StubEnvironment? TryCreate(string mode)

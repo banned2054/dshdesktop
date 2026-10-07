@@ -16,6 +16,7 @@
 客户端使用 Avalonia 原生界面和现有 Node Harness 后端。会话、工作区归属、权限和 Agent 执行的权威状态由后端持有；客户端不修改 Harness 内部存储，也不建立第二套权威会话数据库。
 
 - Infrastructure 的 [launcher](../DshDesktop.Infrastructure/Assets/Backend/launcher.mjs) 桥接原 Host 的 Node IPC，向 C# 提供逐行 JSON 控制协议 `v: 1`。stdout 仅用于控制帧，stderr 用于日志；就绪、错误、停止回执和退出清理需要保持一致。
+- `NodeHostLauncher.Exited` 可由 Host 的 `exited` 控制消息提前完成，不代表 launcher 已实际终止。释放 launcher 时终止进程树并等待操作系统确认进程退出，再释放进程资源；退出等待超时向调用者报告，不吞异常或把临时运行时清理失败当作成功。`NodeLauncherProtocolTests` 覆盖提前退出通知、优雅关停与 Host 子进程回收；夹具验证不等于真实 DSH Host 或 GitHub runner 验收。
 - 当前 Host 入口为 runtime 内 `node_modules/@deepseek-ai/dsh-desktop-host/lib/index.js`。解析模式默认 `runtime`，`link` 可显式选择。升级需核对入口、profile、原生依赖和运行资产，不能仅更新源码而沿用旧构建产物。
 - [运行配置](../DshDesktop/Services/Backend/DesktopBackendConfiguration.cs) 中插件 profile 为应用私有；Harness home 默认按 `DSH_HOME`、`~/.dsh` 解析，也可通过 `DSH_DESKTOP_DSH_HOME` 覆盖。用户会话和凭据不能当作测试夹具随意改动。
 - [认证](../DshDesktop.Harness/Services/Connection/HarnessAuth.cs) 以本次启动的 token 地址交换 Cookie；HTTP 和 WebSocket 共用 Cookie。敏感地址、Cookie 和凭据值不进入文档或日志。
