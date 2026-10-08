@@ -21,7 +21,7 @@ public sealed record NodeHostOptions
     /// <summary>Host 的 Harness home；与会话数据隔离于应用数据目录。</summary>
     public required string DshHome { get; init; }
 
-    /// <summary>包解析模式：runtime（进程内解析）或 link（磁盘符号链接，每次启动需维护 profile 下的模块 junction，冷启动显著变慢）。默认 runtime，与 DSH 正式桌面版一致。</summary>
+    /// <summary>保留的 launcher 参数（runtime 或 link）；当前锁定 Host 自行进行进程内解析，不再接收此位置参数。</summary>
     public string ResolutionMode { get; init; } = "runtime";
 
     /// <summary>等待 Host 就绪的上限。</summary>

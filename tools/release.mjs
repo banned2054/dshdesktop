@@ -149,32 +149,98 @@ function copyPackageFiles(source, destination) {
     filter: path => path !== join(source, 'node_modules') })
 }
 
-function materializePackages(entries, destination, ancestors = [], branch = []) {
+function workspacePackages(source) {
+  const packages = new Map()
+  const add = directory => {
+    const manifestPath = join(directory, 'package.json')
+    if (existsSync(manifestPath)) packages.set(readJson(manifestPath).name, realpathSync(directory))
+  }
+  for (const parent of ['apps', 'vendor']) {
+    const directory = join(source, parent)
+    if (existsSync(directory)) for (const child of readdirSync(directory, { withFileTypes: true })) {
+      if (child.isDirectory() && child.name !== 'node_modules' && !child.name.startsWith('.')) add(join(directory, child.name))
+    }
+  }
+  const directory = join(source, 'packages')
+  if (existsSync(directory)) for (const category of readdirSync(directory, { withFileTypes: true })) {
+    if (!category.isDirectory() || category.name === 'node_modules' || category.name.startsWith('.')) continue
+    for (const child of readdirSync(join(directory, category.name), { withFileTypes: true })) {
+      if (child.isDirectory() && child.name !== 'node_modules' && !child.name.startsWith('.')) add(join(directory, category.name, child.name))
+    }
+  }
+  return packages
+}
+
+function collectPackages(entries, source) {
+  const hoisted = new Map(entries)
+  const graph = new Map()
+  const exported = new Map()
+  const missing = []
+  let workspaces
+  const identity = manifest => `${manifest.name}@${manifest.version}`
+  const normalize = directory => {
+    const candidates = exported.get(identity(readJson(join(directory, 'package.json'))))
+    return candidates?.size === 1 ? candidates.values().next().value : directory
+  }
+  const collect = (seeds, supplemental = false) => {
+    const queue = [...seeds]
+    for (let index = 0; index < queue.length; index++) {
+      const directory = queue[index]
+      if (graph.has(directory)) continue
+      const manifest = readJson(join(directory, 'package.json'))
+      const dependencies = new Map()
+      graph.set(directory, dependencies)
+      if (!hoisted.has(manifest.name)) hoisted.set(manifest.name, directory)
+      if (!supplemental) {
+        const key = identity(manifest)
+        if (!exported.has(key)) exported.set(key, new Set())
+        exported.get(key).add(directory)
+      }
+      const optional = manifest.optionalDependencies ?? {}
+      for (const name of new Set([
+        ...Object.keys(manifest.dependencies ?? {}), ...Object.keys(optional), ...Object.keys(manifest.peerDependencies ?? {}),
+      ])) {
+        const resolved = resolveDependency(directory, name)
+        if (resolved) {
+          const target = supplemental ? normalize(resolved) : resolved
+          dependencies.set(name, target)
+          queue.push(target)
+        } else if (!(name in optional) && (name in (manifest.dependencies ?? {}) || manifest.peerDependenciesMeta?.[name]?.optional !== true)) {
+          missing.push({ directory, manifest, name, dependencies })
+        }
+      }
+    }
+  }
+  collect(entries.values())
+  // Legacy production deploy can omit required workspace peers declared as dev dependencies upstream.
+  // Supplement only from the same-version package in the pinned, already-built checkout.
+  for (const { directory, manifest, name, dependencies } of missing) {
+    workspaces ??= workspacePackages(source)
+    const upstream = workspaces.get(manifest.name)
+    const resolved = upstream && readJson(join(upstream, 'package.json')).version === manifest.version
+      ? resolveDependency(upstream, name) : undefined
+    if (!resolved) throw new Error(`Missing production dependency or required peer: ${manifest.name} -> ${name} (${directory})`)
+    const target = normalize(resolved)
+    dependencies.set(name, target)
+    collect([target], true)
+  }
+  return { hoisted, graph }
+}
+
+function materializePackages(entries, destination, graph, ancestors = [], branch = []) {
   mkdirSync(destination, { recursive: true })
   const scopes = [entries, ...ancestors]
   for (const [name, source] of entries) {
     if (branch.includes(source)) throw new Error(`Dependency cycle cannot be represented without links: ${name}`)
     const output = join(destination, name)
     copyPackageFiles(source, output)
-    const manifest = readJson(join(source, 'package.json'))
-    const dependencies = packageEntries(join(source, 'node_modules'))
-    const optional = manifest.optionalDependencies ?? {}
-    for (const dependency of new Set([
-      ...Object.keys(manifest.dependencies ?? {}), ...Object.keys(optional), ...Object.keys(manifest.peerDependencies ?? {}),
-    ])) {
-      if (dependencies.has(dependency)) continue
-      const resolved = resolveDependency(source, dependency)
-      if (resolved) dependencies.set(dependency, resolved)
-      else if (dependency in (manifest.dependencies ?? {}) && !(dependency in optional)) {
-        throw new Error(`Missing production dependency: ${name} -> ${dependency}`)
-      }
-    }
+    const dependencies = new Map(graph.get(source))
     // Only omit a back/shared edge when Node's nearest ancestor resolves the same package instance.
     for (const [dependency, resolved] of dependencies) {
       const inherited = scopes.find(scope => scope.has(dependency))?.get(dependency)
       if (inherited === resolved) dependencies.delete(dependency)
     }
-    if (dependencies.size) materializePackages(dependencies, join(output, 'node_modules'), scopes, [...branch, source])
+    if (dependencies.size) materializePackages(dependencies, join(output, 'node_modules'), graph, scopes, [...branch, source])
   }
 }
 
@@ -189,7 +255,8 @@ export function stage(source, deployed, bundle, root = repository, rid = 'win-x6
   mkdirSync(runtime, { recursive: true })
   const packages = packageEntries(join(deployed, 'node_modules'))
   packages.set('@deepseek-ai/dsh-desktop-host', realpathSync(deployed))
-  materializePackages(packages, join(runtime, 'node_modules'))
+  const { hoisted, graph } = collectPackages(packages, source)
+  materializePackages(hoisted, join(runtime, 'node_modules'), graph)
   writeFileSync(join(runtime, 'package.json'), JSON.stringify({ name: 'dsh-desktop-runtime', private: true, version: versions.version, type: 'module' }, null, 2) + '\n')
   cpSync(join(root, 'LICENSE'), join(resources, 'LICENSE'))
   cpSync(join(root, 'NOTICE'), join(resources, 'NOTICE'))
@@ -210,7 +277,14 @@ export function stage(source, deployed, bundle, root = repository, rid = 'win-x6
   console.log(`${platformDescription} runtime staged and package versions verified`)
 }
 
-export async function smoke(bundle, rid = 'win-x64') {
+function redactDiagnostic(text) {
+  return text
+    .replace(/(?:https?|wss?):\/\/[^\s"'<>]+/giu, '[redacted URL]')
+    .replace(/\b(?:Bearer|Basic)\s+[A-Za-z0-9+/_=.-]+/giu, '[redacted authorization]')
+    .replace(/(["']?\b(?:token|api[_-]?key|password|secret|authorization|cookie)\b["']?\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;&}]+)/giu, '$1[redacted]')
+}
+
+export async function smoke(bundle, rid = 'win-x64', { timeoutMs = 120_000 } = {}) {
   const target = targetFor(rid)
   const resources = resourceRoot(bundle, rid)
   verifyBundle(bundle, readVersions(), rid)
@@ -226,31 +300,58 @@ export async function smoke(bundle, rid = 'win-x64') {
     await new Promise((resolvePromise, reject) => {
       let ready = false
       let stopped = false
-      // Discard backend output: ready URLs contain authentication tokens.
-      child.stderr.resume()
-      const timer = setTimeout(() => reject(new Error('Runtime readiness/shutdown timed out')), 120_000)
-      child.once('error', error => { clearTimeout(timer); reject(error) })
-      child.stdin.on('error', error => { clearTimeout(timer); reject(error) })
+      let stage = 'startup (waiting for ready)'
+      let stderrTail = ''
+      let failed = false
+      child.stderr.setEncoding('utf8')
+      child.stderr.on('data', chunk => { stderrTail = (stderrTail + chunk).slice(-64 * 1024) })
+      const fail = message => {
+        if (failed) return
+        failed = true
+        clearTimeout(timer)
+        // Close the control pipe even when the Host has already exited; the launcher may still be reading it.
+        if (!child.stdin.writableEnded) child.stdin.end()
+        reject(new Error(redactDiagnostic(`Runtime ${stage}: ${message}${stderrTail.trim() ? `\nBackend diagnostics:\n${stderrTail.trim()}` : ''}`)))
+      }
+      const timer = setTimeout(() => fail(`timed out after ${timeoutMs} ms`), timeoutMs)
+      child.once('error', error => { fail(error.message) })
+      child.stdin.on('error', error => { fail(error.message) })
       child.once('close', code => {
         clearTimeout(timer)
         if (code === 0 && ready && stopped) resolvePromise()
-        else reject(new Error(`Runtime failed readiness/clean shutdown (exit ${code})`))
+        else fail(`launcher exited without readiness/clean shutdown (exit ${code})`)
       })
       createInterface({ input: child.stdout }).on('line', line => {
         try {
           const message = JSON.parse(line)
           if (message.v !== 1) throw new Error('Unexpected launcher protocol')
-          if (message.type === 'fatal') throw new Error('Runtime reported a fatal startup error')
+          if (message.type === 'fatal' || message.type === 'error') {
+            fail(`${message.type}: ${message.message ?? 'unknown failure'}${message.stderrTail ? `\n${message.stderrTail}` : ''}`)
+            return
+          }
+          if (message.type === 'exited') {
+            if (!ready || !stopped || message.code !== 0 || message.clean !== true) {
+              fail(`Host exited before readiness/clean shutdown (exit ${message.code}, signal ${message.signal ?? 'none'})`)
+            } else {
+              stage = 'launcher exit'
+              timer.refresh()
+            }
+            return
+          }
           if (message.type === 'ready' && !ready) {
             ready = true
             // Validate the ready endpoint without exposing its credentials.
             const url = new URL(message.url)
             if (url.hostname !== '127.0.0.1' && url.hostname !== 'localhost') throw new Error('Unexpected runtime host')
+            stage = 'shutdown (waiting for shutdown-complete)'
             child.stdin.end('{"type":"shutdown"}\n')
             timer.refresh()
           }
-          if (message.type === 'shutdown-complete') stopped = true
-        } catch { clearTimeout(timer); reject(new Error('Invalid launcher control frame')) }
+          if (message.type === 'shutdown-complete') {
+            stopped = true
+            stage = 'exit (waiting for Host and launcher)'
+          }
+        } catch (error) { fail(`Invalid launcher control frame: ${error.message}`) }
       })
     })
     console.log('Extracted backend: ready + shutdown-complete + exit 0')

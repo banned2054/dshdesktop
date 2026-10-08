@@ -196,9 +196,9 @@ test('staging preserves hoisted dependency cycles and nested versions after relo
   write(deploy, 'lib/index.js', 'fixture host')
   write(deploy, 'node_modules/@deepseek-ai/dsh/package.json', { name: '@deepseek-ai/dsh', version: '0.2.0-rc.2' })
   write(deploy, 'node_modules/@deepseek-ai/dsh/lib/profile-boot.js', 'fixture boot')
-  write(deploy, 'node_modules/cordis/package.json', { name: 'cordis', main: 'index.cjs' })
+  write(deploy, 'node_modules/cordis/package.json', { name: 'cordis', main: 'index.cjs', dependencies: { 'cordis-plugin-include': '*', shared: '2.0.0' } })
   write(deploy, 'node_modules/cordis/index.cjs', `exports.name = 'cordis'; exports.include = () => require('cordis-plugin-include')`)
-  write(deploy, 'node_modules/cordis-plugin-include/package.json', { name: 'cordis-plugin-include', main: 'index.cjs' })
+  write(deploy, 'node_modules/cordis-plugin-include/package.json', { name: 'cordis-plugin-include', main: 'index.cjs', dependencies: { cordis: '*', shared: '1.0.0' } })
   write(deploy, 'node_modules/cordis-plugin-include/index.cjs', `exports.cordis = require('cordis'); exports.version = require('shared').version`)
   write(deploy, 'node_modules/shared/package.json', { name: 'shared', main: 'index.cjs', version: '1.0.0' })
   write(deploy, 'node_modules/shared/index.cjs', `exports.version = '1.0.0'`)
@@ -276,6 +276,75 @@ test('staging materializes pnpm virtual-store cycles without copying the store o
   assert.deepEqual(JSON.parse(result), { cycle: true, hostCycle: true, outer: '1.0.0', nested: '2.0.0' })
 })
 
+test('staging supplements required peers from pinned workspace without duplicating shared instances or shipping dev dependencies', t => {
+  const root = fixture(t)
+  const repo = join(root, 'repo')
+  const source = join(root, 'upstream')
+  const deploy = join(root, 'deploy')
+  const output = join(root, 'output')
+  project(repo)
+  bundle(output)
+  write(source, 'LICENSE', 'upstream license')
+  write(deploy, 'package.json', { name: '@deepseek-ai/dsh-desktop-host', version: '0.2.0-rc.2' })
+  write(deploy, 'lib/index.js', 'fixture host')
+  write(deploy, 'node_modules/@deepseek-ai/dsh/package.json', { name: '@deepseek-ai/dsh', version: '0.2.0-rc.2' })
+  write(deploy, 'node_modules/@deepseek-ai/dsh/lib/profile-boot.js', 'fixture boot')
+  const bootManifest = { name: '@deepseek-ai/dsh-app-boot', version: '0.2.0-rc.2', main: 'index.cjs',
+    peerDependencies: { '@deepseek-ai/cordis-plugin-group': '*', 'absent-optional-peer': '*' },
+    peerDependenciesMeta: { 'absent-optional-peer': { optional: true } } }
+  write(deploy, 'node_modules/@deepseek-ai/dsh-app-boot/package.json', bootManifest)
+  write(deploy, 'node_modules/@deepseek-ai/dsh-app-boot/index.cjs', `module.exports = require('@deepseek-ai/cordis-plugin-group')`)
+  write(deploy, 'node_modules/@deepseek-ai/cordis/package.json', { name: '@deepseek-ai/cordis', version: '1.0.0', main: 'index.cjs' })
+  write(deploy, 'node_modules/@deepseek-ai/cordis/index.cjs', `module.exports = { origin: 'exported' }`)
+  write(source, 'apps/boot/package.json', bootManifest)
+  write(source, 'vendor/group/package.json', { name: '@deepseek-ai/cordis-plugin-group', version: '1.0.0', main: 'index.cjs',
+    peerDependencies: { '@deepseek-ai/cordis': '*' }, devDependencies: { 'dev-only': '*' } })
+  write(source, 'vendor/group/index.cjs', `module.exports = require('@deepseek-ai/cordis')`)
+  write(source, 'vendor/cordis/package.json', { name: '@deepseek-ai/cordis', version: '1.0.0', main: 'index.cjs' })
+  write(source, 'vendor/cordis/index.cjs', `module.exports = { origin: 'upstream' }`)
+  write(source, 'vendor/group/node_modules/dev-only/package.json', { name: 'dev-only', version: '1.0.0' })
+  mkdirSync(join(source, 'apps/boot/node_modules/@deepseek-ai'), { recursive: true })
+  directoryLink(join(source, 'vendor/group'), join(source, 'apps/boot/node_modules/@deepseek-ai/cordis-plugin-group'))
+  mkdirSync(join(source, 'vendor/group/node_modules/@deepseek-ai'), { recursive: true })
+  directoryLink(join(source, 'vendor/cordis'), join(source, 'vendor/group/node_modules/@deepseek-ai/cordis'))
+  stage(source, deploy, output, repo)
+  assert.equal(existsSync(join(output, 'backend/runtime/node_modules/dev-only')), false)
+  assert.equal(existsSync(join(output, 'backend/runtime/node_modules/@deepseek-ai/cordis-plugin-group/node_modules')), false)
+  rmSync(source, { recursive: true })
+  rmSync(deploy, { recursive: true })
+  const moved = join(root, 'isolated extracted peer package')
+  cpSync(output, moved, { recursive: true })
+  rmSync(output, { recursive: true })
+  verifyBundle(moved, readVersions(repo))
+  const host = join(moved, 'backend/runtime/node_modules/@deepseek-ai/dsh-desktop-host/lib/index.js')
+  const result = execFileSync(process.execPath, ['-e', `
+    const load = require('node:module').createRequire(process.argv[1])
+    const cordis = load('@deepseek-ai/cordis')
+    console.log(JSON.stringify({ same: load('@deepseek-ai/dsh-app-boot') === cordis, origin: cordis.origin }))
+  `, host],
+  { encoding: 'utf8', env: { ...process.env, NODE_PATH: '', NODE_OPTIONS: '' } })
+  assert.deepEqual(JSON.parse(result), { same: true, origin: 'exported' })
+})
+
+test('staging rejects missing required peers and same-name workspace version drift', t => {
+  const root = fixture(t)
+  const repo = join(root, 'repo')
+  const source = join(root, 'upstream')
+  const deploy = join(root, 'deploy')
+  project(repo)
+  write(source, 'LICENSE', 'upstream license')
+  write(deploy, 'package.json', { name: '@deepseek-ai/dsh-desktop-host', version: '0.2.0-rc.2', peerDependencies: { 'missing-peer': '*' } })
+  for (const name of ['missing', 'drift']) {
+    const output = join(root, name)
+    bundle(output)
+    if (name === 'drift') {
+      write(source, 'apps/host/package.json', { name: '@deepseek-ai/dsh-desktop-host', version: '0.2.0-rc.3' })
+      write(source, 'apps/host/node_modules/missing-peer/package.json', { name: 'missing-peer', version: '1.0.0' })
+    }
+    assert.throws(() => stage(source, deploy, output, repo), /required peer: @deepseek-ai\/dsh-desktop-host -> missing-peer/)
+  }
+})
+
 test('staging creates a macOS app bundle and a direct Linux executable', t => {
   const root = fixture(t)
   const repo = join(root, 'repo')
@@ -347,7 +416,7 @@ test('bundle validation rejects version drift and missing backend launcher asset
   assert.throws(() => verifyBundle(root, readVersions(root)), /missing Assets/)
 })
 
-test('packaged smoke observes readiness and clean shutdown with bundled Node', { skip: !['win32', 'darwin', 'linux'].includes(process.platform) }, async t => {
+test('packaged smoke uses Host pnpm arguments, reports early exit and redacts diagnostics', { skip: !['win32', 'darwin', 'linux'].includes(process.platform) }, async t => {
   const root = fixture(t)
   const rid = process.platform === 'win32' ? 'win-x64' : process.platform === 'darwin' ? 'osx-arm64' : 'linux-x64'
   bundle(root, rid)
@@ -356,6 +425,10 @@ test('packaged smoke observes readiness and clean shutdown with bundled Node', {
   write(rootResources, 'backend/runtime/node_modules/@deepseek-ai/dsh/lib/profile-boot.js', 'fixture')
   write(rootResources, 'backend/runtime/node_modules/@deepseek-ai/dsh-desktop-host/package.json', { version: '0.2.0-rc.2', type: 'module' })
   write(rootResources, 'backend/runtime/node_modules/@deepseek-ai/dsh-desktop-host/lib/index.js', `
+    import { existsSync } from 'node:fs'
+    if (!process.argv[5]?.endsWith('pnpm.mjs') || !existsSync(process.argv[5]) || !process.argv[6]) {
+      throw new Error('Host did not receive pnpm and Node bin paths')
+    }
     process.send({ type: 'ready', url: 'http://127.0.0.1:19387/?token=fixture' })
     process.on('message', message => {
       if (message.type === 'shutdown') {
@@ -369,5 +442,36 @@ test('packaged smoke observes readiness and clean shutdown with bundled Node', {
   write(rootResources, 'backend/runtime/node_modules/@deepseek-ai/dsh-desktop-host/lib/index.js', `
     process.send({ type: 'fatal', message: 'fixture startup failure' }, () => process.exit(1))
   `)
-  await assert.rejects(() => smoke(root, rid), /Invalid launcher control frame/)
+  await assert.rejects(() => smoke(root, rid), /fatal: fixture startup failure/)
+  write(rootResources, 'backend/runtime/node_modules/@deepseek-ai/dsh-desktop-host/lib/index.js', `
+    import '@deepseek-ai/missing-runtime-peer'
+  `)
+  const started = Date.now()
+  await assert.rejects(() => smoke(root, rid, { timeoutMs: 5000 }), error => {
+    assert.match(error.message, /Host exited before readiness/)
+    assert.match(error.message, /missing-runtime-peer/)
+    assert.doesNotMatch(error.message, /timed out/)
+    return true
+  })
+  assert.ok(Date.now() - started < 5000, 'Import failure must fail before the readiness timeout')
+  write(rootResources, 'backend/runtime/node_modules/@deepseek-ai/dsh-desktop-host/lib/index.js', `
+    process.stderr.write('token="stderr-secret" https://localhost/?token=url-secret\\n')
+    process.send({ type: 'fatal', message: 'api_key="fatal-secret" Bearer bearer-secret', stderrTail: 'password="tail-secret"' })
+  `)
+  await assert.rejects(() => smoke(root, rid), error => {
+    for (const secret of ['stderr-secret', 'url-secret', 'fatal-secret', 'bearer-secret', 'tail-secret']) {
+      assert.ok(!error.message.includes(secret), 'Failure diagnostics leaked a secret')
+    }
+    assert.match(error.message, /redacted/)
+    return true
+  })
+  write(rootResources, 'backend/runtime/node_modules/@deepseek-ai/dsh-desktop-host/lib/index.js', `
+    process.on('message', () => {})
+  `)
+  await assert.rejects(() => smoke(root, rid, { timeoutMs: 300 }), /startup \(waiting for ready\): timed out/)
+  write(rootResources, 'backend/runtime/node_modules/@deepseek-ai/dsh-desktop-host/lib/index.js', `
+    process.send({ type: 'ready', url: 'http://127.0.0.1:19387/?token=timeout-secret' })
+    process.on('message', () => {})
+  `)
+  await assert.rejects(() => smoke(root, rid, { timeoutMs: 1000 }), /shutdown \(waiting for shutdown-complete\): timed out/)
 })

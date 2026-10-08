@@ -131,6 +131,7 @@ async function main() {
 
   const entry = join(args['runtime-dir'], 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'lib', 'index.js')
   if (!existsSync(entry)) throw new Error(`launcher: desktop host entry not found: ${entry}`)
+  const pnpm = join(args['primary-runtime'], 'dependencies', 'pnpm', 'bin', 'pnpm.mjs')
 
   const child = spawn(process.execPath, [
     '--expose-internals',
@@ -138,7 +139,8 @@ async function main() {
     args['runtime-dir'],
     args['profile-dir'],
     args['primary-runtime'],
-    args.resolution ?? 'link',
+    // The pinned Host accepts pnpm and its Node bin directory here, not a resolution mode.
+    ...(existsSync(pnpm) ? [pnpm, dirname(process.execPath)] : []),
   ], {
     cwd: args['profile-dir'],
     env: { ...process.env, DSH_HOME: args['dsh-home'] },
