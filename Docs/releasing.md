@@ -22,6 +22,8 @@
 
 每个平台均读取同一客户端与 DSH 锁定版本、检出固定 DSH commit、安装锁定 Node/pnpm、运行发布工具测试和客户端测试、构建上游 DSH、执行 Native AOT 发布及后端打包 smoke。Windows 使用 `windows-2022`；macOS arm64 使用 `macos-14`；Linux x64 使用 `ubuntu-24.04`，并安装 clang 与 zlib Native AOT 依赖。
 
+Native AOT 仍生成调试符号。打包前将 `.pdb`、`.dbg` 文件及整个 `.dSYM` 目录从运行包移至独立的 `symbols` 目录，保留原相对路径；用户下载的运行 ZIP 不包含这些符号。手动运行与 Release 触发均将符号独立上传为 `dsh-desktop-<版本>-<RID>-symbols` Actions artifact，保留 90 天（受仓库保留策略限制），用于分析对应版本的崩溃。符号不附加到 Release；Release 仍只上传运行 ZIP 和 SHA256。
+
 打包脚本先准备上游运行资产，再执行 `pnpm deploy --legacy --prod` 导出生产依赖。这个顺序必须保留：pnpm 11 的 legacy deploy 会写回生产模式的工作区状态，之后再执行 `pnpm run` 可能触发自动生产安装，导致运行资产准备所需的开发依赖缺失。
 
 生产依赖 staging 先收集完整依赖图，将共享包放到运行时根目录，再物化为普通目录和文件，不直接递归展开 pnpm 的 `.pnpm` 链接树。循环或共享依赖只有在 Node 的最近祖先目录能解析到同一个包实例时才复用；同名不同版本保留嵌套目录。legacy production deploy 可能遗漏上游同时声明为开发依赖的必需 peer；staging 从锁定 checkout 中的同版本消费者补齐其实际已安装依赖，补齐包仅继续遍历生产、可选和 peer 依赖，不引入开发依赖。缺少普通依赖或非 optional peer 时立即失败。复制完成后仍检查整个发布包不得含符号链接或 junction。没有切换为 legacy hoisted deploy，因为锁定的 pnpm 11 在该模式下禁用锁文件读取，可能导致依赖版本漂移。

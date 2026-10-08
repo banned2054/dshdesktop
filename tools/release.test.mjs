@@ -4,7 +4,7 @@ import { cpSync, existsSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, re
 import { tmpdir } from 'node:os'
 import { dirname, join, relative } from 'node:path'
 import { test } from 'node:test'
-import { readVersions, smoke, stage, verifyBundle, verifyTree } from './release.mjs'
+import { readVersions, separateDebugSymbols, smoke, stage, verifyBundle, verifyTree } from './release.mjs'
 
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'dsh-packaging-test-'))
@@ -126,6 +126,71 @@ test('filesystem file links and dangling links are rejected', { skip: process.pl
   assert.equal(existsSync(link), false)
   assert.equal(lstatSync(link).isSymbolicLink(), true)
   assert.throws(() => verifyTree(root), /filesystem link/)
+})
+
+for (const rid of Object.keys(targetDetails)) test(`${rid} runtime ZIP excludes debug symbols while preserving a separate symbol tree`, t => {
+  const root = fixture(t)
+  const output = join(root, 'package')
+  const symbols = join(root, 'symbols')
+  project(root)
+  bundle(output, rid)
+  const rootResources = resources(output, rid)
+  write(rootResources, 'backend/runtime/node_modules/@deepseek-ai/dsh/package.json', { version: '0.2.0-rc.2' })
+  write(rootResources, 'backend/runtime/node_modules/@deepseek-ai/dsh-desktop-host/package.json', { version: '0.2.0-rc.2' })
+  write(rootResources, 'backend/runtime/node_modules/@deepseek-ai/dsh/lib/profile-boot.js', 'fixture')
+  write(rootResources, 'backend/runtime/node_modules/@deepseek-ai/dsh-desktop-host/lib/index.js', 'fixture')
+  const nativeDirectory = relative(output, dirname(executable(output, rid)))
+  const resourceDirectory = relative(output, rootResources)
+  const dsym = join(nativeDirectory, 'DshDesktop.dSYM')
+  const symbolFiles = [
+    join(nativeDirectory, 'DshDesktop.PDB'),
+    join(resourceDirectory, 'backend/native dependency/dependency.dbg'),
+    join(dsym, 'Contents/Resources/DWARF/DshDesktop'),
+    join(dsym, 'Contents/Info.plist'),
+  ]
+  for (const path of symbolFiles) write(output, path, `symbols: ${path}`)
+  const nativeLibrary = join(nativeDirectory, 'native-library.dll')
+  write(output, nativeLibrary, 'native library')
+  assert.equal(separateDebugSymbols(output, symbols), 3)
+  for (const path of symbolFiles) {
+    assert.equal(existsSync(join(output, path)), false)
+    materializedFile(join(symbols, path), `symbols: ${path}`)
+  }
+  assert.equal(existsSync(join(output, dsym)), false)
+  verifyBundle(output, readVersions(root), rid)
+  verifyTree(symbols)
+
+  // Use the same local archive tools as build-release.ps1, then check the extracted runtime.
+  const archive = join(root, 'runtime package.zip')
+  const extracted = join(root, 'extracted package')
+  mkdirSync(extracted)
+  if (process.platform === 'win32') {
+    execFileSync('tar', ['-a', '-c', '-f', archive, '-C', output, '.'])
+    execFileSync('tar', ['-x', '-f', archive, '-C', extracted])
+  } else {
+    execFileSync('zip', ['-q', '-r', archive, '.'], { cwd: output })
+    execFileSync('unzip', ['-q', archive, '-d', extracted])
+  }
+  verifyBundle(extracted, readVersions(root), rid)
+  materializedFile(executable(extracted, rid), 'fixture')
+  materializedFile(join(extracted, nativeLibrary), 'native library')
+  for (const path of [...symbolFiles, dsym]) assert.equal(existsSync(join(extracted, path)), false)
+})
+
+test('symbol separation leaves symbol-free packages alone and rejects overlapping or existing destinations', t => {
+  const root = fixture(t)
+  const output = join(root, 'package')
+  const symbols = join(root, 'symbols')
+  bundle(output)
+  assert.equal(separateDebugSymbols(output, symbols), 0)
+  assert.equal(existsSync(symbols), false)
+  write(output, 'DshDesktop.pdb', 'original symbols')
+  assert.throws(() => separateDebugSymbols(output, output), /must be a sibling/)
+  assert.throws(() => separateDebugSymbols(output, join(output, 'symbols')), /must be a sibling/)
+  write(symbols, 'DshDesktop.pdb', 'existing symbols')
+  assert.throws(() => separateDebugSymbols(output, symbols), /must be new/)
+  materializedFile(join(output, 'DshDesktop.pdb'), 'original symbols')
+  materializedFile(join(symbols, 'DshDesktop.pdb'), 'existing symbols')
 })
 
 test('staging materializes linked dependencies beside a directly launchable app', t => {

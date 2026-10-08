@@ -76,6 +76,14 @@ jobs:
       - name: Build portable Linux x64 package
         run: pwsh ./tools/build-release.ps1 -UpstreamDir upstream-dsh -OutputRoot "$RUNNER_TEMP/dsh-release" -Rid linux-x64
 
+      - name: Upload debug symbols
+        uses: actions/upload-artifact@v7
+        with:
+          name: dsh-desktop-${{ steps.versions.outputs.version }}-linux-x64-symbols
+          path: ${{ runner.temp }}/dsh-release/symbols
+          if-no-files-found: warn
+          retention-days: 90
+
       - name: Upload package artifact
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v7

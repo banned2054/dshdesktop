@@ -38,6 +38,10 @@ try {
     node tools/release.mjs stage $sourceDir $deployDir $bundleDir $Rid
     if ($LASTEXITCODE -ne 0) { throw 'Runtime staging failed' }
 
+    # Keep generated symbols for diagnostics, outside the user-facing ZIP.
+    node tools/release.mjs symbols $bundleDir (Join-Path $destination 'symbols')
+    if ($LASTEXITCODE -ne 0) { throw 'Debug symbol separation failed' }
+
     $version = ([xml](Get-Content -LiteralPath DshDesktop/DshDesktop.csproj -Raw)).Project.PropertyGroup.Version | Where-Object { $_ }
     $archiveName = "dsh-desktop-$version-$Rid.zip"
     $archivePath = Join-Path $destination $archiveName

@@ -51,6 +51,31 @@ export function verifyTree(root) {
   }
 }
 
+export function separateDebugSymbols(bundle, symbols) {
+  bundle = resolve(bundle)
+  symbols = resolve(symbols)
+  if (bundle === symbols || dirname(bundle) !== dirname(symbols)) throw new Error('Debug symbols directory must be a sibling of the package directory')
+  if (existsSync(symbols)) throw new Error('Debug symbols directory must be new')
+  verifyTree(bundle)
+  const entries = []
+  const collect = (directory, prefix = '') => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = join(prefix, entry.name)
+      if ((entry.isFile() && /\.(?:pdb|dbg)$/iu.test(entry.name)) ||
+        (entry.isDirectory() && /\.dsym$/iu.test(entry.name))) entries.push(path)
+      else if (entry.isDirectory()) collect(join(directory, entry.name), path)
+    }
+  }
+  collect(bundle)
+  for (const path of entries) {
+    const destination = join(symbols, path)
+    mkdirSync(dirname(destination), { recursive: true })
+    renameSync(join(bundle, path), destination)
+  }
+  console.log(`Separated ${entries.length} debug symbol files/bundles from the runtime package`)
+  return entries.length
+}
+
 const targets = {
   'win-x64': { platform: 'win32', arch: 'x64', executable: 'DshDesktop.exe', node: 'node.exe' },
   'osx-arm64': { platform: 'darwin', arch: 'arm64', executable: 'DshDesktop', node: 'node' },
@@ -381,6 +406,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     emitOutputs({ version: appVersion, commit })
   } else if (command === 'source' && args.length === 1) emitOutputs(verifySource(resolve(args[0])))
   else if (command === 'stage' && args.length === 4) stage(...args.slice(0, 3).map(path => resolve(path)), repository, args[3])
+  else if (command === 'symbols' && args.length === 2) separateDebugSymbols(...args)
   else if (command === 'smoke' && (args.length === 1 || args.length === 2)) await smoke(resolve(args[0]), args[1] ?? 'win-x64')
-  else throw new Error('Usage: release.mjs metadata | source <checkout> | stage <checkout> <deploy> <bundle> <rid> | smoke <bundle> [rid]')
+  else throw new Error('Usage: release.mjs metadata | source <checkout> | stage <checkout> <deploy> <bundle> <rid> | symbols <bundle> <symbols> | smoke <bundle> [rid]')
 }

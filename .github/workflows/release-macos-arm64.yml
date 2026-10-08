@@ -74,6 +74,14 @@ jobs:
       - name: Build portable macOS arm64 package
         run: pwsh ./tools/build-release.ps1 -UpstreamDir upstream-dsh -OutputRoot "$RUNNER_TEMP/dsh-release" -Rid osx-arm64
 
+      - name: Upload debug symbols
+        uses: actions/upload-artifact@v7
+        with:
+          name: dsh-desktop-${{ steps.versions.outputs.version }}-osx-arm64-symbols
+          path: ${{ runner.temp }}/dsh-release/symbols
+          if-no-files-found: warn
+          retention-days: 90
+
       - name: Upload package artifact
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v7
