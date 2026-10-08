@@ -74,7 +74,7 @@ jobs:
           pnpm run build
 
       - name: Build portable Linux x64 package
-        run: pwsh ./tools/build-release.ps1 -UpstreamDir upstream-dsh -OutputRoot "$env:RUNNER_TEMP/dsh-release" -Rid linux-x64
+        run: pwsh ./tools/build-release.ps1 -UpstreamDir upstream-dsh -OutputRoot "$RUNNER_TEMP/dsh-release" -Rid linux-x64
 
       - name: Upload package artifact
         if: github.event_name == 'workflow_dispatch'
