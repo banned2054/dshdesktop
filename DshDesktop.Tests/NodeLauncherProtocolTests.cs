@@ -99,6 +99,7 @@ public sealed class NodeLauncherProtocolTests
     }
 
     [Test]
+    [Repeat(20)]
     public async Task DisposeWithoutStopTerminatesTheTree()
     {
         var environment = StubEnvironment.TryCreate("silent");
@@ -120,6 +121,66 @@ public sealed class NodeLauncherProtocolTests
             Assert.That(host.HasExited, Is.True, "释放 launcher 后不能遗留 Host 子进程。");
         }
         ClassicAssert.IsTrue(DateTimeOffset.UtcNow - startTime < TimeSpan.FromSeconds(15));
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task ForcedStopReclaimsUnresponsiveHost(bool cancelStop)
+    {
+        var environment = StubEnvironment.TryCreate("silent");
+        if (environment is null) return;
+
+        using var _ = environment;
+        using var cancellation = new CancellationTokenSource();
+        Process host;
+        await using (var launcher = NodeHostLauncher.Start(environment.Options))
+        {
+            host = await environment.WaitForHostProcessAsync();
+            if (cancelStop)
+            {
+                cancellation.Cancel();
+                await Assert.CatchAsync<OperationCanceledException>(() =>
+                    launcher.StopAsync(TimeSpan.FromSeconds(10), cancellation.Token));
+            }
+            else
+            {
+                await launcher.StopAsync(TimeSpan.FromMilliseconds(100));
+                Assert.That(host.HasExited, Is.True, "停止超时返回前必须回收 Host 子进程。");
+                Assert.That((await launcher.Exited).Clean, Is.False);
+            }
+        }
+
+        using (host)
+        {
+            Assert.That(host.HasExited, Is.True, "取消停止等待后，释放仍必须回收 Host 子进程。");
+        }
+    }
+
+    [Test]
+    public async Task DisposeReclaimsLauncherThatIgnoresControlMessages()
+    {
+        var environment = StubEnvironment.TryCreate("ready");
+        if (environment is null) return;
+
+        using var _ = environment;
+        var script = Path.Combine(environment.Options.ProfileDir, "unresponsive.mjs");
+        File.WriteAllText(script, """
+            process.stdout.write(JSON.stringify({ type: 'ready', url: `http://127.0.0.1:19999/?pid=${process.pid}` }) + '\n')
+            setInterval(() => {}, 60000)
+            """);
+
+        Process process;
+        await using (var launcher = NodeHostLauncher.Start(environment.Options with { LauncherScriptPath = script }))
+        {
+            var ready = await launcher.Ready.WaitAsync(TimeSpan.FromSeconds(15));
+            process = Process.GetProcessById(int.Parse(ready.Query["?pid=".Length..]));
+            Assert.That(process.HasExited, Is.False);
+        }
+
+        using (process)
+        {
+            Assert.That(process.HasExited, Is.True, "launcher 不响应控制消息时仍必须限时强杀。");
+        }
     }
 
     [Test]

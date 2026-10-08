@@ -45,10 +45,10 @@ public sealed class NodeHostLauncher : IAsyncDisposable
         Interlocked.Exchange(ref _state, 2);
         // Dispose is the final ownership boundary. It must also terminate a
         // launcher whose graceful StopAsync wait was cancelled.
-        KillTree();
 
         try
         {
+            await TerminateTreeAsync().ConfigureAwait(false);
             // The "exited" control message describes the Host, not the launcher.
             // Kill is asynchronous; wait for the OS process before releasing its
             // handles or allowing the owner to remove runtime files on Windows.
@@ -130,15 +130,8 @@ public sealed class NodeHostLauncher : IAsyncDisposable
         }
         catch (TimeoutException)
         {
-            KillTree();
-            try
-            {
-                await _exited.Task.WaitAsync(TimeSpan.FromSeconds(10), CancellationToken.None).ConfigureAwait(false);
-            }
-            catch (TimeoutException)
-            {
-                // 进程树已强杀仍未见退出通知；Job Object 兜底回收。
-            }
+            await TerminateTreeAsync().ConfigureAwait(false);
+            await _process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
         }
     }
 
@@ -281,6 +274,26 @@ public sealed class NodeHostLauncher : IAsyncDisposable
         catch (ObjectDisposedException)
         {
         }
+    }
+
+    private async Task TerminateTreeAsync()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            // On Unix, killing the launcher with its Host can leave the Host
+            // unreaped. Keep its parent alive until Node has observed child.close.
+            TryWriteControlLine("""{"type":"terminate"}""");
+            try
+            {
+                await _exited.Task.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+            }
+            catch (TimeoutException)
+            {
+                // An unresponsive launcher still needs the OS tree-kill fallback.
+            }
+        }
+
+        KillTree();
     }
 
     private void KillTree()

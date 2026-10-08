@@ -16,7 +16,7 @@
 客户端使用 Avalonia 原生界面和现有 Node Harness 后端。会话、工作区归属、权限和 Agent 执行的权威状态由后端持有；客户端不修改 Harness 内部存储，也不建立第二套权威会话数据库。
 
 - Infrastructure 的 [launcher](../DshDesktop.Infrastructure/Assets/Backend/launcher.mjs) 桥接原 Host 的 Node IPC，向 C# 提供逐行 JSON 控制协议 `v: 1`。stdout 仅用于控制帧，stderr 用于日志；就绪、错误、停止回执和退出清理需要保持一致。
-- `NodeHostLauncher.Exited` 可由 Host 的 `exited` 控制消息提前完成，不代表 launcher 已实际终止。释放 launcher 时终止进程树并等待操作系统确认进程退出，再释放进程资源；退出等待超时向调用者报告，不吞异常或把临时运行时清理失败当作成功。`NodeLauncherProtocolTests` 覆盖提前退出通知、优雅关停与 Host 子进程回收；夹具验证不等于真实 DSH Host 或 GitHub runner 验收。
+- `NodeHostLauncher.Exited` 可由 Host 的 `exited` 控制消息提前完成，不代表 launcher 已实际终止。Unix 上释放或停止超时时先发送本端 `terminate` 控制帧，由 launcher 对独立的 Host 进程组发送 SIGKILL，等待直接子进程的 `close` 后再报告 `exited`，避免父子同时强杀导致 Host 未被回收；控制等待上限 5 秒，超时使用操作系统进程树强杀兜底。Windows 保留进程树强杀与 Job Object 守卫。随后等待 launcher 实际退出（上限 5 秒）再释放进程资源；退出等待超时向调用者报告，不吞异常或把临时运行时清理失败当作成功。`NodeLauncherProtocolTests` 覆盖提前退出通知、优雅关停、停止超时/取消、无响应 launcher 与 Host 子进程回收；夹具验证不等于真实 DSH Host 或 GitHub runner 验收。
 - 当前 Host 入口为 runtime 内 `node_modules/@deepseek-ai/dsh-desktop-host/lib/index.js`。锁定的 0.2.0-rc.2 Host 在 runtime、profile 和 primary-runtime 后接收 pnpm 脚本路径与 Node bin 目录，自行进行进程内解析。launcher 保留 `--resolution runtime|link` 的参数兼容性，但不再把该字符串传到 Host 的 pnpm 参数位置；开发环境未提供 pnpm 时省略这两个可选位置参数。升级需核对入口、参数顺序、profile、原生依赖和运行资产，不能仅更新源码而沿用旧构建产物。
 - 发布 staging 补齐 legacy production deploy 遗漏的必需 peer（如 `@deepseek-ai/cordis-plugin-group`），仅使用锁定 checkout 中同版本消费者实际解析到的依赖，并保留导出包的共享实例及嵌套版本。解压包 smoke 对 `fatal`、`error` 和异常 `exited` 立即失败，保留脱敏后的有限 stderr 尾部；启动失败不再被隐藏为统一的 120 秒超时。
 - [运行配置](../DshDesktop/Services/Backend/DesktopBackendConfiguration.cs) 中插件 profile 为应用私有；Harness home 默认按 `DSH_HOME`、`~/.dsh` 解析，也可通过 `DSH_DESKTOP_DSH_HOME` 覆盖。用户会话和凭据不能当作测试夹具随意改动。

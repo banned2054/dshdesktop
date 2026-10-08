@@ -8,7 +8,8 @@
  *
  *   stdout - one JSON object per line, control messages only (never logs)
  *   stderr - launcher and Host logs
- *   stdin  - one JSON object per line, currently only { "type": "shutdown" }
+ *   stdin  - one JSON object per line: { "type": "shutdown" } for graceful
+ *            shutdown, { "type": "terminate" } for immediate Host termination
  *
  * Every stdout message carries "v": 1 (control protocol version).
  *
@@ -145,6 +146,9 @@ async function main() {
     cwd: args['profile-dir'],
     env: { ...process.env, DSH_HOME: args['dsh-home'] },
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+    // Own a Unix process group so forced termination includes Host descendants
+    // without killing the launcher that must reap the direct child.
+    detached: process.platform !== 'win32',
   })
   log(`started host pid ${String(child.pid)}: ${entry}`)
 
@@ -184,13 +188,26 @@ async function main() {
     process.exitCode = child.exitCode ?? 1
   })
 
+  const killHostTree = (signal) => {
+    if (child.pid === undefined) return
+    if (process.platform === 'win32') {
+      child.kill(signal)
+      return
+    }
+    try {
+      process.kill(-child.pid, signal)
+    } catch (error) {
+      if (error.code !== 'ESRCH') throw error
+    }
+  }
+
   const stop = async () => {
     if (stopping) return
     stopping = true
     emit({ type: 'stopping' })
     if (child.connected) child.send({ type: 'shutdown' })
-    if (!await exitsWithin(exitPromise, HOST_GRACEFUL_SHUTDOWN_MS)) child.kill('SIGTERM')
-    if (!await exitsWithin(exitPromise, HOST_SIGTERM_GRACE_MS)) child.kill('SIGKILL')
+    if (!await exitsWithin(exitPromise, HOST_GRACEFUL_SHUTDOWN_MS)) killHostTree('SIGTERM')
+    if (!await exitsWithin(exitPromise, HOST_SIGTERM_GRACE_MS)) killHostTree('SIGKILL')
     if (!await exitsWithin(exitPromise, HOST_SIGKILL_GRACE_MS)) {
       emit({ type: 'error', message: `host pid ${String(child.pid)} did not exit after SIGKILL` })
       process.exitCode = 1
@@ -204,6 +221,10 @@ async function main() {
     try { message = JSON.parse(line) } catch { log(`ignored malformed control line: ${line}`); return }
     if (typeof message !== 'object' || message === null) return
     if (message.type === 'shutdown') void stop()
+    if (message.type === 'terminate') {
+      stopping = true
+      killHostTree('SIGKILL')
+    }
   })
   // Parent closed the control pipe: tear the Host down instead of leaking it.
   process.stdin.on('close', () => { void stop() })
