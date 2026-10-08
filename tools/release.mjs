@@ -1,5 +1,5 @@
 import { spawn, spawnSync, execFileSync } from 'node:child_process'
-import { appendFileSync, chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
@@ -123,6 +123,61 @@ export function verifyBundle(bundle, versions = readVersions(), rid = 'win-x64')
   verifyTree(bundle)
 }
 
+function packageEntries(modules) {
+  const entries = new Map()
+  if (!existsSync(modules)) return entries
+  for (const name of readdirSync(modules)) {
+    if (name.startsWith('.')) continue
+    if (name.startsWith('@')) {
+      for (const child of readdirSync(join(modules, name))) entries.set(`${name}/${child}`, realpathSync(join(modules, name, child)))
+    } else entries.set(name, realpathSync(join(modules, name)))
+  }
+  return entries
+}
+
+function resolveDependency(source, name) {
+  for (let directory = source; ; directory = dirname(directory)) {
+    const candidate = join(directory, 'node_modules', name)
+    if (existsSync(candidate)) return realpathSync(candidate)
+    if (dirname(directory) === directory) return undefined
+  }
+}
+
+function copyPackageFiles(source, destination) {
+  // Force JS traversal: Node's native recursive copy can retain POSIX links.
+  cpSync(source, destination, { recursive: true, dereference: true,
+    filter: path => path !== join(source, 'node_modules') })
+}
+
+function materializePackages(entries, destination, ancestors = [], branch = []) {
+  mkdirSync(destination, { recursive: true })
+  const scopes = [entries, ...ancestors]
+  for (const [name, source] of entries) {
+    if (branch.includes(source)) throw new Error(`Dependency cycle cannot be represented without links: ${name}`)
+    const output = join(destination, name)
+    copyPackageFiles(source, output)
+    const manifest = readJson(join(source, 'package.json'))
+    const dependencies = packageEntries(join(source, 'node_modules'))
+    const optional = manifest.optionalDependencies ?? {}
+    for (const dependency of new Set([
+      ...Object.keys(manifest.dependencies ?? {}), ...Object.keys(optional), ...Object.keys(manifest.peerDependencies ?? {}),
+    ])) {
+      if (dependencies.has(dependency)) continue
+      const resolved = resolveDependency(source, dependency)
+      if (resolved) dependencies.set(dependency, resolved)
+      else if (dependency in (manifest.dependencies ?? {}) && !(dependency in optional)) {
+        throw new Error(`Missing production dependency: ${name} -> ${dependency}`)
+      }
+    }
+    // Only omit a back/shared edge when Node's nearest ancestor resolves the same package instance.
+    for (const [dependency, resolved] of dependencies) {
+      const inherited = scopes.find(scope => scope.has(dependency))?.get(dependency)
+      if (inherited === resolved) dependencies.delete(dependency)
+    }
+    if (dependencies.size) materializePackages(dependencies, join(output, 'node_modules'), scopes, [...branch, source])
+  }
+}
+
 export function stage(source, deployed, bundle, root = repository, rid = 'win-x64') {
   const target = targetFor(rid)
   const versions = readVersions(root)
@@ -132,14 +187,9 @@ export function stage(source, deployed, bundle, root = repository, rid = 'win-x6
   const runtime = join(resources, 'backend', 'runtime')
   if (existsSync(runtime)) throw new Error('Runtime staging directory must be new')
   mkdirSync(runtime, { recursive: true })
-  // Resolve pnpm links into ordinary files before archiving, including private Host.
-  // An accept-all filter forces Node's JS traversal: the native recursive fast path
-  // can preserve POSIX symlinks despite dereference: true (reproduced on Node 24.15).
-  cpSync(join(deployed, 'node_modules'), join(runtime, 'node_modules'), { recursive: true, dereference: true, filter: () => true })
-  const host = join(runtime, 'node_modules', '@deepseek-ai', 'dsh-desktop-host')
-  mkdirSync(host, { recursive: true })
-  cpSync(join(deployed, 'lib'), join(host, 'lib'), { recursive: true, dereference: true, filter: () => true })
-  cpSync(join(deployed, 'package.json'), join(host, 'package.json'))
+  const packages = packageEntries(join(deployed, 'node_modules'))
+  packages.set('@deepseek-ai/dsh-desktop-host', realpathSync(deployed))
+  materializePackages(packages, join(runtime, 'node_modules'))
   writeFileSync(join(runtime, 'package.json'), JSON.stringify({ name: 'dsh-desktop-runtime', private: true, version: versions.version, type: 'module' }, null, 2) + '\n')
   cpSync(join(root, 'LICENSE'), join(resources, 'LICENSE'))
   cpSync(join(root, 'NOTICE'), join(resources, 'NOTICE'))
