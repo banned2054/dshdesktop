@@ -113,8 +113,7 @@ export function verifyBundle(bundle, versions = readVersions(), rid = 'win-x64')
   ]) {
     if (!existsSync(join(resources, file))) throw new Error(`Bundle is missing ${file}`)
   }
-  if (rid === 'osx-arm64' && !existsSync(join(bundle, 'DshDesktop.app', 'Contents', 'MacOS', 'DshDesktop.runtimeconfig.json')))
-    throw new Error('Bundle is missing the macOS runtime configuration')
+  // Native AOT publish does not include a runtimeconfig.json file.
   if (rid === 'osx-arm64' && !existsSync(join(bundle, 'DshDesktop.app', 'Contents', 'Info.plist')))
     throw new Error('Bundle is missing the macOS app manifest')
   if (manifest.desktopVersion !== versions.version || manifest.platform !== target.platform || manifest.arch !== target.arch) {

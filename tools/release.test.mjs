@@ -61,9 +61,9 @@ function executable(root, rid) {
   return rid === 'osx-arm64' ? join(root, 'DshDesktop.app/Contents/MacOS/DshDesktop') : join(root, targetDetails[rid].executable)
 }
 
-function bundle(root, rid = 'win-x64') {
+function bundle(root, rid = 'win-x64', flat = false) {
   const target = targetDetails[rid]
-  const rootResources = resources(root, rid)
+  const rootResources = flat ? root : resources(root, rid)
   for (const path of [
     'Assets/Backend/launcher.mjs',
     `backend/primary-runtime/dependencies/node/bin/${target.node}`,
@@ -71,9 +71,8 @@ function bundle(root, rid = 'win-x64') {
     'backend/office-skills/scripts/check_office.py',
   ]) write(rootResources, path, 'fixture')
   write(rootResources, 'backend/primary-runtime/runtime.json', { desktopVersion: '0.2.0-rc.2', node: '24.21.0', platform: target.platform, arch: target.arch })
-  write(root, rid === 'osx-arm64' ? 'DshDesktop.app/Contents/MacOS/DshDesktop' : target.executable, 'fixture')
-  if (rid === 'osx-arm64') {
-    write(root, 'DshDesktop.app/Contents/MacOS/DshDesktop.runtimeconfig.json', '{}')
+  write(root, rid === 'osx-arm64' && !flat ? 'DshDesktop.app/Contents/MacOS/DshDesktop' : target.executable, 'fixture')
+  if (rid === 'osx-arm64' && !flat) {
     write(root, 'DshDesktop.app/Contents/Info.plist', '<plist/>')
   }
 }
@@ -345,7 +344,7 @@ test('staging rejects missing required peers and same-name workspace version dri
   }
 })
 
-test('staging creates a macOS app bundle and a direct Linux executable', t => {
+test('staging creates a macOS app bundle from flat Native AOT output without runtimeconfig and a direct Linux executable', t => {
   const root = fixture(t)
   const repo = join(root, 'repo')
   const source = join(root, 'upstream')
@@ -357,7 +356,9 @@ test('staging creates a macOS app bundle and a direct Linux executable', t => {
   for (const rid of ['osx-arm64', 'linux-x64']) {
     const output = join(root, rid)
     mkdirSync(output)
-    bundle(output, rid)
+    bundle(output, rid, true)
+    assert.equal(existsSync(join(output, 'DshDesktop.app')), false)
+    assert.equal(existsSync(join(output, 'DshDesktop.runtimeconfig.json')), false)
     const dsh = join(root, `${rid}-dsh`)
     write(dsh, 'package.json', { name: '@deepseek-ai/dsh', version: '0.2.0-rc.2' })
     write(dsh, 'lib/profile-boot.js', 'fixture boot')
@@ -375,8 +376,10 @@ test('staging creates a macOS app bundle and a direct Linux executable', t => {
     assert.equal(existsSync(join(output, 'Run.command')), false)
     assert.equal(existsSync(join(output, 'Run.sh')), false)
     if (rid === 'osx-arm64') {
-      assert.equal(existsSync(join(output, 'DshDesktop.app/Contents/MacOS/DshDesktop')), true)
-      assert.equal(existsSync(join(output, 'DshDesktop.app/Contents/MacOS/DshDesktop.runtimeconfig.json')), true)
+      materializedFile(executable(output, rid), 'fixture')
+      materializedFile(join(resources(output, rid), 'Assets/Backend/launcher.mjs'), 'fixture')
+      assert.equal(existsSync(join(output, 'DshDesktop.app/Contents/MacOS/DshDesktop.runtimeconfig.json')), false)
+      for (const entry of ['DshDesktop', 'Assets', 'backend']) assert.equal(existsSync(join(output, entry)), false)
       assert.match(readFileSync(join(output, 'DshDesktop.app/Contents/Info.plist'), 'utf8'), /CFBundlePackageType/)
     } else {
       assert.equal(existsSync(join(output, 'DshDesktop')), true)
@@ -398,6 +401,11 @@ test('bundle validation accepts macOS arm64 app and Linux x64 runtime manifests'
     write(rootResources, 'backend/runtime/node_modules/@deepseek-ai/dsh/lib/profile-boot.js', 'fixture')
     write(rootResources, 'backend/runtime/node_modules/@deepseek-ai/dsh-desktop-host/lib/index.js', 'fixture')
     verifyBundle(output, readVersions(root), rid)
+    if (rid === 'osx-arm64') {
+      assert.equal(existsSync(join(output, 'DshDesktop.app/Contents/MacOS/DshDesktop.runtimeconfig.json')), false)
+      rmSync(join(output, 'DshDesktop.app/Contents/Info.plist'))
+      assert.throws(() => verifyBundle(output, readVersions(root), rid), /missing the macOS app manifest/)
+    }
   }
   assert.throws(() => verifyBundle(join(root, 'osx-arm64'), readVersions(root), 'linux-x64'), /Bundle is missing/)
 })
