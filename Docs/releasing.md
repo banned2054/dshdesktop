@@ -22,6 +22,8 @@
 
 每个平台均读取同一客户端与 DSH 锁定版本、检出固定 DSH commit、安装锁定 Node/pnpm、运行发布工具测试和客户端测试、构建上游 DSH、执行 Native AOT 发布及后端打包 smoke。Windows 使用 `windows-2022`；macOS arm64 使用 `macos-14`；Linux x64 使用 `ubuntu-24.04`，并安装 clang 与 zlib Native AOT 依赖。
 
+打包脚本先准备上游运行资产，再执行 `pnpm deploy --legacy --prod` 导出生产依赖。这个顺序必须保留：pnpm 11 的 legacy deploy 会写回生产模式的工作区状态，之后再执行 `pnpm run` 可能触发自动生产安装，导致运行资产准备所需的开发依赖缺失。
+
 打包后会解压 ZIP 到另一个目录，使用包内 Node 和 launcher 检查 `ready`、`shutdown-complete` 与退出码 0，成功后生成 ZIP 的 SHA256。后端 smoke 使用独立临时 home/profile，不读取个人会话或调用模型，也不输出含认证 token 的 ready URL。它只验证后端启动/关停，不能替代 GUI 或真实模型交互；macOS 另检查 `.app` 目录结构和入口文件。
 
 Windows 是已有开发与 Native AOT 验证平台。**macOS arm64 和 Linux x64 尚未经过首次真实 GitHub runner 构建；在对应 workflow 成功运行之前，不能标记为已验证。**静态检查、单元测试或 Windows 构建不能替代这两项平台验收。

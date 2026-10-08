@@ -26,12 +26,12 @@ try {
 
     Push-Location $sourceDir
     try {
+        # Prepare before deploy: pnpm 11 legacy deploy records production-only workspace state.
+        pnpm run prepare:primary-runtime --target $runtimeTarget --output $resourceDir --cache (Join-Path $destination 'downloads')
+        if ($LASTEXITCODE -ne 0) { throw 'Primary runtime preparation failed' }
         # The pinned upstream uses linked workspaces; pnpm 11 requires legacy deploy.
         pnpm --filter @deepseek-ai/dsh-desktop-host deploy --legacy --prod $deployDir
         if ($LASTEXITCODE -ne 0) { throw 'DSH production dependency export failed' }
-        # Reuse upstream's checksum-locked Node/Python/pnpm and Office assets.
-        pnpm run prepare:primary-runtime --target $runtimeTarget --output $resourceDir --cache (Join-Path $destination 'downloads')
-        if ($LASTEXITCODE -ne 0) { throw 'Primary runtime preparation failed' }
     }
     finally { Pop-Location }
 

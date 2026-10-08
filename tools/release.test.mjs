@@ -77,6 +77,17 @@ function bundle(root, rid = 'win-x64') {
   }
 }
 
+test('release prepares runtime before production deploy and runs no pnpm scripts afterward', () => {
+  const script = readFileSync(new URL('./build-release.ps1', import.meta.url), 'utf8')
+  const commands = [...script.matchAll(/^\s*pnpm\s+(.+)$/gm)].map(match => match[1].trim())
+  const prepare = commands.findIndex(command => command.startsWith('run prepare:primary-runtime '))
+  const deploy = commands.findIndex(command => command.startsWith('--filter @deepseek-ai/dsh-desktop-host deploy --legacy --prod '))
+  assert.notEqual(prepare, -1, 'Runtime preparation command is required')
+  assert.notEqual(deploy, -1, 'Production dependency export command is required')
+  assert.ok(prepare < deploy, 'Runtime preparation must precede production-only workspace state')
+  assert.equal(commands.slice(deploy + 1).some(command => /^run\s/.test(command)), false)
+})
+
 test('client and DSH have independent versions; release tags must match client', t => {
   const root = fixture(t)
   project(root)
